@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "dependencies": {
+    "net9.0-windows7.0": {
+      "vela.core": {
+        "type": "Project"
+      },
+      "vela.windows": {
+        "type": "Project",
+        "dependencies": {
+          "Vela.Core": "[1.0.0, )"
+        }
+      }
+    }
+  }
+}
