@@ -1,0 +1,74 @@
+# Vela 实施 Agent 交接单
+
+## 当前起点
+
+项目根为：
+
+~~~text
+D:\Jason\Documents\Workspace\vs2022\repo\Vela
+~~~
+
+当前只存在 Vela.sln、docs 和 Visual Studio 的 .vs 本地状态。代码、测试、Git 仓库、发布目录均尚未创建。先读本文件，再依次读 development-environment.md、architecture.md、implementation-plan.md、testing-and-release.md。
+
+## 文件写入边界
+
+实施 agent 的默认写入范围只有项目根目录：
+
+~~~text
+D:\Jason\Documents\Workspace\vs2022\repo\Vela\
+~~~
+
+源码、测试、文档、Git 元数据、legacy 归档、NuGet lock file、构建产物和临时调试资料都放在该根目录内；构建与测试输出统一进入 artifacts\。开发与测试使用可注入的 AppPaths 根，例如 artifacts\test-data\，因此不会在用户桌面、用户配置目录或其他工作区散落文件。
+
+下列路径属于显式确认项。实施 agent 在首次写入前展示“目的、完整路径、将创建或覆盖的文件”，等待用户确认：
+
+| 路径 | 允许时机 |
+| --- | --- |
+| D:\DevTools\Vela\ | Task 13 发布，用户确认交付目录后。 |
+| %LocalAppData%\Vela\ | 发布版首次运行时，TUI 展示数据根目录并由用户确认后。 |
+| C:\Users\Jason\Desktop\WSL2-VHDX-Compact\ | 只读行为对照来源；迁移副本写入项目内 legacy\，桌面移除由单独确认触发。 |
+| 任何新的项目外路径 | 先显示目的、路径和影响文件，再等待用户确认。 |
+
+每次外部写入确认使用以下最小记录：
+
+~~~text
+目的：
+完整路径：
+创建 / 覆盖文件：
+~~~
+
+## 实施范围
+
+1. 按 implementation-plan.md 的复选框顺序创建四项目解决方案。
+2. 先写失败测试，再写最小实现，再重构。
+3. 每项任务完成后运行文档指定的测试；每个 Chunk 完成后运行全量 build、test 与 coverage gate。
+4. 将每个逻辑里程碑以 Conventional Commit 提交；首个提交前初始化 Git。
+5. 交付 EXE 到 D:\DevTools\Vela，源码始终留在项目根目录。
+
+## 强制架构约束
+
+- Vela.Core 使用 net9.0，且不引用 Windows API、Spectre.Console 或进程 API。
+- Vela.Windows、Vela.Tui、Vela.Tests 使用 net9.0-windows。
+- 真实原生命令仅封装在 Vela.Windows，全部由固定绝对路径与 ArgumentList 调用。
+- Compact worker 只接受 --worker --run-id <D 格式 GUID>，并根据 Distro 重新解析 Lxss VHDX；已解析路径与请求路径严格相等后才进入动作阶段。
+- 运行目录固定为 %LocalAppData%\Vela\logs\<RunId>。父 TUI 创建首个事件并轮询；worker 只追加同一日志流。
+- worker 跳过主菜单、ReadLine 和确认提示；父 TUI 是唯一交互与进度界面。Global 使用 %SystemRoot%\System32\wsl.exe --shutdown 并等待 running 清单为空；Distro 使用 %SystemRoot%\System32\wsl.exe --terminate <Distro> 并等待目标离开 running 清单。
+- 开发自动化验证只使用 fake adapter、无害 helper process 和只读预检。真实动作阶段留给最终人工验收，由用户在影响面板确认后发起。
+- 开发 agent 的所有新文件都写入项目根或其 artifacts 子目录；项目外写入走上方确认记录。
+
+## 桌面旧工具迁移
+
+在任何桌面目录移除动作前，将原始 wsl.ps1、README.md、Verify-WhatIf.ps1、Verify-RelaunchArguments.ps1 复制到 legacy\powershell 及其 tests 子目录，比较源与目标 SHA-256，并提交迁移记录。桌面日志和 archive 文件是历史资料，不纳入运行时依赖。
+
+## 开始与完成命令
+
+在 Developer PowerShell for VS 2022：
+
+~~~powershell
+Set-Location 'D:\Jason\Documents\Workspace\vs2022\repo\Vela'
+dotnet restore .\Vela.sln
+dotnet build .\Vela.sln -c Debug
+dotnet test .\Vela.sln -c Debug
+~~~
+
+发布、coverage gate 和人工验收以 testing-and-release.md 的完整命令为准。
