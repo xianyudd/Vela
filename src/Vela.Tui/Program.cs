@@ -45,105 +45,112 @@ if (Console.IsInputRedirected)
     return 0;
 }
 
-var action = menu.Prompt();
-switch (action)
-{
-    case MainMenuAction.Preflight:
-        preflightScreen.Render(profile);
-        break;
-
-    case MainMenuAction.ExecuteCompaction:
-        {
-            var runningDistributions = await GetRunningDistributionsAsync(CancellationToken.None);
-            if (!runningDistributions.Succeeded)
-            {
-                renderer.Render(new RunProgressViewModel(
-                    RunProgressState.Failed,
-                    "获取当前运行中的 WSL 发行版失败，未执行压缩。",
-                    Percent: null));
-                break;
-            }
-
-            var paths = AppPaths.CreateDefault();
-            var confirmation = MainMenu.CreateExecuteConfirmation(
-                profile,
-                runningDistributions.Distributions,
-                paths.RootDirectory);
-            renderer.Render(new RunProgressViewModel(
-                RunProgressState.AwaitingConfirmation,
-                confirmation.Prompt,
-                Percent: null));
-
-            var response = new SpectreConfirmationInput(ansiConsole).Read(confirmation);
-            var accepted = MainMenu.IsConfirmationAccepted(confirmation, response);
-            if (!accepted)
-            {
-                renderer.Render(new RunProgressViewModel(
-                    RunProgressState.Failed,
-                    "确认输入未匹配 YES，操作已停止。",
-                    Percent: null));
-                break;
-            }
-
-            var operationRequest = new OperationRequest(
-                Guid.NewGuid(),
-                profile,
-                OperationIntent.Compact);
-            var startResult = await CreateElevatedOperationCoordinator(paths)
-                .StartAsync(operationRequest, CancellationToken.None);
-
-            renderer.Render(new RunProgressViewModel(
-                startResult.Status == ElevatedOperationStartStatus.Started
-                    ? RunProgressState.Running
-                    : RunProgressState.Failed,
-                CreateElevationStatusMessage(startResult),
-                Percent: null));
-
-            if (startResult.Status == ElevatedOperationStartStatus.Started)
-            {
-                var poller = new RunJournalPoller(
-                    new FileRunJournal(paths),
-                    new SystemClock());
-                var terminal = await poller.WaitForTerminalAsync(
-                    operationRequest.RunId,
-                    afterSequence: 0,
-                    CancellationToken.None);
-                renderer.Render(CreateTerminalProgress(terminal));
-            }
-
-            break;
-        }
-
-    case MainMenuAction.ManageProfiles:
-        renderer.Render(new RunProgressViewModel(
-            RunProgressState.Idle,
-            "目标配置管理尚未实现。",
-            Percent: null));
-        break;
-
-    case MainMenuAction.RecentRuns:
-        renderer.Render(new RunProgressViewModel(
-            RunProgressState.Idle,
-            "最近运行记录尚未实现。",
-            Percent: null));
-        break;
-
-    case MainMenuAction.OpenLogs:
-        renderer.Render(new RunProgressViewModel(
-            RunProgressState.Idle,
-            "日志目录打开尚未实现。",
-            Percent: null));
-        break;
-
-    case MainMenuAction.Exit:
-        renderer.Render(new RunProgressViewModel(
-            RunProgressState.Succeeded,
-            "Vela 已退出。",
-            Percent: 100));
-        break;
-}
-
+var session = new MainMenuSession(menu.Prompt, HandleActionAsync);
+await session.RunAsync();
 return 0;
+
+async Task<bool> HandleActionAsync(MainMenuAction action)
+{
+    switch (action)
+    {
+        case MainMenuAction.Preflight:
+            preflightScreen.Render(profile);
+            return false;
+
+        case MainMenuAction.ExecuteCompaction:
+            {
+                var runningDistributions = await GetRunningDistributionsAsync(CancellationToken.None);
+                if (!runningDistributions.Succeeded)
+                {
+                    renderer.Render(new RunProgressViewModel(
+                        RunProgressState.Failed,
+                        "获取当前运行中的 WSL 发行版失败，未执行压缩。",
+                        Percent: null));
+                    return false;
+                }
+
+                var paths = AppPaths.CreateDefault();
+                var confirmation = MainMenu.CreateExecuteConfirmation(
+                    profile,
+                    runningDistributions.Distributions,
+                    paths.RootDirectory);
+                renderer.Render(new RunProgressViewModel(
+                    RunProgressState.AwaitingConfirmation,
+                    confirmation.Prompt,
+                    Percent: null));
+
+                var response = new SpectreConfirmationInput(ansiConsole).Read(confirmation);
+                var accepted = MainMenu.IsConfirmationAccepted(confirmation, response);
+                if (!accepted)
+                {
+                    renderer.Render(new RunProgressViewModel(
+                        RunProgressState.Failed,
+                        "确认输入未匹配 YES，操作已停止。",
+                        Percent: null));
+                    return false;
+                }
+
+                var operationRequest = new OperationRequest(
+                    Guid.NewGuid(),
+                    profile,
+                    OperationIntent.Compact);
+                var startResult = await CreateElevatedOperationCoordinator(paths)
+                    .StartAsync(operationRequest, CancellationToken.None);
+
+                renderer.Render(new RunProgressViewModel(
+                    startResult.Status == ElevatedOperationStartStatus.Started
+                        ? RunProgressState.Running
+                        : RunProgressState.Failed,
+                    CreateElevationStatusMessage(startResult),
+                    Percent: null));
+
+                if (startResult.Status == ElevatedOperationStartStatus.Started)
+                {
+                    var poller = new RunJournalPoller(
+                        new FileRunJournal(paths),
+                        new SystemClock());
+                    var terminal = await poller.WaitForTerminalAsync(
+                        operationRequest.RunId,
+                        afterSequence: 0,
+                        CancellationToken.None);
+                    renderer.Render(CreateTerminalProgress(terminal));
+                }
+
+                return false;
+            }
+
+        case MainMenuAction.ManageProfiles:
+            renderer.Render(new RunProgressViewModel(
+                RunProgressState.Idle,
+                "目标配置管理尚未实现。",
+                Percent: null));
+            return false;
+
+        case MainMenuAction.RecentRuns:
+            renderer.Render(new RunProgressViewModel(
+                RunProgressState.Idle,
+                "最近运行记录尚未实现。",
+                Percent: null));
+            return false;
+
+        case MainMenuAction.OpenLogs:
+            renderer.Render(new RunProgressViewModel(
+                RunProgressState.Idle,
+                "日志目录打开尚未实现。",
+                Percent: null));
+            return false;
+
+        case MainMenuAction.Exit:
+            renderer.Render(new RunProgressViewModel(
+                RunProgressState.Succeeded,
+                "Vela 已退出。",
+                Percent: 100));
+            return true;
+
+        default:
+            return false;
+    }
+}
 
 static WorkerMode CreateWorkerMode()
 {
