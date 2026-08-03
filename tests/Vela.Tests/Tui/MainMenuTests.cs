@@ -61,6 +61,26 @@ public sealed class MainMenuTests
         Assert.Equal(new[] { "Ubuntu-24.04", "docker-desktop" }, confirmation.RunningDistros);
     }
 
+    [Fact]
+    public void CreateExecuteConfirmation_ShowsScopeTargetDataRootAndImpact()
+    {
+        var profile = CreateProfile();
+        var dataRootDirectory = @"C:\Users\Vela\AppData\Local\Vela";
+
+        var confirmation = MainMenu.CreateExecuteConfirmation(
+            profile,
+            ImmutableArray.Create(
+                new WslDistribution("Ubuntu-24.04", WslDistributionState.Running, 2, true)),
+            dataRootDirectory);
+
+        Assert.Contains(profile.ShutdownMode.ToString(), confirmation.Prompt, StringComparison.Ordinal);
+        Assert.Contains(profile.VhdxPath, confirmation.Prompt, StringComparison.Ordinal);
+        Assert.Contains(dataRootDirectory, confirmation.Prompt, StringComparison.Ordinal);
+        Assert.Contains("影响", confirmation.Prompt, StringComparison.Ordinal);
+        Assert.Contains("Ubuntu-24.04", confirmation.Prompt, StringComparison.Ordinal);
+        Assert.Equal("YES", confirmation.RequiredInput);
+    }
+
     [Theory]
     [InlineData("YES", true)]
     [InlineData("yes", false)]

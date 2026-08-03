@@ -216,7 +216,7 @@ public sealed class FakeRunJournal : IRunJournal
         cancellationToken.ThrowIfCancellationRequested();
         OpenExistingRunCalls++;
         _onInvoked?.Invoke("journal.open-existing");
-        return Task.FromResult(JournalOperationResult.Success("C:\\Vela\\logs\\" + runId.ToString("D")));
+        return Task.FromResult(JournalOperationResult.Success(null));
     }
 
     public Task<JournalAppendResult> AppendAsync(RunEventDraft eventDraft, CancellationToken cancellationToken)

@@ -41,6 +41,13 @@ public sealed class FileRunJournal : IRunJournal
         {
             cancellationToken.ThrowIfCancellationRequested();
             var runDirectory = _paths.GetRunDirectory(runId);
+            if (!_paths.IsTrustedRootDirectory() ||
+                !_paths.IsTrustedLogsDirectory() ||
+                !_paths.IsTrustedRunDirectory(runId))
+            {
+                return JournalOperationResult.Failure();
+            }
+
             if (Directory.Exists(runDirectory))
             {
                 return JournalOperationResult.Failure();
@@ -74,31 +81,50 @@ public sealed class FileRunJournal : IRunJournal
         }
     }
 
-    public Task<JournalOperationResult> OpenExistingRunAsync(
+    public async Task<JournalOperationResult> OpenExistingRunAsync(
         Guid runId,
         CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-
         if (runId == Guid.Empty)
         {
-            return Task.FromResult(JournalOperationResult.Failure());
+            return JournalOperationResult.Failure();
         }
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var runDirectory = _paths.GetRunDirectory(runId);
-            return Task.FromResult(
-                Directory.Exists(runDirectory) && File.Exists(_paths.GetEventsFilePath(runId))
-                    ? JournalOperationResult.Success(runDirectory)
-                    : JournalOperationResult.Failure());
+            if (!_paths.IsExpectedRunDirectory(runId, runDirectory) ||
+                !_paths.IsTrustedRootDirectory() ||
+                !_paths.IsTrustedLogsDirectory() ||
+                !_paths.IsTrustedRunDirectory(runId) ||
+                !Directory.Exists(runDirectory) ||
+                !File.Exists(_paths.GetEventsFilePath(runId)))
+            {
+                return JournalOperationResult.Failure();
+            }
+
+            var events = await ReadCompleteEventsAsync(
+                    _paths.GetEventsFilePath(runId),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            var first = events.IsDefaultOrEmpty ? null : events[0];
+            return first is not null &&
+                   first.RunId == runId &&
+                   first.Sequence == 1 &&
+                   string.Equals(first.OperationName, "RunCreated", StringComparison.Ordinal)
+                ? JournalOperationResult.Success(runDirectory)
+                : JournalOperationResult.Failure();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception)
         {
-            return Task.FromResult(JournalOperationResult.Failure());
+            return JournalOperationResult.Failure();
         }
     }
-
     public async Task<JournalAppendResult> AppendAsync(
         RunEventDraft eventDraft,
         CancellationToken cancellationToken)
@@ -112,7 +138,10 @@ public sealed class FileRunJournal : IRunJournal
         {
             cancellationToken.ThrowIfCancellationRequested();
             var runDirectory = _paths.GetRunDirectory(eventDraft.RunId);
-            if (!Directory.Exists(runDirectory))
+            if (!_paths.IsTrustedRunDirectory(eventDraft.RunId) ||
+                !_paths.IsTrustedPath(_paths.GetEventsFilePath(eventDraft.RunId)) ||
+                !_paths.IsTrustedPath(_paths.GetRunLogFilePath(eventDraft.RunId)) ||
+                !Directory.Exists(runDirectory))
             {
                 return JournalAppendResult.Failure();
             }
@@ -177,7 +206,10 @@ public sealed class FileRunJournal : IRunJournal
         {
             cancellationToken.ThrowIfCancellationRequested();
             var runDirectory = _paths.GetRunDirectory(summary.RunId);
-            if (!Directory.Exists(runDirectory))
+            if (!_paths.IsTrustedRunDirectory(summary.RunId) ||
+                !_paths.IsTrustedPath(_paths.GetSummaryFilePath(summary.RunId)) ||
+                !_paths.IsTrustedPath(_paths.GetSummaryTemporaryFilePath(summary.RunId)) ||
+                !Directory.Exists(runDirectory))
             {
                 return JournalOperationResult.Failure();
             }
@@ -221,6 +253,12 @@ public sealed class FileRunJournal : IRunJournal
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (!_paths.IsTrustedRunDirectory(runId) ||
+                !_paths.IsTrustedPath(_paths.GetEventsFilePath(runId)))
+            {
+                return new JournalReadResult(ImmutableArray<RunEvent>.Empty);
+            }
+
             var events = await ReadCompleteEventsAsync(
                 _paths.GetEventsFilePath(runId),
                 cancellationToken).ConfigureAwait(false);
