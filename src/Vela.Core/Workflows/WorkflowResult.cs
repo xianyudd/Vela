@@ -31,6 +31,9 @@ public enum WorkflowDiagnosticCode
     VhdxInspectionFailed,
     SparseStateUnknown,
     RunningInventoryFailed,
+    ShutdownTimedOut,
+    DiskPartPreflightFailed,
+    DiskPartCompactFailed,
     JournalFailure
 }
 

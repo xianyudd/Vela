@@ -96,6 +96,25 @@ public sealed class PreflightWorkerOperationExecutor : IWorkerOperationExecutor
             cancellationToken);
 }
 
+public sealed class CompactionWorkerOperationExecutor : IWorkerOperationExecutor
+{
+    private readonly CompactionWorkflow _compactionWorkflow;
+
+    public CompactionWorkerOperationExecutor(CompactionWorkflow compactionWorkflow)
+    {
+        ArgumentNullException.ThrowIfNull(compactionWorkflow);
+        _compactionWorkflow = compactionWorkflow;
+    }
+
+    public Task<WorkflowResult> ExecuteAsync(
+        OperationRequest request,
+        CancellationToken cancellationToken) =>
+        _compactionWorkflow.ExecuteAsync(
+            request,
+            RunJournalAccessMode.OpenExisting,
+            cancellationToken);
+}
+
 public sealed class SystemClock : IClock
 {
     public DateTimeOffset UtcNow => DateTimeOffset.UtcNow;

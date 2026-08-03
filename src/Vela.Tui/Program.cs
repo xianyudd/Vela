@@ -9,6 +9,7 @@ using Vela.Tui.Rendering;
 using Vela.Tui.Screens;
 using Vela.Windows.Configuration;
 using Vela.Windows.Diagnostics;
+using Vela.Windows.DiskPart;
 using Vela.Windows.Elevation;
 using Vela.Windows.Registry;
 using Vela.Windows.Storage;
@@ -149,10 +150,15 @@ static WorkerMode CreateWorkerMode()
     var paths = AppPaths.CreateDefault();
     var journal = new FileRunJournal(paths);
     var clock = new SystemClock();
-    var workflow = new PreflightWorkflow(
-        new WslClient(),
-        new LxssProfileResolver(),
-        new VhdxInspector(),
+    var wslClient = new WslClient();
+    var lxssProfileResolver = new LxssProfileResolver();
+    var vhdxInspector = new VhdxInspector();
+    var diskPartClient = new DiskPartClient();
+    var compactionWorkflow = new CompactionWorkflow(
+        wslClient,
+        lxssProfileResolver,
+        vhdxInspector,
+        diskPartClient,
         journal,
         clock);
 
@@ -161,8 +167,8 @@ static WorkerMode CreateWorkerMode()
         new OperationRequestStore(paths),
         journal,
         new WindowsAdministratorProbe(),
-        new LxssProfileResolver(),
-        new PreflightWorkerOperationExecutor(workflow),
+        lxssProfileResolver,
+        new CompactionWorkerOperationExecutor(compactionWorkflow),
         clock);
 }
 
