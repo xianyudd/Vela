@@ -537,7 +537,7 @@ public sealed class WorkerMode
         request.Intent == OperationIntent.Compact &&
         request.Profile is not null &&
         ProfileValidator.Validate(request.Profile).IsValid &&
-        ( _paths.IsExpectedPendingRequestPath(runId, sourcePath) ||
+        (_paths.IsExpectedPendingRequestPath(runId, sourcePath) ||
           _paths.IsExpectedPendingRequestInflightPath(runId, sourcePath)) &&
         _paths.IsTrustedPath(sourcePath);
 

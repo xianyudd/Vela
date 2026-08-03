@@ -53,66 +53,66 @@ switch (action)
         break;
 
     case MainMenuAction.ExecuteCompaction:
-    {
-        var runningDistributions = await GetRunningDistributionsAsync(CancellationToken.None);
-        if (!runningDistributions.Succeeded)
         {
+            var runningDistributions = await GetRunningDistributionsAsync(CancellationToken.None);
+            if (!runningDistributions.Succeeded)
+            {
+                renderer.Render(new RunProgressViewModel(
+                    RunProgressState.Failed,
+                    "获取当前运行中的 WSL 发行版失败，未执行压缩。",
+                    Percent: null));
+                break;
+            }
+
+            var paths = AppPaths.CreateDefault();
+            var confirmation = MainMenu.CreateExecuteConfirmation(
+                profile,
+                runningDistributions.Distributions,
+                paths.RootDirectory);
             renderer.Render(new RunProgressViewModel(
-                RunProgressState.Failed,
-                "获取当前运行中的 WSL 发行版失败，未执行压缩。",
+                RunProgressState.AwaitingConfirmation,
+                confirmation.Prompt,
                 Percent: null));
+
+            var response = new SpectreConfirmationInput(ansiConsole).Read(confirmation);
+            var accepted = MainMenu.IsConfirmationAccepted(confirmation, response);
+            if (!accepted)
+            {
+                renderer.Render(new RunProgressViewModel(
+                    RunProgressState.Failed,
+                    "确认输入未匹配 YES，操作已停止。",
+                    Percent: null));
+                break;
+            }
+
+            var operationRequest = new OperationRequest(
+                Guid.NewGuid(),
+                profile,
+                OperationIntent.Compact);
+            var startResult = await CreateElevatedOperationCoordinator(paths)
+                .StartAsync(operationRequest, CancellationToken.None);
+
+            renderer.Render(new RunProgressViewModel(
+                startResult.Status == ElevatedOperationStartStatus.Started
+                    ? RunProgressState.Running
+                    : RunProgressState.Failed,
+                CreateElevationStatusMessage(startResult),
+                Percent: null));
+
+            if (startResult.Status == ElevatedOperationStartStatus.Started)
+            {
+                var poller = new RunJournalPoller(
+                    new FileRunJournal(paths),
+                    new SystemClock());
+                var terminal = await poller.WaitForTerminalAsync(
+                    operationRequest.RunId,
+                    afterSequence: 0,
+                    CancellationToken.None);
+                renderer.Render(CreateTerminalProgress(terminal));
+            }
+
             break;
         }
-
-        var paths = AppPaths.CreateDefault();
-        var confirmation = MainMenu.CreateExecuteConfirmation(
-            profile,
-            runningDistributions.Distributions,
-            paths.RootDirectory);
-        renderer.Render(new RunProgressViewModel(
-            RunProgressState.AwaitingConfirmation,
-            confirmation.Prompt,
-            Percent: null));
-
-        var response = new SpectreConfirmationInput(ansiConsole).Read(confirmation);
-        var accepted = MainMenu.IsConfirmationAccepted(confirmation, response);
-        if (!accepted)
-        {
-            renderer.Render(new RunProgressViewModel(
-                RunProgressState.Failed,
-                "确认输入未匹配 YES，操作已停止。",
-                Percent: null));
-            break;
-        }
-
-        var operationRequest = new OperationRequest(
-            Guid.NewGuid(),
-            profile,
-            OperationIntent.Compact);
-        var startResult = await CreateElevatedOperationCoordinator(paths)
-            .StartAsync(operationRequest, CancellationToken.None);
-
-        renderer.Render(new RunProgressViewModel(
-            startResult.Status == ElevatedOperationStartStatus.Started
-                ? RunProgressState.Running
-                : RunProgressState.Failed,
-            CreateElevationStatusMessage(startResult),
-            Percent: null));
-
-        if (startResult.Status == ElevatedOperationStartStatus.Started)
-        {
-            var poller = new RunJournalPoller(
-                new FileRunJournal(paths),
-                new SystemClock());
-            var terminal = await poller.WaitForTerminalAsync(
-                operationRequest.RunId,
-                afterSequence: 0,
-                CancellationToken.None);
-            renderer.Render(CreateTerminalProgress(terminal));
-        }
-
-        break;
-    }
 
     case MainMenuAction.ManageProfiles:
         renderer.Render(new RunProgressViewModel(

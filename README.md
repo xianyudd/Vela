@@ -51,12 +51,31 @@ D:\DevTools\Vela\Vela.exe
 ## 基线命令
 
 ~~~powershell
-dotnet restore .\Vela.sln
+dotnet restore .\Vela.sln --locked-mode
 dotnet build .\Vela.sln -c Debug
 dotnet test .\Vela.sln -c Debug
 ~~~
 
 发布、coverage gate 和人工验收命令以 [docs/testing-and-release.md](docs/testing-and-release.md) 为准。
+
+## 质量门禁
+
+提交前使用锁定依赖执行 Release 验证；构建与测试输出统一写入 `artifacts\`：
+
+~~~powershell
+dotnet restore .\Vela.sln --locked-mode
+dotnet build .\Vela.sln -c Release --no-restore
+dotnet test .\Vela.sln -c Release --no-build
+dotnet test .\tests\Vela.Tests\Vela.Tests.csproj -c Release --no-restore `
+  -p:CollectCoverage=true `
+  -p:CoverletOutput=.\artifacts\coverage\coverage `
+  -p:CoverletOutputFormat=cobertura `
+  -p:Include='[Vela.Core]*,[Vela.Windows]*' `
+  -p:ExcludeByFile='**/Program.cs' `
+  -p:Threshold=80 -p:ThresholdType=line -p:ThresholdStat=minimum
+~~~
+
+Coverage gate 要求 Vela.Core 与 Vela.Windows 的 line coverage 均不低于 80%，并保持零编译警告。测试项目的公共 using 集中在 `tests\Vela.Tests\GlobalUsings.cs`；`.editorconfig` 统一 C# 格式、命名和换行规则。
 
 ## 旧工具归档
 
