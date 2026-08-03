@@ -30,6 +30,8 @@ Task 13 经用户确认后会将单文件发布物安装为：
 D:\DevTools\Vela\Vela.exe
 ~~~
 
+发布配置位于 src\Vela.Tui\Properties\PublishProfiles\win-x64-singlefile.pubxml，固定为 win-x64、自包含、单文件且不裁剪。纯命令发布与验证只写入项目内 artifacts\publish\win-x64\；确认交付目录前不会写入 D:\DevTools\Vela\。
+
 开发期不向该项目外目录写入；发布前先完成项目内 artifacts\publish\win-x64\Vela.exe 的验证。
 
 ## 运行日志
@@ -51,7 +53,7 @@ D:\DevTools\Vela\Vela.exe
 ## 基线命令
 
 ~~~powershell
-dotnet restore .\Vela.sln --locked-mode
+dotnet restore .\Vela.sln -r win-x64 --locked-mode --ignore-failed-sources -p:EnableRuntimePackDownload=false -p:DisableTransitiveFrameworkReferenceDownloads=true
 dotnet build .\Vela.sln -c Debug
 dotnet test .\Vela.sln -c Debug
 ~~~
@@ -63,7 +65,7 @@ dotnet test .\Vela.sln -c Debug
 提交前使用锁定依赖执行 Release 验证；构建与测试输出统一写入 `artifacts\`：
 
 ~~~powershell
-dotnet restore .\Vela.sln --locked-mode
+dotnet restore .\Vela.sln -r win-x64 --locked-mode --ignore-failed-sources -p:EnableRuntimePackDownload=false -p:DisableTransitiveFrameworkReferenceDownloads=true
 dotnet build .\Vela.sln -c Release --no-restore
 dotnet test .\Vela.sln -c Release --no-build
 dotnet test .\tests\Vela.Tests\Vela.Tests.csproj -c Release --no-restore `

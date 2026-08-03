@@ -5,6 +5,7 @@
       "vela.core": {
         "type": "Project"
       }
-    }
+    },
+    "net9.0-windows7.0/win-x64": {}
   }
 }

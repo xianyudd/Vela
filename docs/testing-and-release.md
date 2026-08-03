@@ -38,7 +38,7 @@ Manual acceptance  真实 Win11 / WSL 环境下的只读预检与用户确认后
 Set-Location 'D:\Jason\Documents\Workspace\vs2022\repo\Vela'
 
 # 依赖锁定与开发构建
-dotnet restore .\Vela.sln --locked-mode
+dotnet restore .\Vela.sln -r win-x64 --locked-mode --ignore-failed-sources -p:EnableRuntimePackDownload=false -p:DisableTransitiveFrameworkReferenceDownloads=true
 dotnet build .\Vela.sln -c Debug
 
 # 全量测试
@@ -123,6 +123,7 @@ CompletedWithNoReclaim 表示流程完成且 VHDX 长度差为 0 B。
 
 ~~~xml
 <PropertyGroup>
+  <AssemblyName>Vela</AssemblyName>
   <TargetFramework>net9.0-windows</TargetFramework>
   <RuntimeIdentifier>win-x64</RuntimeIdentifier>
   <SelfContained>true</SelfContained>
@@ -139,7 +140,7 @@ PublishTrimmed=false 是首版决策：Spectre.Console、诊断输出、反序�
 
 ~~~powershell
 Set-Location 'D:\Jason\Documents\Workspace\vs2022\repo\Vela'
-dotnet restore .\Vela.sln --locked-mode
+dotnet restore .\Vela.sln -r win-x64 --locked-mode --ignore-failed-sources -p:EnableRuntimePackDownload=false -p:DisableTransitiveFrameworkReferenceDownloads=true
 dotnet test .\Vela.sln -c Release --no-restore
 dotnet publish .\src\Vela.Tui\Vela.Tui.csproj -c Release --no-restore -p:PublishProfile=win-x64-singlefile -o .\artifacts\publish\win-x64
 ~~~
@@ -149,6 +150,16 @@ dotnet publish .\src\Vela.Tui\Vela.Tui.csproj -c Release --no-restore -p:Publish
 ~~~text
 artifacts\publish\win-x64\Vela.exe
 ~~~
+
+发布候选的纯命令 smoke check（不触发预检动作或 WSL 停止）：
+
+~~~powershell
+Get-Item .\artifacts\publish\win-x64\Vela.exe | Select-Object FullName,Length,LastWriteTime
+Get-FileHash .\artifacts\publish\win-x64\Vela.exe -Algorithm SHA256
+cmd.exe /c .\artifacts\publish\win-x64\Vela.exe < NUL
+~~~
+
+最后一条命令使用重定向输入确认 EXE 能启动并输出主菜单；真实预检选择和影响面板仍由最终人工验收执行。
 
 ## 7. 交付目录
 

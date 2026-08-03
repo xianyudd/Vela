@@ -144,6 +144,7 @@
           "Spectre.Console.Ansi": "0.57.2"
         }
       }
-    }
+    },
+    "net9.0-windows7.0/win-x64": {}
   }
 }
