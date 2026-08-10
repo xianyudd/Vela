@@ -645,7 +645,7 @@ public static class PreflightOverviewFormatter
         {
             AutomaticPreflightStatus.Ready => "所有执行前检查已通过，可以进入压缩影响预览。",
             AutomaticPreflightStatus.Checking => "正在读取目标映射、VHDX 快照、运行状态和日志。",
-            AutomaticPreflightStatus.Failed => "检查结果不完整；请按 R 重试并查看日志分析。",
+            AutomaticPreflightStatus.Failed => "检查结果不完整；请按 R 重试并查看日志。",
             AutomaticPreflightStatus.Attention or AutomaticPreflightStatus.Stale =>
                 "该问题会阻止压缩执行；其余已通过项无需重复处理。",
             _ => "按 R 运行只读预检，先确认目标和 VHDX 状态。"
@@ -698,7 +698,7 @@ public static class PreflightOverviewFormatter
         {
             AutomaticPreflightStatus.Ready => "进入“02 执行压缩”，先查看影响范围。",
             AutomaticPreflightStatus.Checking => "等待预检完成，再决定下一步。",
-            AutomaticPreflightStatus.Failed => "按 R 重试预检，并在“05 日志分析”查看详情。",
+            AutomaticPreflightStatus.Failed => "按 R 重试预检，并在“02 查看日志”查看详情。",
             AutomaticPreflightStatus.Attention or AutomaticPreflightStatus.Stale
                 when home.StatusReason == "目标发行版未安装" =>
                 "先修复“目标发行版未安装”，再重新预检。",
@@ -921,14 +921,14 @@ public static class PreflightOverviewFormatter
                 "目标发行版未安装" => "03 目标档案，核对发行版后按 R 重跑",
                 "目标映射不匹配" => "03 目标档案，核对发行版与 VHDX 后按 R 重跑",
                 "目标 VHDX 不存在" => "03 目标档案，配置 VHDX 后按 R 重跑",
-                "稀疏状态未知" => "按 R 重跑预检；仍未知时查看 05 日志",
-                "运行日志不可用" => "05 日志分析，检查日志后按 R 重跑",
+                "稀疏状态未知" => "按 R 重跑预检；仍未知时查看 02 日志",
+                "运行日志不可用" => "02 查看日志，检查日志后按 R 重跑",
                 _ => "按 R 重跑预检"
             };
         }
 
         return overview.Status == AutomaticPreflightStatus.Failed
-            ? "按 R 重试预检；选择 05 日志分析查看日志"
+            ? "按 R 重试预检；选择 02 查看日志"
             : "按 R 运行只读预检";
     }
 

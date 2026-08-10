@@ -22,6 +22,7 @@ public static class VelaTerminalTheme
     public const string Info = "Vela.Info";
     public const string ActionBar = "Vela.ActionBar";
     public const string Selection = "Vela.Selection";
+    public const string LogPanel = "Vela.LogPanel";
 
     private static readonly Color Canvas = new("#0D1117");
     private static readonly Color PanelSurface = new("#161B22");
@@ -38,6 +39,7 @@ public static class VelaTerminalTheme
     private static readonly Color InfoSurface = new("#111B27");
     private static readonly Color SuccessSurface = new("#122117");
     private static readonly Color SelectionSurface = new("#161B22");
+    private static readonly Color LogSurface = new("#050505");
 
     public static void Register()
     {
@@ -96,6 +98,11 @@ public static class VelaTerminalTheme
         {
             Normal = new TAttribute(SteelBlue, SelectionSurface, TextStyle.Bold),
             Focus = new TAttribute(Color.White, SelectionSurface, TextStyle.Bold)
+        });
+        Add(LogPanel, new Scheme
+        {
+            Normal = new TAttribute(PrimaryText, LogSurface),
+            Focus = new TAttribute(Color.White, LogSurface, TextStyle.Bold)
         });
     }
 

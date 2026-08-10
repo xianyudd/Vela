@@ -46,9 +46,9 @@ public sealed class RunProgressView : View
 
         _consolePanel = new FrameView
         {
-            Title = "Console Log",
+            Title = "Console Log · LIVE",
             BorderStyle = LineStyle.Single,
-            SchemeName = VelaTerminalTheme.SurfacePanel,
+            SchemeName = VelaTerminalTheme.LogPanel,
             CanFocus = false
         };
         _console = new ListView
@@ -57,7 +57,7 @@ public sealed class RunProgressView : View
             Y = 0,
             Width = Dim.Fill(1),
             Height = Dim.Fill(1),
-            SchemeName = VelaTerminalTheme.Base,
+            SchemeName = VelaTerminalTheme.LogPanel,
             CanFocus = false
         };
         _console.RowRender += (_, args) =>
@@ -68,9 +68,9 @@ public sealed class RunProgressView : View
             }
 
             var line = _logLines[args.Row];
-            var scheme = line.StartsWith("[ERROR]", StringComparison.Ordinal)
+            var scheme = line.Contains("ERROR", StringComparison.OrdinalIgnoreCase)
                 ? VelaTerminalTheme.Error
-                : line.StartsWith("[WARN]", StringComparison.Ordinal)
+                : line.Contains("WARN", StringComparison.OrdinalIgnoreCase)
                     ? VelaTerminalTheme.Attention
                     : VelaTerminalTheme.Success;
             args.RowAttribute = VelaTerminalTheme.NormalAttribute(scheme);
@@ -89,6 +89,9 @@ public sealed class RunProgressView : View
         _title.Text = progress.State == RunProgressState.Running
             ? "Optimizing VHDX Block Allocations ▪"
             : FormatTerminalTitle(progress.State);
+        _consolePanel.Title = progress.State == RunProgressState.Running
+            ? "Console Log · LIVE"
+            : "Console Log · FINAL";
         _target.Text = string.IsNullOrWhiteSpace(target)
             ? "Target: 未锁定"
             : string.IsNullOrWhiteSpace(path)
@@ -146,9 +149,12 @@ public sealed class RunProgressView : View
         if (lines.Count == 0)
         {
             lines.Add(string.IsNullOrWhiteSpace(target)
-                ? "[INFO] 等待 worker journal 事件。"
+                ? "[INFO] journal stream: no events yet"
                 : $"[INFO] Target: {target}");
-            lines.Add($"[INFO] {TuiDisplayText.Sanitize(progress.Message, 140)}");
+            if (!string.IsNullOrWhiteSpace(progress.Message))
+            {
+                lines.Add($"[INFO] {TuiDisplayText.Sanitize(progress.Message, 140)}");
+            }
         }
         else if (!string.IsNullOrWhiteSpace(target) &&
                  !lines.Any(line => line.Contains(target, StringComparison.OrdinalIgnoreCase)))

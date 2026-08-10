@@ -211,10 +211,6 @@ var profile = profileService.CurrentProfile;
 var menu = new MainMenu();
 var preflightSource = CreatePreflightViewModelSource();
 var impactEstimator = new WslCompactionImpactEstimator();
-var secondaryActions = new TuiSecondaryActionHandler(
-    profileService,
-    new RunHistoryReader(paths),
-    new WindowsLogDirectoryOpener(paths));
 var runLogReader = new RunLogReader(paths);
 var dashboardViewModel = DashboardViewModel.CreateInitial(profile);
 var progressViewModel = new RunProgressViewModel(
@@ -311,9 +307,7 @@ using (var terminalApplication = Application.Create())
                 _ = ShowRecentRunsAsync(shell.NavigationRevision);
                 break;
             case MainMenuAction.OpenLogs:
-                _ = shell.HasLogAnalysis
-                    ? OpenLogsAsync(shell.NavigationRevision)
-                    : ShowLogsAsync(shell.NavigationRevision);
+                _ = ShowLogsAsync(shell.NavigationRevision);
                 break;
             case MainMenuAction.ExecuteCompaction:
                 var request = shell.CreateLockedCompactionRequest(
@@ -375,18 +369,6 @@ using (var terminalApplication = Application.Create())
             shell.ShowWorkspacePage(
                 "最近运行",
                 lines);
-        });
-    }
-
-    async Task OpenLogsAsync(long revision)
-    {
-        var result = await new WindowsLogDirectoryOpener(paths).OpenAsync().ConfigureAwait(false);
-        terminalApplication.Invoke(() =>
-        {
-            if (shell.IsCurrentSelection(MainMenuAction.OpenLogs, revision))
-            {
-                shell.ShowStatus(result.Message);
-            }
         });
     }
 
@@ -493,7 +475,7 @@ using (var terminalApplication = Application.Create())
             ShowProgressOnUi(CreateExecutionProgress(
                 request,
                 RunProgressState.Failed,
-                "压缩流程启动失败；请查看日志分析。",
+                "压缩流程启动失败；请查看日志。",
                 logLines));
             return;
         }
@@ -599,21 +581,12 @@ using (var terminalApplication = Application.Create())
         ElevatedOperationStartStatus.ValidationFailed => "压缩请求校验失败。",
         ElevatedOperationStartStatus.AlreadyRunning => "已有压缩任务运行中。",
         ElevatedOperationStartStatus.Cancelled => "UAC 提示已取消。",
-        ElevatedOperationStartStatus.Failed => "worker 启动失败；请查看日志分析。",
+        ElevatedOperationStartStatus.Failed => "worker 启动失败；请查看日志。",
         _ => "压缩请求未启动。"
     };
 
     static string FormatRunEvent(RunEvent @event)
-    {
-        var level = @event.Level switch
-        {
-            RunEventLevel.Warning => "WARN",
-            RunEventLevel.Error => "ERROR",
-            RunEventLevel.Trace => "TRACE",
-            _ => "INFO"
-        };
-        return $"[{level}] {TuiDisplayText.LabelForPhase(@event.Phase)} / {TuiDisplayText.LabelForOperation(@event.OperationName)}";
-    }
+        => RunEventLogFormatter.Format(@event);
 
     static ImmutableArray<string> AppendLogLine(
         ImmutableArray<string> lines,

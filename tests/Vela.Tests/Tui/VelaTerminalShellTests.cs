@@ -34,8 +34,8 @@ public sealed class VelaTerminalShellTests
 
             var rendered = app.Driver.ToString();
             Assert.Contains("01  工作区", rendered, StringComparison.Ordinal);
-            Assert.Contains("02  日志归档", rendered, StringComparison.Ordinal);
-            Assert.DoesNotContain("03  日志归档", rendered, StringComparison.Ordinal);
+            Assert.Contains("02  查看日志", rendered, StringComparison.Ordinal);
+            Assert.DoesNotContain("03  查看日志", rendered, StringComparison.Ordinal);
             Assert.DoesNotContain("04  最近运行", rendered, StringComparison.Ordinal);
             Assert.DoesNotContain("05  日志分析", rendered, StringComparison.Ordinal);
         }
@@ -797,7 +797,7 @@ public sealed class VelaTerminalShellTests
                 StringComparison.Ordinal);
             if (width >= 80 && height >= 24)
             {
-                Assert.Contains("Console Log", rendered, StringComparison.Ordinal);
+                Assert.Contains("Console Log · LIVE", rendered, StringComparison.Ordinal);
                 Assert.Contains("compact target locked", rendered, StringComparison.Ordinal);
                 Assert.Contains("░", rendered, StringComparison.Ordinal);
             }
@@ -833,7 +833,7 @@ public sealed class VelaTerminalShellTests
     [Theory]
     [InlineData("目标档案", "[Enter]刷新")]
     [InlineData("最近运行", "[Enter]刷新")]
-    [InlineData("运行日志", "[Enter]日志")]
+    [InlineData("运行日志", "[Enter]刷新日志")]
     public void Read_only_workspace_pages_expose_contextual_shortcuts(string title, string shortcut)
     {
         using var shell = new VelaTerminalShell(
@@ -907,7 +907,10 @@ public sealed class VelaTerminalShellTests
             Assert.Contains("ERROR", rendered);
             Assert.Contains("E1", rendered);
             Assert.Contains("Inventory", rendered);
-            Assert.Contains("[Enter]日志", shell.StatusText, StringComparison.Ordinal);
+            Assert.Contains("Console Log · TUI", rendered, StringComparison.Ordinal);
+            Assert.DoesNotContain("文件管理器", rendered, StringComparison.Ordinal);
+            Assert.DoesNotContain("打开日志目录", rendered, StringComparison.Ordinal);
+            Assert.Contains("[Enter]刷新日志", shell.StatusText, StringComparison.Ordinal);
         }
         finally
         {
@@ -975,6 +978,8 @@ public sealed class VelaTerminalShellTests
             Assert.Contains("分析范围", rendered);
             Assert.Contains("原文已隐藏路径与命令输出", rendered);
             Assert.Contains("ERROR Inventory", rendered);
+            Assert.Contains("Console Log · TUI", rendered, StringComparison.Ordinal);
+            Assert.DoesNotContain("打开日志目录", rendered, StringComparison.Ordinal);
         }
         finally
         {
