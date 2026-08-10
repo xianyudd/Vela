@@ -284,6 +284,94 @@ public sealed class VelaTerminalShellTests
     }
 
     [Fact]
+    public void Compaction_preview_renders_the_estimated_reclaimable_space_for_the_locked_target()
+    {
+        var profile = CreateProfile();
+        var dashboard = CreateReadyDashboard(profile) with
+        {
+            InstalledDistros = ImmutableArray.Create(
+                new Vela.Core.Contracts.WslDistribution(
+                    "docker-desktop",
+                    Vela.Core.Contracts.WslDistributionState.Stopped,
+                    2,
+                    false,
+                    @"D:\Docker\wsl\data\ext4.vhdx",
+                    10L * PreflightOverviewFormatter.Gibibyte))
+        };
+        using var shell = new VelaTerminalShell(new MainMenu().ViewModel, dashboard);
+        shell.SetCurrentProfile(profile);
+        shell.ApplyPreflight(new AutomaticPreflightState(
+            profile.Id,
+            1,
+            1,
+            AutomaticPreflightStatus.Ready,
+            dashboard,
+            "预检已完成。"));
+        shell.ShowOverview();
+        shell.NewKeyDownEvent(Key.Enter);
+
+        shell.SelectMenuIndex(1);
+        var revision = shell.NavigationRevision;
+
+        var applied = shell.ApplyCompactionImpactEstimate(
+            revision,
+            "docker-desktop",
+            new CompactionImpactEstimate(
+                CompactionImpactStatus.Estimated,
+                CurrentVhdxSizeBytes: 10L * PreflightOverviewFormatter.Gibibyte,
+                UsedBytes: 4L * PreflightOverviewFormatter.Gibibyte,
+                ReclaimableBytes: 6L * PreflightOverviewFormatter.Gibibyte,
+                "按根文件系统已用空间估算。"));
+
+        Assert.True(applied);
+        Assert.Contains("预计可回收空间  6.00 GiB", shell.WorkspaceText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Compaction_preview_ignores_an_estimate_from_an_old_navigation_revision()
+    {
+        var profile = CreateProfile();
+        var dashboard = CreateReadyDashboard(profile) with
+        {
+            InstalledDistros = ImmutableArray.Create(
+                new Vela.Core.Contracts.WslDistribution(
+                    "docker-desktop",
+                    Vela.Core.Contracts.WslDistributionState.Stopped,
+                    2,
+                    false,
+                    @"D:\Docker\wsl\data\ext4.vhdx",
+                    10L * PreflightOverviewFormatter.Gibibyte))
+        };
+        using var shell = new VelaTerminalShell(new MainMenu().ViewModel, dashboard);
+        shell.SetCurrentProfile(profile);
+        shell.ApplyPreflight(new AutomaticPreflightState(
+            profile.Id,
+            1,
+            1,
+            AutomaticPreflightStatus.Ready,
+            dashboard,
+            "预检已完成。"));
+        shell.ShowOverview();
+        shell.NewKeyDownEvent(Key.Enter);
+        shell.SelectMenuIndex(1);
+        var oldRevision = shell.NavigationRevision;
+        shell.SelectMenuIndex(2);
+
+        var applied = shell.ApplyCompactionImpactEstimate(
+            oldRevision,
+            "docker-desktop",
+            new CompactionImpactEstimate(
+                CompactionImpactStatus.Estimated,
+                10L * PreflightOverviewFormatter.Gibibyte,
+                4L * PreflightOverviewFormatter.Gibibyte,
+                6L * PreflightOverviewFormatter.Gibibyte,
+                "按根文件系统已用空间估算。"));
+
+        Assert.False(applied);
+        Assert.DoesNotContain("6.00 GiB", shell.WorkspaceText, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Locked_target_is_cleared_when_a_new_inventory_drops_that_instance()
     {
         var profile = CreateProfile();
