@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace Vela.Tui.Application;
 
 public enum RunProgressState
@@ -16,4 +18,13 @@ public enum RunProgressState
 public sealed record RunProgressViewModel(
     RunProgressState State,
     string Message,
-    int? Percent);
+    int? Percent,
+    string? TargetName = null,
+    string? VhdxPath = null,
+    TimeSpan? Elapsed = null,
+    long? ReclaimedBytes = null,
+    ImmutableArray<string> LogLines = default)
+{
+    public ImmutableArray<string> VisibleLogLines =>
+        LogLines.IsDefault ? ImmutableArray<string>.Empty : LogLines;
+}

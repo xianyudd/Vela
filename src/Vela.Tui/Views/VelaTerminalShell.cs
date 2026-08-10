@@ -76,7 +76,7 @@ public sealed class VelaTerminalShell : Window
         SchemeName = VelaTerminalTheme.Base;
 
         _header = new Label { X = 0, Y = 0, Width = Dim.Fill(), Text = BuildHeader(_applicationTitle, _dashboard, AutomaticPreflightState.Idle) };
-        _modeBadge = new Label { X = Pos.AnchorEnd(16), Y = 0, Width = 16, Text = "READ ONLY · 只读", SchemeName = VelaTerminalTheme.Muted };
+        _modeBadge = new Label { X = Pos.AnchorEnd(14), Y = 0, Width = 14, Text = "[ TUI-MODE ]", SchemeName = VelaTerminalTheme.Muted };
         _navigationPanel = new FrameView { X = 0, Y = 2, Width = Dim.Percent(32), Height = 13, BorderStyle = Terminal.Gui.Drawing.LineStyle.None };
         _contentPanel = new FrameView { X = Pos.Right(_navigationPanel) + 2, Y = 2, Width = Dim.Fill(), Height = 13, BorderStyle = Terminal.Gui.Drawing.LineStyle.None };
         _navigationPanel.SchemeName = VelaTerminalTheme.Panel;
@@ -84,6 +84,15 @@ public sealed class VelaTerminalShell : Window
         _groupCaptions = new Label { X = 1, Y = 0, Width = Dim.Fill(1), Height = 2, Text = "工作区\n检查 / 执行 / 追溯" };
         _navigation = new ListView { X = 1, Y = 3, Width = Dim.Fill(1), Height = 6 };
         _navigation.SchemeName = VelaTerminalTheme.Navigation;
+        _navigation.KeyDown += (_, key) =>
+        {
+            if (TryHandleRunLifecycleKey(key) ||
+                TryHandleActionPreviewKey(key) ||
+                TryHandleRefreshKey(key))
+            {
+                key.Handled = true;
+            }
+        };
         _groupCaptions.SchemeName = VelaTerminalTheme.Muted;
         _navigationLabels = new ObservableCollection<string>(_menuItems.Select((item, index) => FormatNavigationLabel(item, index == 0)));
         _navigation.SetSource(_navigationLabels);
@@ -201,6 +210,9 @@ public sealed class VelaTerminalShell : Window
 
     public Profile? CreateLockedTargetProfile(Profile baseProfile) =>
         CompactionTargetProfileFactory.Create(baseProfile, LockedTarget);
+
+    public OperationRequest? CreateLockedCompactionRequest(Profile baseProfile, Guid runId) =>
+        CompactionTargetProfileFactory.CreateRequest(runId, baseProfile, LockedTarget);
 
     public bool IsCurrentSelection(MainMenuAction action, long revision) =>
         revision == _navigationRevision && SelectedAction == action;
@@ -343,24 +355,16 @@ public sealed class VelaTerminalShell : Window
         _workspace.Visible = true;
         SetOverviewDecisionVisible(false);
         SetContentTitle(CurrentPage == VelaWorkspacePage.Result ? "运行结果" : "运行进度");
-        var stateLabel = progress.State switch
-        {
-            RunProgressState.Running => "● 正在读取 journal 事件",
-            RunProgressState.Succeeded => "● 运行完成",
-            RunProgressState.Failed => "! 运行失败",
-            RunProgressState.Cancelled => "! 已取消",
-            RunProgressState.TimedOut => "! 等待超时",
-            RunProgressState.ReadFailed => "! journal 读取失败",
-            _ => "◌ 等待状态"
-        };
-        _workspace.Text = string.Join(Environment.NewLine,
-            stateLabel,
-            "",
-            TuiDisplayText.Sanitize(progress.Message, 160),
-            "",
-            "状态由真实 journal 事件映射；不显示估算百分比。");
+        _workspace.Text = BuildRunProgress(progress);
         SetNavigationStatus();
-        _navigation.SetFocus();
+        if (CurrentPage == VelaWorkspacePage.Running)
+        {
+            _workspace.SetFocus();
+        }
+        else
+        {
+            _navigation.SetFocus();
+        }
         SetNeedsDraw();
     }
 
@@ -499,7 +503,7 @@ public sealed class VelaTerminalShell : Window
         LayoutMode = metrics.Layout;
         _header.Y = 0;
         _modeBadge.Visible = screen.Width >= 100;
-        _header.Width = _modeBadge.Visible ? Dim.Fill(18) : Dim.Fill();
+        _header.Width = _modeBadge.Visible ? Dim.Fill(16) : Dim.Fill();
         _actionBar.Y = Pos.AnchorEnd(1);
         _actionBar.Width = Dim.Fill();
         _status.X = 1;
@@ -681,6 +685,39 @@ public sealed class VelaTerminalShell : Window
         return false;
     }
 
+    internal bool TryHandleActionPreviewKey(Key key)
+    {
+        if (CurrentPage != VelaWorkspacePage.ActionPreview ||
+            SelectedAction != MainMenuAction.ExecuteCompaction ||
+            !IsYesKey(key))
+        {
+            return false;
+        }
+
+        RequestAction(MainMenuAction.ExecuteCompaction);
+        return true;
+    }
+
+    internal bool TryHandleRunLifecycleKey(Key key)
+    {
+        if (CurrentPage == VelaWorkspacePage.Running)
+        {
+            // A running view is driven by the journal callback. Navigation keys
+            // must not move the menu while the worker owns the operation.
+            return true;
+        }
+
+        if (CurrentPage == VelaWorkspacePage.Result &&
+            (key == Key.Enter || key == Key.Esc))
+        {
+            ResetNavigationToOverview();
+            ShowOverview();
+            return true;
+        }
+
+        return false;
+    }
+
     private void SelectTarget(int direction, int targetCount)
     {
         if (targetCount <= 0)
@@ -714,9 +751,11 @@ public sealed class VelaTerminalShell : Window
         // Terminal.Gui represents lowercase r as Key.R and uppercase R as
         // Key.R.WithShift. Normalize both forms so the visible [R] hint is
         // reliable in tmux and on a physical keyboard.
+        if (TryHandleRunLifecycleKey(key)) return true;
         if (TryHandleFocusToggleKey(key)) return true;
         if (TryHandleTargetNavigationKey(key)) return true;
         if (TryHandleTargetDetailKey(key)) return true;
+        if (TryHandleActionPreviewKey(key)) return true;
         if (TryHandleRefreshKey(key)) return true;
         if (key == Key.Esc && _confirmation is not null)
         {
@@ -726,20 +765,7 @@ public sealed class VelaTerminalShell : Window
         if (key == Key.Esc && CurrentPage != VelaWorkspacePage.Overview)
         {
             ResetNavigationToOverview();
-            CurrentPage = VelaWorkspacePage.Overview;
-            UpdateEvidence();
-            _logList.Visible = false;
-            _workspace.Visible = false;
-            _homeView.Visible = true;
-            _targetDetailView.Visible = false;
-            SetOverviewDecisionVisible(false);
-            UpdateDecision(PreflightState);
-            SetContentTitle("执行目标选择");
-            _workspace.Text = BuildOverview(_dashboard, PreflightState);
-            ApplyOverviewSurface();
-            SetNavigationStatus();
-            _homeView.SetFocus();
-            SetNeedsDraw();
+            ShowOverview();
             return true;
         }
         return base.OnKeyDown(key);
@@ -760,6 +786,9 @@ public sealed class VelaTerminalShell : Window
 
     private static bool IsRefreshKey(Key key) =>
         !key.IsCtrl && !key.IsAlt && key.NoShift == Key.R;
+
+    private static bool IsYesKey(Key key) =>
+        !key.IsCtrl && !key.IsAlt && key.NoShift == Key.Y;
 
     private void ResetNavigationToOverview()
     {
@@ -843,11 +872,12 @@ public sealed class VelaTerminalShell : Window
         {
             return
             [
-                "当前选择：执行压缩",
-                "锁定目标   尚未选择",
-                "请返回 01 预检结果，选择并锁定一个实例。",
+                "STEP2_PREVIEW  压缩影响预览",
+                "目标       尚未锁定",
+                "状态       返回 01 预检结果选择实例",
                 "",
-                "此处只展示影响范围，不启动压缩。"
+                "当前体积   未读取",
+                "预计释放   完成后由 worker 报告"
             ];
         }
 
@@ -865,14 +895,84 @@ public sealed class VelaTerminalShell : Window
 
         return
         [
-            "当前选择：执行压缩",
-            $"锁定目标   {TuiDisplayText.Sanitize(target.Name, 64)}",
+            "STEP2_PREVIEW  压缩影响预览",
+            $"目标       {TuiDisplayText.Sanitize(target.Name, 64)}",
             $"当前体积   {targetSize}",
+            "预计体积   执行后读取",
+            "预计释放   执行完成后报告",
             $"VHDX       {(string.IsNullOrWhiteSpace(formattedPath) ? "未读取" : formattedPath)}",
             "",
-            "按 Enter 进入精确 YES 确认页。",
-            "此处只展示影响范围，不启动压缩。"
+            "[Y] 开始执行 · [Enter] 进入 YES 确认",
+            "当前页面只读取锁定目标，不切换发行版。"
         ];
+    }
+
+    private string BuildRunProgress(RunProgressViewModel progress)
+    {
+        var target = string.IsNullOrWhiteSpace(progress.TargetName)
+            ? "当前锁定目标"
+            : TuiDisplayText.Sanitize(progress.TargetName, 64);
+        var path = PreflightOverviewFormatter.FormatVhdxPath(progress.VhdxPath, 96);
+        var visibleLogs = progress.VisibleLogLines
+            .TakeLast(Math.Max(3, _availablePageRows - 8))
+            .Select(line => TuiDisplayText.Sanitize(line, 160))
+            .ToArray();
+
+        if (progress.State == RunProgressState.Running)
+        {
+            var lines = new List<string>
+            {
+                "STEP2_RUNNING  ▪",
+                $"目标       {target}",
+                $"VHDX       {(string.IsNullOrWhiteSpace(path) ? "未读取" : path)}",
+                $"进度       {FormatProgressBar(progress.Percent)}",
+                $"状态       执行中 · {TuiDisplayText.Sanitize(progress.Message, 120)}",
+                "",
+                "Console Log"
+            };
+            lines.AddRange(visibleLogs.Length == 0
+                ? ["[INFO] 等待 worker journal 事件。"]
+                : visibleLogs);
+            return string.Join(Environment.NewLine, lines);
+        }
+
+        var stateLabel = progress.State switch
+        {
+            RunProgressState.Succeeded => "✔ DONE",
+            RunProgressState.Cancelled => "! CANCELLED",
+            RunProgressState.TimedOut => "! TIMEOUT",
+            RunProgressState.ReadFailed => "× JOURNAL READ FAILED",
+            _ => "× FAILED"
+        };
+        var elapsed = progress.Elapsed is { } duration
+            ? duration.ToString(duration.TotalHours >= 1 ? @"hh\:mm\:ss" : @"mm\:ss", System.Globalization.CultureInfo.InvariantCulture)
+            : "未知";
+        var reclaimed = progress.ReclaimedBytes is { } bytes
+            ? PreflightOverviewFormatter.FormatCapacity(bytes)
+            : "未知";
+        return string.Join(Environment.NewLine,
+            stateLabel,
+            "",
+            $"目标       {target}",
+            $"耗时       {elapsed}",
+            $"实际释放   {reclaimed}",
+            $"VHDX       {(string.IsNullOrWhiteSpace(path) ? "未读取" : path)}",
+            "",
+            $"终态       {TuiDisplayText.Sanitize(progress.Message, 140)}",
+            "",
+            "[Enter/Esc] 返回实例列表");
+    }
+
+    private static string FormatProgressBar(int? percent)
+    {
+        if (percent is not { } value)
+        {
+            return "░░░░░░░░░░░░  RUNNING / journal";
+        }
+
+        var bounded = Math.Clamp(value, 0, 100);
+        var filled = bounded / 10;
+        return $"{new string('█', filled)}{new string('░', 10 - filled)}  {bounded,3}%";
     }
 
     private string[] BuildProfilePreview() =>
@@ -1141,18 +1241,20 @@ public sealed class VelaTerminalShell : Window
             VelaWorkspacePage.Profiles when compact => "[↑↓] 导航  [Enter] 刷新  [Esc] 返回",
             VelaWorkspacePage.RecentRuns when compact => "[↑↓] 导航  [Enter] 刷新  [Esc] 返回",
             VelaWorkspacePage.Logs or VelaWorkspacePage.LogAnalysis when compact => "[↑↓] 导航  [Enter] 日志  [Esc] 返回",
-            VelaWorkspacePage.ActionPreview when compact => "[↑↓] 导航  [Enter] 执行  [Esc] 返回",
+            VelaWorkspacePage.ActionPreview when compact => "[Y]开始执行 [Enter]确认 [Esc]返回",
             VelaWorkspacePage.Confirmation when compact => "[Enter] 确认 YES  [Esc] 取消",
-            VelaWorkspacePage.Running or VelaWorkspacePage.Result when compact => "[Esc] 返回状态",
+            VelaWorkspacePage.Running when compact => "[执行中] journal 实时更新",
+            VelaWorkspacePage.Result when compact => "[Enter/Esc] 返回实例",
             VelaWorkspacePage.Overview when _navigation.HasFocus => "[↑↓] 导航菜单   [Enter] 执行当前项   [Tab] 选择实例   [R] 重新扫描   [Esc] 退出",
             VelaWorkspacePage.Overview => "[↑↓] 切换实例   [Enter] 查看明细并锁定目标   [R] 重新扫描   [Esc] 退出",
             VelaWorkspacePage.TargetDetail => "[Enter] 预览压缩   [R] 重扫   [Esc] 返回实例列表",
             VelaWorkspacePage.Profiles => "[↑↓] 导航   [Enter] 刷新档案摘要   [Esc] 返回状态总览",
             VelaWorkspacePage.RecentRuns => "[↑↓] 导航   [Enter] 刷新运行记录   [Esc] 返回状态总览",
             VelaWorkspacePage.Logs or VelaWorkspacePage.LogAnalysis => "[↑↓] 导航   [Enter] 打开日志目录   [Esc] 返回状态总览",
-            VelaWorkspacePage.ActionPreview => "[↑↓] 导航   [Enter] 执行当前操作   [Esc] 返回状态总览",
+            VelaWorkspacePage.ActionPreview => "[↑↓] 导航   [Y] 开始执行   [Enter] 进入确认   [Esc] 返回状态总览",
             VelaWorkspacePage.Confirmation => "[Enter] 确认 YES   [Esc] 取消",
-            VelaWorkspacePage.Running or VelaWorkspacePage.Result => "[↑↓] 导航   [Esc] 返回状态总览",
+            VelaWorkspacePage.Running => "[执行中] journal 实时更新   键盘输入已锁定",
+            VelaWorkspacePage.Result => "[Enter/Esc] 返回实例列表",
             _ => "[↑↓] 导航   [Esc] 返回状态总览"
         };
         return $"导航 / 操作  {hint}";
@@ -1480,9 +1582,11 @@ public sealed class TerminalGuiShellHost : IDisposable
 
     private void OnApplicationKeyDown(object? sender, Key key)
     {
-        if (_shell.TryHandleFocusToggleKey(key) ||
+        if (_shell.TryHandleRunLifecycleKey(key) ||
+            _shell.TryHandleFocusToggleKey(key) ||
             _shell.TryHandleTargetNavigationKey(key) ||
             _shell.TryHandleTargetDetailKey(key) ||
+            _shell.TryHandleActionPreviewKey(key) ||
             _shell.TryHandleRefreshKey(key))
         {
             key.Handled = true;

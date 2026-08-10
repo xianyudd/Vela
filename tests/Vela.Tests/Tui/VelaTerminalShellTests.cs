@@ -370,8 +370,21 @@ public sealed class VelaTerminalShellTests
         shell.NewKeyDownEvent(Key.Enter);
         shell.SelectMenuIndex(1);
 
-        shell.NewKeyDownEvent(new Key('y'));
-        shell.NewKeyDownEvent(Key.Y.WithShift);
+        using var app = Application.Create(new VirtualTimeProvider());
+        app.Init(DriverRegistry.Names.ANSI);
+        VelaTerminalTheme.Register();
+        using var host = new TerminalGuiShellHost(app, shell);
+        var session = app.Begin(shell);
+
+        try
+        {
+            Assert.True(app.Keyboard.RaiseKeyDownEvent(new Key('y')));
+            Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.Y.WithShift));
+        }
+        finally
+        {
+            app.End(session!);
+        }
 
         Assert.Equal(
             [MainMenuAction.ExecuteCompaction, MainMenuAction.ExecuteCompaction],
@@ -401,6 +414,63 @@ public sealed class VelaTerminalShellTests
 
         Assert.Equal(VelaWorkspacePage.Overview, shell.CurrentPage);
         Assert.Equal(0, shell.SelectedMenuIndex);
+    }
+
+    [Theory]
+    [InlineData(160, 45)]
+    [InlineData(120, 35)]
+    [InlineData(100, 30)]
+    [InlineData(80, 24)]
+    [InlineData(60, 16)]
+    public void Run_state_views_keep_the_locked_target_and_fixed_action_bar(
+        int width,
+        int height)
+    {
+        using var app = Application.Create(new VirtualTimeProvider());
+        app.Init(DriverRegistry.Names.ANSI);
+        VelaTerminalTheme.Register();
+        using var shell = new VelaTerminalShell(
+            new MainMenu().ViewModel,
+            DashboardViewModel.CreateInitial(CreateProfile()));
+        app.Driver!.SetScreenSize(width, height);
+        using var host = new TerminalGuiShellHost(app, shell);
+        var session = app.Begin(shell);
+
+        try
+        {
+            shell.ShowRunProgress(new RunProgressViewModel(
+                RunProgressState.Running,
+                "正在读取 journal 事件。",
+                Percent: null,
+                TargetName: "docker-desktop",
+                VhdxPath: @"D:\Docker\wsl\data\ext4.vhdx",
+                LogLines: ["[INFO] compact target locked"]));
+            app.LayoutAndDraw(forceRedraw: true);
+
+            Assert.Equal(VelaWorkspacePage.Running, shell.CurrentPage);
+            Assert.Contains("STEP2_RUNNING", shell.WorkspaceText, StringComparison.Ordinal);
+            Assert.Contains("docker-desktop", shell.WorkspaceText, StringComparison.Ordinal);
+            Assert.Contains("Console Log", shell.WorkspaceText, StringComparison.Ordinal);
+            Assert.Contains("导航 / 操作", app.Driver.ToString(), StringComparison.Ordinal);
+            Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.CursorDown));
+
+            shell.ShowRunProgress(new RunProgressViewModel(
+                RunProgressState.Succeeded,
+                "运行终态：已完成。",
+                Percent: null,
+                TargetName: "docker-desktop",
+                Elapsed: TimeSpan.FromSeconds(42),
+                ReclaimedBytes: 53L * PreflightOverviewFormatter.Gibibyte));
+
+            Assert.Contains("DONE", shell.WorkspaceText, StringComparison.Ordinal);
+            Assert.Contains("53.00 GiB", shell.WorkspaceText, StringComparison.Ordinal);
+            Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.Enter));
+            Assert.Equal(VelaWorkspacePage.Overview, shell.CurrentPage);
+        }
+        finally
+        {
+            app.End(session!);
+        }
     }
 
     [Theory]

@@ -10,6 +10,22 @@ namespace Vela.Tui.Application;
 /// </summary>
 public static class CompactionTargetProfileFactory
 {
+    public static OperationRequest? CreateRequest(
+        Guid runId,
+        Profile baseProfile,
+        WslDistribution? lockedTarget)
+    {
+        if (runId == Guid.Empty)
+        {
+            return null;
+        }
+
+        var profile = Create(baseProfile, lockedTarget);
+        return profile is null
+            ? null
+            : new OperationRequest(runId, profile, OperationIntent.Compact);
+    }
+
     public static Profile? Create(Profile baseProfile, WslDistribution? lockedTarget)
     {
         ArgumentNullException.ThrowIfNull(baseProfile);

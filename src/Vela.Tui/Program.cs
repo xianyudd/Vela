@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Spectre.Console;
 using Terminal.Gui.App;
 using Vela.Core.Models;
@@ -237,6 +238,42 @@ using (var terminalApplication = Application.Create())
         shell,
         automaticPreflight,
         new TerminalGuiUiDispatcher(terminalApplication));
+    using var executionCancellation = new CancellationTokenSource();
+    var executionJournal = new FileRunJournal(paths);
+    var executionClock = new SystemClock();
+    var operationCoordinator = new ElevatedOperationCoordinator(
+        executionJournal,
+        new OperationRequestStore(paths),
+        new UacWorkerLauncher(),
+        executionClock,
+        new CompactRunGate(paths));
+    var journalPoller = new RunJournalPoller(
+        executionJournal,
+        executionClock,
+        new RunJournalPollOptions
+        {
+            PollInterval = TimeSpan.FromMilliseconds(100),
+            Timeout = TimeSpan.FromMinutes(10)
+        });
+    var executionHistory = new RunHistoryReader(paths);
+    OperationRequest? pendingCompactionRequest = null;
+    Task executionTask = Task.CompletedTask;
+
+    shell.ConfirmationSubmitted += submitted =>
+    {
+        if (submitted.Status == ConfirmationInputStatus.Cancelled)
+        {
+            pendingCompactionRequest = null;
+            return;
+        }
+
+        if (submitted.Status == ConfirmationInputStatus.Accepted &&
+            pendingCompactionRequest is { } request)
+        {
+            pendingCompactionRequest = null;
+            executionTask = StartCompactionAsync(request);
+        }
+    };
 
     shell.SelectionPreviewRequested += (action, revision) =>
     {
@@ -274,18 +311,18 @@ using (var terminalApplication = Application.Create())
                     : ShowLogsAsync(shell.NavigationRevision);
                 break;
             case MainMenuAction.ExecuteCompaction:
-                // The interactive TUI is deliberately a read-only control surface.
-                // It may present the impact summary, but this path never creates a compact
-                // request, starts elevation, or starts a worker.
-                var targetProfile = shell.CreateLockedTargetProfile(profileService.CurrentProfile);
-                if (targetProfile is null)
+                var request = shell.CreateLockedCompactionRequest(
+                    profileService.CurrentProfile,
+                    Guid.NewGuid());
+                if (request is null)
                 {
                     shell.ShowStatus("当前锁定实例缺少可用 VHDX 路径，请返回 01 重新选择");
                     break;
                 }
 
+                pendingCompactionRequest = request;
                 shell.ShowConfirmation(MainMenu.CreateExecuteConfirmation(
-                    targetProfile,
+                    request.Profile,
                     shell.Overview.InstalledDistros,
                     paths.RootDirectory));
                 break;
@@ -295,6 +332,14 @@ using (var terminalApplication = Application.Create())
     };
     _ = terminalHost.Start(profileService.CurrentProfile);
     terminalApplication.Run(shell);
+    executionCancellation.Cancel();
+    try
+    {
+        await executionTask.ConfigureAwait(false);
+    }
+    catch (OperationCanceledException) when (executionCancellation.IsCancellationRequested)
+    {
+    }
 
     void ShowProfiles() => shell.ShowWorkspacePage(
         "目标档案",
@@ -352,6 +397,171 @@ using (var terminalApplication = Application.Create())
 
             shell.ShowLogAnalysis(snapshot);
         });
+    }
+
+    async Task StartCompactionAsync(OperationRequest request)
+    {
+        var target = request.Profile;
+        var logLines = ImmutableArray<string>.Empty;
+        ShowProgressOnUi(new RunProgressViewModel(
+            RunProgressState.Running,
+            "正在创建压缩请求。",
+            Percent: null,
+            TargetName: target.DistroName,
+            VhdxPath: target.VhdxPath,
+            LogLines: logLines));
+
+        ElevatedOperationStartResult start;
+        try
+        {
+            start = await operationCoordinator
+                .StartAsync(request, executionCancellation.Token)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (executionCancellation.IsCancellationRequested)
+        {
+            ShowProgressOnUi(CreateExecutionProgress(
+                request,
+                RunProgressState.Cancelled,
+                "压缩流程已取消，未伪造 worker 终态。",
+                logLines));
+            return;
+        }
+        catch (Exception)
+        {
+            ShowProgressOnUi(CreateExecutionProgress(
+                request,
+                RunProgressState.Failed,
+                "压缩流程启动失败；请查看日志分析。",
+                logLines));
+            return;
+        }
+
+        try
+        {
+            if (start.Status != ElevatedOperationStartStatus.Started)
+            {
+                ShowProgressOnUi(CreateExecutionProgress(
+                    request,
+                    start.Status == ElevatedOperationStartStatus.Cancelled
+                        ? RunProgressState.Cancelled
+                        : RunProgressState.Failed,
+                    FormatStartStatus(start.Status),
+                    logLines));
+                return;
+            }
+
+            var pollResult = await journalPoller
+                .PollAsync(
+                    request.RunId,
+                    afterSequence: 0,
+                    executionCancellation.Token,
+                    @event =>
+                    {
+                        var line = FormatRunEvent(@event);
+                        logLines = AppendLogLine(logLines, line);
+                        var eventProgress = RunProgressMapper.FromEvent(@event) with
+                        {
+                            TargetName = target.DistroName,
+                            VhdxPath = target.VhdxPath,
+                            LogLines = logLines
+                        };
+                        ShowProgressOnUi(eventProgress);
+                        return Task.CompletedTask;
+                    })
+                .ConfigureAwait(false);
+            var history = await executionHistory
+                .ReadAsync(executionCancellation.Token)
+                .ConfigureAwait(false);
+            var entry = history.Entries.FirstOrDefault(item => item.RunId == request.RunId);
+            var terminalProgress = RunProgressMapper.FromTerminal(pollResult) with
+            {
+                TargetName = target.DistroName,
+                VhdxPath = target.VhdxPath,
+                Elapsed = entry?.Elapsed,
+                ReclaimedBytes = entry?.ReclaimedBytes,
+                LogLines = logLines
+            };
+            ShowProgressOnUi(terminalProgress);
+        }
+        catch (OperationCanceledException) when (executionCancellation.IsCancellationRequested)
+        {
+            ShowProgressOnUi(CreateExecutionProgress(
+                request,
+                RunProgressState.Cancelled,
+                "等待 worker journal 已取消；worker 终态以日志为准。",
+                logLines));
+        }
+        catch (Exception)
+        {
+            ShowProgressOnUi(CreateExecutionProgress(
+                request,
+                RunProgressState.Failed,
+                "读取 worker journal 失败；请打开日志分析。",
+                logLines));
+        }
+        finally
+        {
+            start.GateLease?.Dispose();
+        }
+    }
+
+    void ShowProgressOnUi(RunProgressViewModel progress)
+    {
+        try
+        {
+            terminalApplication.Invoke(() => shell.ShowRunProgress(progress));
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        catch (InvalidOperationException) when (executionCancellation.IsCancellationRequested)
+        {
+        }
+    }
+
+    static RunProgressViewModel CreateExecutionProgress(
+        OperationRequest request,
+        RunProgressState state,
+        string message,
+        ImmutableArray<string> logLines) =>
+        new(
+            state,
+            message,
+            Percent: null,
+            TargetName: request.Profile.DistroName,
+            VhdxPath: request.Profile.VhdxPath,
+            LogLines: logLines);
+
+    static string FormatStartStatus(ElevatedOperationStartStatus status) => status switch
+    {
+        ElevatedOperationStartStatus.ValidationFailed => "压缩请求校验失败。",
+        ElevatedOperationStartStatus.AlreadyRunning => "已有压缩任务运行中。",
+        ElevatedOperationStartStatus.Cancelled => "UAC 提示已取消。",
+        ElevatedOperationStartStatus.Failed => "worker 启动失败；请查看日志分析。",
+        _ => "压缩请求未启动。"
+    };
+
+    static string FormatRunEvent(RunEvent @event)
+    {
+        var level = @event.Level switch
+        {
+            RunEventLevel.Warning => "WARN",
+            RunEventLevel.Error => "ERROR",
+            RunEventLevel.Trace => "TRACE",
+            _ => "INFO"
+        };
+        return $"[{level}] {TuiDisplayText.LabelForPhase(@event.Phase)} / {TuiDisplayText.LabelForOperation(@event.OperationName)}";
+    }
+
+    static ImmutableArray<string> AppendLogLine(
+        ImmutableArray<string> lines,
+        string line)
+    {
+        var next = lines.Add(line);
+        return next.Length <= 18
+            ? next
+            : next.RemoveAt(0);
     }
 }
 
