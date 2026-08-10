@@ -20,11 +20,11 @@ public sealed class PreflightHomeView : View
     private readonly Label _infoTitle;
     private readonly Label _infoDetail;
     private readonly FrameView _tablePanel;
-    private readonly Label _tableCount;
     private readonly Label _distroHeader;
     private readonly Label _sizeHeader;
     private readonly Label _pathHeader;
     private readonly Label _statusHeader;
+    private readonly Label _tableDivider;
     private readonly Label _compactSummary;
     private readonly TargetRow[] _rows;
     private readonly Label _emptyState;
@@ -43,21 +43,21 @@ public sealed class PreflightHomeView : View
         _infoPanel.Add(_infoPrefix, _infoTitle, _infoDetail);
 
         _tablePanel = CreatePanel();
-        _tableCount = CreateLabel(VelaTerminalTheme.Info);
         _distroHeader = CreateLabel(VelaTerminalTheme.Info);
         _sizeHeader = CreateLabel(VelaTerminalTheme.Info);
         _pathHeader = CreateLabel(VelaTerminalTheme.Info);
         _statusHeader = CreateLabel(VelaTerminalTheme.Info);
+        _tableDivider = CreateLabel(VelaTerminalTheme.Panel);
         _compactSummary = CreateLabel(VelaTerminalTheme.Info);
         _emptyState = CreateLabel(VelaTerminalTheme.Muted);
         _rows = Enumerable.Range(0, MaxVisibleRows).Select(_ => new TargetRow()).ToArray();
 
         _tablePanel.Add(
-            _tableCount,
             _distroHeader,
             _sizeHeader,
             _pathHeader,
             _statusHeader,
+            _tableDivider,
             _emptyState);
         foreach (var row in _rows)
         {
@@ -101,7 +101,7 @@ public sealed class PreflightHomeView : View
             _ => VelaTerminalTheme.Info
         };
 
-        _tableCount.Text = $"实例列表（{home.Targets.Length}）";
+        _tablePanel.Title = $"实例列表（{home.Targets.Length}）";
         _emptyState.Text = home.Targets.Length == 0
             ? "未发现可选的 WSL 实例；按 R 重新扫描。"
             : string.Empty;
@@ -161,7 +161,7 @@ public sealed class PreflightHomeView : View
         var remaining = Math.Max(4, height - tableY);
         var desiredTableHeight = _home.Targets.Length == 0
             ? 5
-            : 3 + Math.Min(MaxVisibleRows, _home.Targets.Length) * 2;
+            : 4 + Math.Min(MaxVisibleRows, _home.Targets.Length) * 2;
         var tableHeight = Math.Min(remaining, Math.Max(5, desiredTableHeight));
 
         Place(_infoPanel, 0, 0, width, infoHeight);
@@ -180,7 +180,6 @@ public sealed class PreflightHomeView : View
 
     private void ArrangeTable(int width, int height, bool showDetails)
     {
-        Place(_tableCount, 2, 0, Math.Max(1, width / 2), 1);
         var statusWidth = Math.Min(20, Math.Max(10, width / 5));
         var statusX = Math.Max(1, width - statusWidth - 2);
         var distroX = 6;
@@ -191,6 +190,7 @@ public sealed class PreflightHomeView : View
         _sizeHeader.Visible = showDetails;
         _pathHeader.Visible = showDetails && width >= 96;
         _statusHeader.Visible = showDetails;
+        _tableDivider.Visible = showDetails;
         _emptyState.Visible = _home.Targets.Length == 0;
 
         if (showDetails)
@@ -199,13 +199,16 @@ public sealed class PreflightHomeView : View
             Place(_sizeHeader, sizeX, 1, Math.Max(1, pathX - sizeX - 2), 1);
             Place(_pathHeader, pathX, 1, Math.Max(1, statusX - pathX - 2), 1);
             Place(_statusHeader, statusX, 1, statusWidth, 1);
+            _tableDivider.Text = new string('─', Math.Max(1, width - 2));
+            Place(_tableDivider, 1, 2, Math.Max(1, width - 2), 1);
         }
 
-        Place(_emptyState, 2, 2, Math.Max(1, width - 4), 1);
+        var firstRowY = showDetails ? 3 : 1;
+        Place(_emptyState, 2, firstRowY, Math.Max(1, width - 4), 1);
         for (var index = 0; index < _rows.Length; index++)
         {
             var row = _rows[index];
-            var y = showDetails ? 2 + index * 2 : 1 + index;
+            var y = showDetails ? firstRowY + index * 2 : firstRowY + index;
             row.Visible = index < _home.Targets.Length && y < height - 1;
             if (!row.Visible) continue;
 
@@ -214,7 +217,9 @@ public sealed class PreflightHomeView : View
             Place(row.SelectionBand, 1, y, Math.Max(1, width - 2), 1);
             Place(row.Distro, distroX, y, Math.Max(1, sizeX - distroX - 2), 1);
             Place(row.Size, sizeX, y, Math.Max(1, pathX - sizeX - 2), 1);
-            Place(row.Path, pathX, y, Math.Max(1, statusX - pathX - 2), 1);
+            var pathWidth = Math.Max(1, statusX - pathX - 2);
+            Place(row.Path, pathX, y, pathWidth, 1);
+            row.SetPathWidth(pathWidth);
             Place(row.Status, statusX, y, statusWidth, 1);
             if (!showDetails)
             {
@@ -278,6 +283,7 @@ public sealed class PreflightHomeView : View
     private sealed class TargetRow
     {
         private bool _isSelected;
+        private string _pathValue = string.Empty;
 
         public Label SelectionBand { get; } = CreateLabel(VelaTerminalTheme.Selection);
         public Label Marker { get; } = CreateLabel(VelaTerminalTheme.Muted);
@@ -301,7 +307,8 @@ public sealed class PreflightHomeView : View
             Marker.Text = row.IsLocked ? "◆" : row.Selector;
             Distro.Text = row.DistroName;
             Size.Text = row.CurrentSize;
-            Path.Text = row.VhdxPath;
+            _pathValue = row.VhdxPath;
+            Path.Text = _pathValue;
             Status.Text = row.StatusText;
             _isSelected = row.IsSelected;
             SelectionBand.Visible = row.IsSelected && Distro.Visible;
@@ -316,6 +323,9 @@ public sealed class PreflightHomeView : View
                 ? VelaTerminalTheme.Selection
                 : SchemeFor(row.Status);
         }
+
+        public void SetPathWidth(int width) =>
+            Path.Text = PreflightOverviewFormatter.FormatVhdxPath(_pathValue, width);
 
         private static string SchemeFor(PreflightTargetRowStatus status) => status switch
         {

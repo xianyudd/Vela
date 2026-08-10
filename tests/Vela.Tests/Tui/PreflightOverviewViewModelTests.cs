@@ -74,6 +74,23 @@ public sealed class PreflightOverviewViewModelTests
     }
 
     [Fact]
+    public void Formatter_keeps_the_actionable_prefix_and_filename_for_long_vhdx_paths()
+    {
+        var path = @"C:\Users\Admin\AppData\Local\Packages\TheDebianProject.DebianGNULinux_abc123\LocalState\ext4.vhdx";
+
+        var formatted = PreflightOverviewFormatter.FormatVhdxPath(path);
+
+        Assert.Contains(@"C:\Users\Admin\AppData\Local\Packages", formatted, StringComparison.Ordinal);
+        Assert.Contains("ext4.vhdx", formatted, StringComparison.Ordinal);
+        Assert.Contains("…", formatted, StringComparison.Ordinal);
+
+        var compact = PreflightOverviewFormatter.FormatVhdxPath(path, 32);
+        Assert.Contains("C:\\Users", compact, StringComparison.Ordinal);
+        Assert.Contains("ext4.vhdx", compact, StringComparison.Ordinal);
+        Assert.True(compact.Length <= 32);
+    }
+
+    [Fact]
     public void Create_maps_attention_failure_and_not_checked_gate_states()
     {
         var profile = CreateProfile();

@@ -411,8 +411,15 @@ public static class PreflightOverviewFormatter
             $"{value:0.00} {unit}");
     }
 
-    public static string FormatVhdxPath(string? path)
+    public static string FormatVhdxPath(string? path) => FormatVhdxPath(path, 80);
+
+    public static string FormatVhdxPath(string? path, int maxCells)
     {
+        if (maxCells <= 0)
+        {
+            return string.Empty;
+        }
+
         var normalized = TuiDisplayText.Sanitize(path, 160);
         if (string.IsNullOrWhiteSpace(normalized))
         {
@@ -425,18 +432,36 @@ public static class PreflightOverviewFormatter
                 ? normalized[4..]
                 : normalized;
 
-        if (normalized.Length <= 48)
+        if (normalized.Length <= maxCells)
         {
             return normalized;
         }
 
         try
         {
-            var root = Path.GetPathRoot(normalized);
-            var fileName = Path.GetFileName(normalized);
-            if (!string.IsNullOrWhiteSpace(root) && !string.IsNullOrWhiteSpace(fileName))
+            var parts = normalized.Split(
+                ['\\', '/'],
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length > 2)
             {
-                return TuiDisplayText.Sanitize($"{root}…\\{fileName}", 48);
+                var suffix = string.Join('\\', parts.TakeLast(2));
+                var best = string.Empty;
+                for (var prefixLength = 1; prefixLength < parts.Length - 1; prefixLength++)
+                {
+                    var prefix = string.Join('\\', parts.Take(prefixLength));
+                    var candidate = $"{prefix}\\…\\{suffix}";
+                    if (candidate.Length > maxCells)
+                    {
+                        break;
+                    }
+
+                    best = candidate;
+                }
+
+                if (!string.IsNullOrWhiteSpace(best))
+                {
+                    return best;
+                }
             }
         }
         catch (Exception)
@@ -444,7 +469,7 @@ public static class PreflightOverviewFormatter
             // Fall through to the already sanitized, bounded value.
         }
 
-        return TuiDisplayText.Sanitize(normalized, 48);
+        return TuiDisplayText.Sanitize(normalized, maxCells);
     }
 
     public static string FormatSparseState(bool? isSparse) => isSparse switch
