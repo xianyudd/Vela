@@ -19,24 +19,36 @@ public sealed class WslCompactionImpactEstimator : ICompactionImpactEstimator
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private readonly IProcessRunner _processRunner;
     private readonly NativeToolPaths _nativeToolPaths;
+    private readonly VhdxExt4UsageReader _vhdxUsageReader;
 
     public WslCompactionImpactEstimator()
-        : this(new WindowsProcessRunner(), new NativeToolPaths())
+        : this(new WindowsProcessRunner(), new NativeToolPaths(), new VhdxExt4UsageReader())
     {
     }
 
     public WslCompactionImpactEstimator(
         IProcessRunner processRunner,
         NativeToolPaths nativeToolPaths)
+        : this(processRunner, nativeToolPaths, new VhdxExt4UsageReader())
+    {
+    }
+
+    public WslCompactionImpactEstimator(
+        IProcessRunner processRunner,
+        NativeToolPaths nativeToolPaths,
+        VhdxExt4UsageReader vhdxUsageReader)
     {
         ArgumentNullException.ThrowIfNull(processRunner);
         ArgumentNullException.ThrowIfNull(nativeToolPaths);
+        ArgumentNullException.ThrowIfNull(vhdxUsageReader);
         _processRunner = processRunner;
         _nativeToolPaths = nativeToolPaths;
+        _vhdxUsageReader = vhdxUsageReader;
     }
 
     public async Task<CompactionImpactEstimate> EstimateAsync(
         string distroName,
+        string vhdxPath,
         long currentVhdxSizeBytes,
         CancellationToken cancellationToken)
     {
@@ -47,6 +59,11 @@ public sealed class WslCompactionImpactEstimator : ICompactionImpactEstimator
             currentVhdxSizeBytes < 0)
         {
             return Unavailable(currentVhdxSizeBytes, "目标存储使用量暂不可用。");
+        }
+
+        if (_vhdxUsageReader.TryReadUsedBytes(vhdxPath, out var offlineUsedBytes))
+        {
+            return CreateEstimate(currentVhdxSizeBytes, offlineUsedBytes);
         }
 
         ProcessExecutionResult result;
@@ -93,14 +110,21 @@ public sealed class WslCompactionImpactEstimator : ICompactionImpactEstimator
             return Unavailable(currentVhdxSizeBytes, "目标存储使用量暂不可用。");
         }
 
+        return CreateEstimate(currentVhdxSizeBytes, usage.UsedBytes);
+    }
+
+    private static CompactionImpactEstimate CreateEstimate(
+        long currentVhdxSizeBytes,
+        long usedBytes)
+    {
         var reclaimableBytes = Math.Clamp(
-            currentVhdxSizeBytes - usage.UsedBytes,
+            currentVhdxSizeBytes - usedBytes,
             0,
             currentVhdxSizeBytes);
         return new CompactionImpactEstimate(
             CompactionImpactStatus.Estimated,
             currentVhdxSizeBytes,
-            usage.UsedBytes,
+            usedBytes,
             reclaimableBytes,
             "按当前 VHDX 体积减去根文件系统已用空间估算。");
     }

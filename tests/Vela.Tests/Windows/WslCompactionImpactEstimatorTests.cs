@@ -23,7 +23,7 @@ public sealed class WslCompactionImpactEstimatorTests
             "docker-desktop",
             vhdxPath: @"C:\Vela\fixtures\ext4.vhdx",
             currentVhdxSizeBytes: 10L * 1024 * 1024 * 1024,
-            CancellationToken.None);
+            cancellationToken: CancellationToken.None);
 
         Assert.Equal(CompactionImpactStatus.Estimated, result.Status);
         Assert.Equal(4L * 1024 * 1024 * 1024, result.UsedBytes);
@@ -47,7 +47,7 @@ public sealed class WslCompactionImpactEstimatorTests
             "Ubuntu-24.04",
             vhdxPath: @"C:\Vela\fixtures\ext4.vhdx",
             currentVhdxSizeBytes: 10L * 1024 * 1024 * 1024,
-            CancellationToken.None);
+            cancellationToken: CancellationToken.None);
 
         Assert.Equal(CompactionImpactStatus.Unavailable, result.Status);
         Assert.Null(result.ReclaimableBytes);

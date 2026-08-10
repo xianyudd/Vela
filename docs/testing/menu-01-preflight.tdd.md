@@ -8,6 +8,7 @@
 | warning 通知会把预检结论映射为「预检未通过」，首页同时显示首条具体原因 | `AutomaticPreflightCoordinatorTests.Warning_notice_keeps_preflight_in_attention_state`、`PreflightOverviewViewModelTests.Home_projection_prioritizes_decision_context_over_internal_gate_names` | 集成 / 单元 |
 | `R/r` 仅重跑当前菜单 01 的预检动作，不派发压缩 | `VelaTerminalShellTests.Menu_one_exposes_r_refresh_without_dispatching_a_compaction_action`、`VelaTerminalShellTests.Menu_one_accepts_shifted_uppercase_r_from_terminal_input` | 交互 |
 | 锁定实例后，影响预览与确认页使用该实例的发行版和 VHDX；实例从新清单消失时锁定状态失效 | `CompactionTargetProfileFactoryTests`、`VelaTerminalShellTests.Locked_target_profile_and_preview_use_the_selected_instance`、`VelaTerminalShellTests.Locked_target_is_cleared_when_a_new_inventory_drops_that_instance` | 单元 / 交互 |
+| 影响预览显示锁定目标的预计可回收空间具体值；优先读取 VHDX 内 ext4 已用块，WSL `df` 作为回退，并淘汰旧导航结果 | `WslCompactionImpactEstimatorTests`、`VelaTerminalShellTests.Compaction_preview_renders_the_estimated_reclaimable_space_for_the_locked_target`、`VelaTerminalShellTests.Compaction_preview_ignores_an_estimate_from_an_old_navigation_revision` | 单元 / 交互 |
 | Y/y 在压缩影响预览中进入确认；确认后的 `OperationRequest`、worker journal 和完成页持续使用同一锁定目标 | `VelaTerminalShellTests.Action_preview_accepts_lowercase_and_shifted_uppercase_y`、`VelaTerminalShellTests.Run_state_views_keep_the_locked_target_and_fixed_action_bar`、`CompactionTargetProfileFactoryTests.CreateRequest_carries_the_locked_target_into_the_compact_operation` | 交互 / 集成边界 |
 | 160×45、120×35、100×30、80×24、60×16 保留内容与固定底部操作条 | `VelaTerminalShellTests.Menu_one_visual_bands_keep_content_and_fixed_action_bar` | 视图 |
 | 旧结果淘汰、异步预检 UI 更新与只读路径保持不变 | `VelaTerminalHostTests`、`WorkflowPreflightViewModelSourceTests` | 集成 |
@@ -16,9 +17,13 @@
 96 列以上显示体积和 VHDX 状态，72–95 列隐藏详细容量，72 列以下只保留当前目标与核心状态。表格选择、Enter 锁定目标、Tab 切换到左侧菜单、R 重跑预检均走 Terminal.Gui 事件链，底部操作条保持固定。
 VHDX 原始路径不进入首页投影，只展示「已配置 / 未读取」状态；容量仍统一使用 GiB/TiB 格式化。状态使用文字与符号同时表达，不依赖颜色单独传达风险。
 
+影响预览的估算口径为：`max(0, 当前 VHDX 文件长度 - ext4 根文件系统已用字节)`。估算器优先读取停止状态下仍可读的 VHDX 元数据与 ext4 superblock，不挂载、不启动发行版；格式不匹配时回退到只读 `wsl df`。执行完成页仍以 worker 的压缩前后快照差值作为实际回收空间。
+
 验证记录：
 
 - `dotnet test Vela.sln -c Debug --no-restore --nologo`：386/386 通过。
+- `dotnet test tests/Vela.Tests/Vela.Tests.csproj --no-restore --filter FullyQualifiedName~WslCompactionImpactEstimatorTests`：3/3 通过。
+- `dotnet test tests/Vela.Tests/Vela.Tests.csproj --no-restore --nologo`：391/391 通过。
 - `dotnet build Vela.sln -c Release --no-restore --nologo`：0 警告、0 错误。
 - `dotnet test Vela.sln -c Release --no-restore --nologo`：386/386 通过。
 - Release Cobertura：`Vela.Core` 80.37%、`Vela.Windows` 82.15%；`scripts/Verify-Coverage.ps1` 通过。

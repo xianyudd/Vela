@@ -4,6 +4,7 @@ public interface ICompactionImpactEstimator
 {
     Task<CompactionImpactEstimate> EstimateAsync(
         string distroName,
+        string vhdxPath,
         long currentVhdxSizeBytes,
         CancellationToken cancellationToken);
 }

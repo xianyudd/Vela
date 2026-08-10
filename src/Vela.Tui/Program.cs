@@ -415,7 +415,11 @@ using (var terminalApplication = Application.Create())
 
         var estimate = currentSize is { } sizeBytes
             ? await impactEstimator
-                .EstimateAsync(target.Name, sizeBytes, executionCancellation.Token)
+                .EstimateAsync(
+                    target.Name,
+                    shell.LockedTargetVhdxPath ?? string.Empty,
+                    sizeBytes,
+                    executionCancellation.Token)
                 .ConfigureAwait(false)
             : new CompactionImpactEstimate(
                 CompactionImpactStatus.Unavailable,

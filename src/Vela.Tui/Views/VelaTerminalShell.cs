@@ -202,6 +202,22 @@ public sealed class VelaTerminalShell : Window
             string.Equals(distribution.Name, _lockedTargetName, StringComparison.OrdinalIgnoreCase))
         : null;
     public string? LockedTargetName => LockedTarget?.Name;
+    public string? LockedTargetVhdxPath
+    {
+        get
+        {
+            var target = LockedTarget;
+            if (!string.IsNullOrWhiteSpace(target?.VhdxPath))
+            {
+                return target.VhdxPath;
+            }
+
+            return target is not null &&
+                string.Equals(target.Name, _dashboard.DistroName, StringComparison.OrdinalIgnoreCase)
+                ? _dashboard.VhdxEvidence?.FilePath
+                : null;
+        }
+    }
     public long? LockedTargetVhdxSizeBytes
     {
         get
