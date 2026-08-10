@@ -279,6 +279,7 @@ public sealed class VelaTerminalShellTests
 
         Assert.Contains("docker-desktop", shell.WorkspaceText, StringComparison.Ordinal);
         Assert.Contains(dockerPath, shell.WorkspaceText, StringComparison.Ordinal);
+        Assert.Contains("预计可回收空间", shell.WorkspaceText, StringComparison.Ordinal);
         Assert.DoesNotContain(profile.DistroName, shell.WorkspaceText, StringComparison.Ordinal);
     }
 

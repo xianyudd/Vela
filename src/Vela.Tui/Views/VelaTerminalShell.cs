@@ -879,7 +879,7 @@ public sealed class VelaTerminalShell : Window
                 "状态       返回 01 预检结果选择实例",
                 "",
                 "当前体积   未读取",
-                "预计释放   完成后由 worker 报告"
+                "预计可回收空间  完成后由 worker 报告"
             ];
         }
 
@@ -901,7 +901,7 @@ public sealed class VelaTerminalShell : Window
             $"目标       {TuiDisplayText.Sanitize(target.Name, 64)}",
             $"当前体积   {targetSize}",
             "预计体积   执行后读取",
-            "预计释放   执行完成后报告",
+            "预计可回收空间  执行完成后报告",
             $"VHDX       {(string.IsNullOrWhiteSpace(formattedPath) ? "未读取" : formattedPath)}",
             "",
             "[Y] 开始执行 · [Enter] 进入 YES 确认",
