@@ -3,6 +3,7 @@ using System.Text;
 using Vela.Core.Contracts;
 using Vela.Tests.Fakes;
 using Vela.Windows.Processes;
+using Vela.Windows.Registry;
 using Vela.Windows.Wsl;
 
 namespace Vela.Tests.Windows;
@@ -86,6 +87,62 @@ public sealed class WslClientTests
         Assert.Equal(WslDistributionState.Running, distro.State);
         Assert.Equal(2, distro.Version);
         Assert.True(distro.IsDefault);
+    }
+
+    [Fact]
+    public async Task GetInstalledInventoryAsync_AttachesReadOnlyVhdxEvidencePerDistribution()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "vela-wsl-evidence", Guid.NewGuid().ToString("D"));
+        Directory.CreateDirectory(root);
+        var vhdxPath = Path.Combine(root, "ext4.vhdx");
+        await File.WriteAllBytesAsync(vhdxPath, new byte[17]);
+
+        try
+        {
+            var runner = CreateRunner(
+                "  NAME                   STATE           VERSION",
+                "* Ubuntu-24.04           Running         2");
+            var registryReader = new FixtureLxssRegistryReader(
+                ImmutableArray.Create(new LxssRegistryProfile("Ubuntu-24.04", root)));
+            var client = new WslClient(
+                runner,
+                new NativeToolPaths(),
+                registryReader);
+
+            var inventory = await client.GetInstalledInventoryAsync(CancellationToken.None);
+
+            var distro = Assert.Single(inventory.Distributions);
+            Assert.Equal(Path.GetFullPath(vhdxPath), distro.VhdxPath);
+            Assert.Equal(17, distro.VhdxSizeBytes);
+            Assert.Equal(1, registryReader.ReadCalls);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task GetInstalledInventoryAsync_KeepsInventoryWhenRegistryEvidenceIsUnavailable()
+    {
+        var runner = CreateRunner(
+            "  NAME                   STATE           VERSION",
+            "* Ubuntu-24.04           Running         2");
+        var registryReader = new FixtureLxssRegistryReader(ImmutableArray<LxssRegistryProfile>.Empty)
+        {
+            ThrowOnRead = true
+        };
+        var client = new WslClient(
+            runner,
+            new NativeToolPaths(),
+            registryReader);
+
+        var inventory = await client.GetInstalledInventoryAsync(CancellationToken.None);
+
+        var distro = Assert.Single(inventory.Distributions);
+        Assert.Equal("Ubuntu-24.04", distro.Name);
+        Assert.Null(distro.VhdxPath);
+        Assert.Null(distro.VhdxSizeBytes);
     }
 
     [Fact]
@@ -210,4 +267,31 @@ public sealed class WslClientTests
 
     private static string Utf16LeAsByteCharacters(string value) =>
         string.Concat(Encoding.Unicode.GetBytes(value).Select(static value => (char)value));
+
+    private sealed class FixtureLxssRegistryReader : ILxssRegistryReader
+    {
+        public FixtureLxssRegistryReader(ImmutableArray<LxssRegistryProfile> profiles)
+        {
+            Profiles = profiles;
+        }
+
+        public ImmutableArray<LxssRegistryProfile> Profiles { get; }
+
+        public bool ThrowOnRead { get; init; }
+
+        public int ReadCalls { get; private set; }
+
+        public Task<ImmutableArray<LxssRegistryProfile>> ReadProfilesAsync(
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ReadCalls++;
+            if (ThrowOnRead)
+            {
+                throw new InvalidOperationException("registry fixture failure");
+            }
+
+            return Task.FromResult(Profiles);
+        }
+    }
 }

@@ -308,12 +308,16 @@ public sealed class PreflightOverviewViewModelTests
                     "Ubuntu-24.04",
                     Vela.Core.Contracts.WslDistributionState.Stopped,
                     2,
-                    true),
+                    true,
+                    VhdxPath: @"D:\WSL\Ubuntu-24.04\ext4.vhdx",
+                    VhdxSizeBytes: 124L * PreflightOverviewFormatter.Gibibyte),
                 new Vela.Core.Contracts.WslDistribution(
                     "docker-desktop",
                     Vela.Core.Contracts.WslDistributionState.Running,
                     2,
-                    false)),
+                    false,
+                    VhdxPath: @"D:\Docker\wsl\data\ext4.vhdx",
+                    VhdxSizeBytes: 65L * PreflightOverviewFormatter.Gibibyte)),
             RunningInventoryState = PreflightDataState.Available,
             LogAvailabilityState = PreflightDataState.Available,
             LogsAvailable = true
@@ -334,8 +338,10 @@ public sealed class PreflightOverviewViewModelTests
             [PreflightTargetRowStatus.Ready, PreflightTargetRowStatus.Running],
             home.Targets.Select(row => row.Status));
         Assert.True(home.Targets[0].IsSelected);
-        Assert.Equal("1.50 GiB", home.Targets[0].CurrentSize);
-        Assert.Equal("已配置", home.Targets[0].VhdxPath);
+        Assert.Equal("124.00 GiB", home.Targets[0].CurrentSize);
+        Assert.Contains("ext4.vhdx", home.Targets[0].VhdxPath, StringComparison.Ordinal);
+        Assert.Equal("65.00 GiB", home.Targets[1].CurrentSize);
+        Assert.Contains("ext4.vhdx", home.Targets[1].VhdxPath, StringComparison.Ordinal);
         Assert.Equal("RUNNING ⚠", home.Targets[1].StatusText);
     }
 

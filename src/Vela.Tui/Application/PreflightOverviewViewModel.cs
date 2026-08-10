@@ -27,7 +27,8 @@ public sealed record PreflightEvidenceViewModel(
     string FileSize,
     string SparseState,
     string HostTotalSize,
-    string HostAvailableSpace);
+    string HostAvailableSpace,
+    string? FilePath = null);
 
 public sealed record PreflightHomeCheckViewModel(
     string Label,
@@ -56,10 +57,8 @@ public enum PreflightTargetRowStatus
 }
 
 /// <summary>
-/// Safe, user-facing projection for the instance picker on menu 01.  It never
-/// carries a native VHDX path; the path column communicates whether the
-/// selected profile has a configured target and whether other rows have been
-/// inspected in this read-only pass.
+/// Safe, user-facing projection for the instance picker on menu 01. Storage
+/// evidence is read-only and bounded before it reaches the terminal surface.
 /// </summary>
 public sealed record PreflightTargetRowViewModel(
     string DistroName,
@@ -324,13 +323,15 @@ public sealed record PreflightOverviewViewModel(
                 FileSize: "尚未采集",
                 SparseState: PreflightOverviewFormatter.FormatSparseState(null),
                 HostTotalSize: "尚未采集",
-                HostAvailableSpace: "尚未采集")
+                HostAvailableSpace: "尚未采集",
+                FilePath: null)
             : new PreflightEvidenceViewModel(
                 IsAvailable: true,
                 FileSize: PreflightOverviewFormatter.FormatCapacity(evidence.FileLengthBytes),
                 SparseState: PreflightOverviewFormatter.FormatSparseState(evidence.IsSparse),
                 HostTotalSize: PreflightOverviewFormatter.FormatCapacity(evidence.DriveTotalSizeBytes),
-                HostAvailableSpace: PreflightOverviewFormatter.FormatCapacity(evidence.DriveAvailableFreeSpaceBytes));
+                HostAvailableSpace: PreflightOverviewFormatter.FormatCapacity(evidence.DriveAvailableFreeSpaceBytes),
+                FilePath: evidence.FilePath);
 
     private static string? FirstNoticeFor(
         DashboardViewModel dashboard,
@@ -408,6 +409,42 @@ public static class PreflightOverviewFormatter
         return string.Create(
             CultureInfo.InvariantCulture,
             $"{value:0.00} {unit}");
+    }
+
+    public static string FormatVhdxPath(string? path)
+    {
+        var normalized = TuiDisplayText.Sanitize(path, 160);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return string.Empty;
+        }
+
+        normalized = normalized.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase)
+            ? @"\\" + normalized[8..]
+            : normalized.StartsWith(@"\\?\", StringComparison.OrdinalIgnoreCase)
+                ? normalized[4..]
+                : normalized;
+
+        if (normalized.Length <= 48)
+        {
+            return normalized;
+        }
+
+        try
+        {
+            var root = Path.GetPathRoot(normalized);
+            var fileName = Path.GetFileName(normalized);
+            if (!string.IsNullOrWhiteSpace(root) && !string.IsNullOrWhiteSpace(fileName))
+            {
+                return TuiDisplayText.Sanitize($"{root}…\\{fileName}", 48);
+            }
+        }
+        catch (Exception)
+        {
+            // Fall through to the already sanitized, bounded value.
+        }
+
+        return TuiDisplayText.Sanitize(normalized, 48);
     }
 
     public static string FormatSparseState(bool? isSparse) => isSparse switch
@@ -879,12 +916,26 @@ public static class PreflightOverviewFormatter
             overview.DistroName,
             StringComparison.OrdinalIgnoreCase);
         var status = GetTargetRowStatus(overview, distribution, isTarget);
-        var currentSize = isTarget && overview.Evidence.IsAvailable
-            ? overview.Evidence.FileSize
-            : "尚未采集";
-        var vhdx = isTarget
-            ? overview.VhdxConfigured ? "已配置" : "未配置"
-            : "未读取";
+        var currentSize = distribution.VhdxSizeBytes is { } sizeBytes
+            ? PreflightOverviewFormatter.FormatCapacity(sizeBytes)
+            : isTarget && overview.Evidence.IsAvailable
+                ? overview.Evidence.FileSize
+                : "尚未采集";
+        var evidencePath = distribution.VhdxPath;
+        if (string.IsNullOrWhiteSpace(evidencePath) &&
+            isTarget &&
+            overview.Evidence.IsAvailable)
+        {
+            evidencePath = overview.Evidence.FilePath;
+        }
+
+        var vhdx = PreflightOverviewFormatter.FormatVhdxPath(evidencePath);
+        if (string.IsNullOrWhiteSpace(vhdx))
+        {
+            vhdx = isTarget
+                ? overview.VhdxConfigured ? "已配置" : "未配置"
+                : "未读取";
+        }
 
         return new PreflightTargetRowViewModel(
             TuiDisplayText.Sanitize(distribution.Name, 64),

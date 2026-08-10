@@ -61,7 +61,13 @@ public sealed class PreflightHomeView : View
             _emptyState);
         foreach (var row in _rows)
         {
-            _tablePanel.Add(row.Marker, row.Distro, row.Size, row.Path, row.Status);
+            _tablePanel.Add(
+                row.SelectionBand,
+                row.Marker,
+                row.Distro,
+                row.Size,
+                row.Path,
+                row.Status);
         }
 
         Add(_infoPanel, _tablePanel, _compactSummary);
@@ -204,6 +210,8 @@ public sealed class PreflightHomeView : View
             if (!row.Visible) continue;
 
             Place(row.Marker, 1, y, 3, 1);
+            row.SelectionBand.Text = new string(' ', Math.Max(1, width - 2));
+            Place(row.SelectionBand, 1, y, Math.Max(1, width - 2), 1);
             Place(row.Distro, distroX, y, Math.Max(1, sizeX - distroX - 2), 1);
             Place(row.Size, sizeX, y, Math.Max(1, pathX - sizeX - 2), 1);
             Place(row.Path, pathX, y, Math.Max(1, statusX - pathX - 2), 1);
@@ -269,6 +277,9 @@ public sealed class PreflightHomeView : View
 
     private sealed class TargetRow
     {
+        private bool _isSelected;
+
+        public Label SelectionBand { get; } = CreateLabel(VelaTerminalTheme.Selection);
         public Label Marker { get; } = CreateLabel(VelaTerminalTheme.Muted);
         public Label Distro { get; } = CreateLabel(VelaTerminalTheme.Base);
         public Label Size { get; } = CreateLabel(VelaTerminalTheme.Base);
@@ -278,7 +289,11 @@ public sealed class PreflightHomeView : View
         public bool Visible
         {
             get => Distro.Visible;
-            set => Marker.Visible = Distro.Visible = Size.Visible = Path.Visible = Status.Visible = value;
+            set
+            {
+                SelectionBand.Visible = value && _isSelected;
+                Marker.Visible = Distro.Visible = Size.Visible = Path.Visible = Status.Visible = value;
+            }
         }
 
         public void Apply(PreflightTargetRowViewModel row)
@@ -288,12 +303,15 @@ public sealed class PreflightHomeView : View
             Size.Text = row.CurrentSize;
             Path.Text = row.VhdxPath;
             Status.Text = row.StatusText;
+            _isSelected = row.IsSelected;
+            SelectionBand.Visible = row.IsSelected && Distro.Visible;
+            SelectionBand.SchemeName = VelaTerminalTheme.Selection;
 
             var rowScheme = row.IsSelected ? VelaTerminalTheme.Selection : VelaTerminalTheme.Base;
-            Marker.SchemeName = row.IsSelected ? VelaTerminalTheme.Info : VelaTerminalTheme.Muted;
+            Marker.SchemeName = row.IsSelected ? VelaTerminalTheme.Selection : VelaTerminalTheme.Muted;
             Distro.SchemeName = rowScheme;
             Size.SchemeName = rowScheme;
-            Path.SchemeName = row.IsSelected ? VelaTerminalTheme.Info : VelaTerminalTheme.Muted;
+            Path.SchemeName = row.IsSelected ? VelaTerminalTheme.Selection : VelaTerminalTheme.Muted;
             Status.SchemeName = row.IsSelected
                 ? VelaTerminalTheme.Selection
                 : SchemeFor(row.Status);

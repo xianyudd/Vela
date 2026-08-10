@@ -10,7 +10,9 @@ public sealed record WslDistribution(
     string Name,
     WslDistributionState State,
     int? Version,
-    bool IsDefault);
+    bool IsDefault,
+    string? VhdxPath = null,
+    long? VhdxSizeBytes = null);
 
 public enum WslDistributionState
 {

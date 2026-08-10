@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Vela.Core.Contracts;
 using Vela.Windows.Processes;
+using Vela.Windows.Registry;
 
 namespace Vela.Windows.Wsl;
 
@@ -12,18 +13,32 @@ public sealed class WslClient : IWslClient
     private static readonly Regex ColumnSeparator = new(@"\s{2,}", RegexOptions.CultureInvariant);
     private readonly NativeToolPaths _nativeToolPaths;
     private readonly IProcessRunner _processRunner;
+    private readonly ILxssRegistryReader _registryReader;
 
     public WslClient()
-        : this(new WindowsProcessRunner(), new NativeToolPaths())
+        : this(
+            new WindowsProcessRunner(),
+            new NativeToolPaths(),
+            new CurrentUserLxssRegistryReader())
     {
     }
 
     public WslClient(IProcessRunner processRunner, NativeToolPaths nativeToolPaths)
+        : this(processRunner, nativeToolPaths, new CurrentUserLxssRegistryReader())
+    {
+    }
+
+    public WslClient(
+        IProcessRunner processRunner,
+        NativeToolPaths nativeToolPaths,
+        ILxssRegistryReader registryReader)
     {
         ArgumentNullException.ThrowIfNull(processRunner);
         ArgumentNullException.ThrowIfNull(nativeToolPaths);
+        ArgumentNullException.ThrowIfNull(registryReader);
         _processRunner = processRunner;
         _nativeToolPaths = nativeToolPaths;
+        _registryReader = registryReader;
     }
 
     public async Task<WslInventory> GetInstalledInventoryAsync(CancellationToken cancellationToken)
@@ -32,7 +47,11 @@ public sealed class WslClient : IWslClient
             ImmutableArray.Create("--list", "--verbose"),
             cancellationToken).ConfigureAwait(false);
 
-        return new WslInventory(DateTimeOffset.UtcNow, ParseVerboseInventory(result.StandardOutput));
+        var distributions = ParseVerboseInventory(result.StandardOutput);
+        var profiles = await ReadRegistryProfilesAsync(cancellationToken).ConfigureAwait(false);
+        return new WslInventory(
+            DateTimeOffset.UtcNow,
+            EnrichStorageEvidence(distributions, profiles));
     }
 
     public async Task<WslInventory> GetRunningInventoryAsync(CancellationToken cancellationToken)
@@ -87,6 +106,110 @@ public sealed class WslClient : IWslClient
 
     private ProcessInvocation CreateInvocation(ImmutableArray<string> arguments) =>
         new(_nativeToolPaths.WslExePath, arguments, Timeout: null, OutputEncoding: Encoding.Unicode);
+
+    private async Task<ImmutableArray<LxssRegistryProfile>> ReadRegistryProfilesAsync(
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _registryReader
+                .ReadProfilesAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // WSL inventory remains useful when the optional registry evidence
+            // read is unavailable. The UI will render the missing evidence as
+            // a bounded, actionable state instead of inventing a value.
+            return ImmutableArray<LxssRegistryProfile>.Empty;
+        }
+    }
+
+    private static ImmutableArray<WslDistribution> EnrichStorageEvidence(
+        ImmutableArray<WslDistribution> distributions,
+        ImmutableArray<LxssRegistryProfile> profiles)
+    {
+        if (distributions.IsDefaultOrEmpty || profiles.IsDefaultOrEmpty)
+        {
+            return distributions;
+        }
+
+        return distributions
+            .Select(distribution =>
+            {
+                var profile = profiles.FirstOrDefault(candidate =>
+                    string.Equals(
+                        candidate.DistributionName,
+                        distribution.Name,
+                        StringComparison.OrdinalIgnoreCase));
+                var vhdxPath = ResolveVhdxPath(profile?.BasePath);
+                return distribution with
+                {
+                    VhdxPath = vhdxPath,
+                    VhdxSizeBytes = ReadVhdxSize(vhdxPath)
+                };
+            })
+            .ToImmutableArray();
+    }
+
+    private static string? ResolveVhdxPath(string? basePath)
+    {
+        var normalizedBasePath = NormalizeWindowsPathPrefix(basePath);
+        if (normalizedBasePath is null ||
+            normalizedBasePath.Any(char.IsControl) ||
+            !Path.IsPathFullyQualified(normalizedBasePath))
+        {
+            return null;
+        }
+
+        try
+        {
+            return Path.GetFullPath(Path.Combine(normalizedBasePath, "ext4.vhdx"));
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private static long? ReadVhdxSize(string? vhdxPath)
+    {
+        if (string.IsNullOrWhiteSpace(vhdxPath))
+        {
+            return null;
+        }
+
+        try
+        {
+            var file = new FileInfo(vhdxPath);
+            return file.Exists ? file.Length : null;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private static string? NormalizeWindowsPathPrefix(string? path)
+    {
+        if (path is null)
+        {
+            return null;
+        }
+
+        if (path.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
+        {
+            return @"\\" + path[8..];
+        }
+
+        return path.StartsWith(@"\\?\", StringComparison.OrdinalIgnoreCase)
+            ? path[4..]
+            : path;
+    }
 
     private static ImmutableArray<WslDistribution> ParseVerboseInventory(
         ImmutableArray<string> output)

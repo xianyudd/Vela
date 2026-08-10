@@ -36,7 +36,8 @@ public sealed record VhdxEvidenceViewModel(
     DateTimeOffset LastWriteUtc,
     bool? IsSparse,
     long DriveTotalSizeBytes,
-    long DriveAvailableFreeSpaceBytes);
+    long DriveAvailableFreeSpaceBytes,
+    string? FilePath = null);
 
 public sealed record DashboardViewModel(
     string ApplicationTitle,
@@ -102,7 +103,8 @@ public sealed record DashboardViewModel(
                 snapshot.LastWriteUtc,
                 snapshot.IsSparse,
                 snapshot.Drive.TotalSizeBytes,
-                snapshot.Drive.AvailableFreeSpaceBytes);
+                snapshot.Drive.AvailableFreeSpaceBytes,
+                snapshot.Path);
         var runningInventoryState = preflight.RunningInventory is not null
             ? PreflightDataState.Available
             : HasDiagnostic(
