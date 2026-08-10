@@ -474,9 +474,9 @@ public sealed class VelaTerminalShellTests
     }
 
     [Theory]
-    [InlineData("目标档案", "[Enter] 刷新档案摘要")]
-    [InlineData("最近运行", "[Enter] 刷新运行记录")]
-    [InlineData("运行日志", "[Enter] 打开日志目录")]
+    [InlineData("目标档案", "[Enter]刷新")]
+    [InlineData("最近运行", "[Enter]刷新")]
+    [InlineData("运行日志", "[Enter]日志")]
     public void Read_only_workspace_pages_expose_contextual_shortcuts(string title, string shortcut)
     {
         using var shell = new VelaTerminalShell(
@@ -550,7 +550,7 @@ public sealed class VelaTerminalShellTests
             Assert.Contains("ERROR", rendered);
             Assert.Contains("E1", rendered);
             Assert.Contains("Inventory", rendered);
-            Assert.Contains("[Enter] 打开日志目录", shell.StatusText, StringComparison.Ordinal);
+            Assert.Contains("[Enter]日志", shell.StatusText, StringComparison.Ordinal);
         }
         finally
         {
@@ -765,7 +765,7 @@ public sealed class VelaTerminalShellTests
         shell.RequestPreflightRefresh();
 
         Assert.Equal([MainMenuAction.Preflight], actions);
-        Assert.Contains("[R] 重新扫描", shell.StatusText, StringComparison.Ordinal);
+        Assert.Contains("[R]重扫", shell.StatusText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -795,7 +795,7 @@ public sealed class VelaTerminalShellTests
 
         Assert.Equal([MainMenuAction.Preflight, MainMenuAction.Preflight], actions);
         Assert.Equal(VelaWorkspacePage.Overview, shell.CurrentPage);
-        Assert.Contains("切换实例", shell.StatusText, StringComparison.Ordinal);
+        Assert.Contains("[↑↓]实例", shell.StatusText, StringComparison.Ordinal);
     }
 
     [Fact]

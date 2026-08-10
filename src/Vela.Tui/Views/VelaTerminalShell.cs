@@ -139,6 +139,8 @@ public sealed class VelaTerminalShell : Window
         _contentHeading = new Label { X = 1, Y = 0, Width = Dim.Fill(1), Height = 1, Text = "执行目标选择", SchemeName = VelaTerminalTheme.Info };
         _decision = new Label { X = 1, Y = 2, Width = Dim.Fill(1), Height = 1 };
         _workspace = new Label { X = 1, Y = 4, Width = Dim.Fill(1), Height = Dim.Fill(), SchemeName = VelaTerminalTheme.Base, Text = BuildOverview(_dashboard, AutomaticPreflightState.Idle) };
+        _workspace.HotKeySpecifier = new System.Text.Rune(0xffff);
+        _workspace.TextFormatter.HotKeySpecifier = new System.Text.Rune(0xffff);
         _homeView = new PreflightHomeView { X = 1, Y = 2, Width = Dim.Fill(1), Height = Dim.Fill(), Visible = true };
         _homeView.Apply(PreflightHomeViewModel.Create(
             Overview,
@@ -1233,18 +1235,18 @@ public sealed class VelaTerminalShell : Window
 
     private string BuildActionHint()
     {
-        var compact = _screenWidth < 72;
+        var compact = _screenWidth < 110;
         var hint = CurrentPage switch
         {
-            VelaWorkspacePage.Overview when compact => "导航 [↑↓]实例 [Enter]锁定 [R]重扫 [Esc]退出",
+            VelaWorkspacePage.Overview when compact => "[↑↓]实例 [Enter]锁定 [R]重扫 [Esc]退出",
             VelaWorkspacePage.TargetDetail when compact => "[Enter]预览压缩 [Esc]返回实例",
-            VelaWorkspacePage.Profiles when compact => "[↑↓] 导航  [Enter] 刷新  [Esc] 返回",
-            VelaWorkspacePage.RecentRuns when compact => "[↑↓] 导航  [Enter] 刷新  [Esc] 返回",
-            VelaWorkspacePage.Logs or VelaWorkspacePage.LogAnalysis when compact => "[↑↓] 导航  [Enter] 日志  [Esc] 返回",
+            VelaWorkspacePage.Profiles when compact => "[↑↓]切换 [Enter]刷新 [Esc]返回",
+            VelaWorkspacePage.RecentRuns when compact => "[↑↓]切换 [Enter]刷新 [Esc]返回",
+            VelaWorkspacePage.Logs or VelaWorkspacePage.LogAnalysis when compact => "[↑↓]切换 [Enter]日志 [Esc]返回",
             VelaWorkspacePage.ActionPreview when compact => "[Y]开始执行 [Enter]确认 [Esc]返回",
-            VelaWorkspacePage.Confirmation when compact => "[Enter] 确认 YES  [Esc] 取消",
-            VelaWorkspacePage.Running when compact => "[执行中] journal 实时更新",
-            VelaWorkspacePage.Result when compact => "[Enter/Esc] 返回实例",
+            VelaWorkspacePage.Confirmation when compact => "[Enter]确认 YES [Esc]取消",
+            VelaWorkspacePage.Running when compact => "[执行中]journal 实时更新",
+            VelaWorkspacePage.Result when compact => "[Enter/Esc]返回实例",
             VelaWorkspacePage.Overview when _navigation.HasFocus => "[↑↓] 导航菜单   [Enter] 执行当前项   [Tab] 选择实例   [R] 重新扫描   [Esc] 退出",
             VelaWorkspacePage.Overview => "[↑↓] 切换实例   [Enter] 查看明细并锁定目标   [R] 重新扫描   [Esc] 退出",
             VelaWorkspacePage.TargetDetail => "[Enter] 预览压缩   [R] 重扫   [Esc] 返回实例列表",
