@@ -186,9 +186,10 @@ public sealed class VelaTerminalShellTests
     public void Ready_preflight_allows_compaction_action()
     {
         var profile = CreateProfile();
+        var dashboard = CreateReadyDashboard(profile);
         using var shell = new VelaTerminalShell(
             new MainMenu().ViewModel,
-            DashboardViewModel.CreateInitial(profile));
+            dashboard);
         MainMenuAction? selected = null;
         shell.ActionRequested += action => selected = action;
         shell.SetCurrentProfile(profile);
@@ -197,12 +198,135 @@ public sealed class VelaTerminalShellTests
             1,
             1,
             AutomaticPreflightStatus.Ready,
-            DashboardViewModel.CreateInitial(profile),
+            dashboard,
             "预检已完成。"));
+        shell.ShowOverview();
+        shell.NewKeyDownEvent(Key.Enter);
 
         shell.RequestAction(1);
 
         Assert.Equal(MainMenuAction.ExecuteCompaction, selected);
+    }
+
+    [Fact]
+    public void Ready_preflight_requires_a_locked_target_before_compaction_action()
+    {
+        var profile = CreateProfile();
+        var dashboard = CreateReadyDashboard(profile);
+        using var shell = new VelaTerminalShell(
+            new MainMenu().ViewModel,
+            dashboard);
+        var actions = new List<MainMenuAction>();
+        shell.ActionRequested += actions.Add;
+        shell.SetCurrentProfile(profile);
+        shell.ApplyPreflight(new AutomaticPreflightState(
+            profile.Id,
+            1,
+            1,
+            AutomaticPreflightStatus.Ready,
+            dashboard,
+            "预检已完成。"));
+
+        shell.RequestAction(1);
+
+        Assert.Empty(actions);
+        Assert.Contains("锁定", shell.StatusText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Locked_target_profile_and_preview_use_the_selected_instance()
+    {
+        var profile = CreateProfile();
+        var dockerPath = @"D:\Docker\wsl\data\ext4.vhdx";
+        var dashboard = CreateReadyDashboard(profile) with
+        {
+            InstalledDistros = ImmutableArray.Create(
+                new Vela.Core.Contracts.WslDistribution(
+                    profile.DistroName,
+                    Vela.Core.Contracts.WslDistributionState.Stopped,
+                    2,
+                    true,
+                    profile.VhdxPath,
+                    124L * PreflightOverviewFormatter.Gibibyte),
+                new Vela.Core.Contracts.WslDistribution(
+                    "docker-desktop",
+                    Vela.Core.Contracts.WslDistributionState.Stopped,
+                    2,
+                    false,
+                    dockerPath,
+                    65L * PreflightOverviewFormatter.Gibibyte))
+        };
+        using var shell = new VelaTerminalShell(new MainMenu().ViewModel, dashboard);
+        shell.SetCurrentProfile(profile);
+        shell.ApplyPreflight(new AutomaticPreflightState(
+            profile.Id,
+            1,
+            1,
+            AutomaticPreflightStatus.Ready,
+            dashboard,
+            "预检已完成。"));
+        shell.ShowOverview();
+
+        shell.NewKeyDownEvent(Key.CursorDown);
+        shell.NewKeyDownEvent(Key.Enter);
+
+        var targetProfile = shell.CreateLockedTargetProfile(profile);
+        Assert.NotNull(targetProfile);
+        Assert.Equal("docker-desktop", targetProfile!.DistroName);
+        Assert.Equal(dockerPath, targetProfile.VhdxPath);
+
+        shell.SelectMenuIndex(1);
+
+        Assert.Contains("docker-desktop", shell.WorkspaceText, StringComparison.Ordinal);
+        Assert.Contains(dockerPath, shell.WorkspaceText, StringComparison.Ordinal);
+        Assert.DoesNotContain(profile.DistroName, shell.WorkspaceText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Locked_target_is_cleared_when_a_new_inventory_drops_that_instance()
+    {
+        var profile = CreateProfile();
+        var dashboard = CreateReadyDashboard(profile) with
+        {
+            InstalledDistros = ImmutableArray.Create(
+                new Vela.Core.Contracts.WslDistribution(
+                    profile.DistroName,
+                    Vela.Core.Contracts.WslDistributionState.Stopped,
+                    2,
+                    true,
+                    profile.VhdxPath),
+                new Vela.Core.Contracts.WslDistribution(
+                    "docker-desktop",
+                    Vela.Core.Contracts.WslDistributionState.Stopped,
+                    2,
+                    false,
+                    @"D:\Docker\wsl\data\ext4.vhdx"))
+        };
+        using var shell = new VelaTerminalShell(new MainMenu().ViewModel, dashboard);
+        shell.SetCurrentProfile(profile);
+        shell.ApplyPreflight(new AutomaticPreflightState(
+            profile.Id,
+            1,
+            1,
+            AutomaticPreflightStatus.Ready,
+            dashboard,
+            "预检已完成。"));
+        shell.ShowOverview();
+        shell.NewKeyDownEvent(Key.CursorDown);
+        shell.NewKeyDownEvent(Key.Enter);
+
+        Assert.Equal("docker-desktop", shell.LockedTargetName);
+
+        shell.ApplyPreflight(new AutomaticPreflightState(
+            profile.Id,
+            2,
+            2,
+            AutomaticPreflightStatus.Ready,
+            CreateReadyDashboard(profile),
+            "预检已完成。"));
+
+        Assert.Null(shell.LockedTarget);
+        Assert.Null(shell.LockedTargetName);
     }
 
     [Fact]

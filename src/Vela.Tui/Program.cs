@@ -1,7 +1,5 @@
-using System.Collections.Immutable;
 using Spectre.Console;
 using Terminal.Gui.App;
-using Vela.Core.Contracts;
 using Vela.Core.Models;
 using Vela.Core.Workflows;
 using Vela.Tui;
@@ -279,9 +277,16 @@ using (var terminalApplication = Application.Create())
                 // The interactive TUI is deliberately a read-only control surface.
                 // It may present the impact summary, but this path never creates a compact
                 // request, starts elevation, or starts a worker.
+                var targetProfile = shell.CreateLockedTargetProfile(profileService.CurrentProfile);
+                if (targetProfile is null)
+                {
+                    shell.ShowStatus("当前锁定实例缺少可用 VHDX 路径，请返回 01 重新选择");
+                    break;
+                }
+
                 shell.ShowConfirmation(MainMenu.CreateExecuteConfirmation(
-                    profileService.CurrentProfile,
-                    ImmutableArray<WslDistribution>.Empty,
+                    targetProfile,
+                    shell.Overview.InstalledDistros,
                     paths.RootDirectory));
                 break;
             default:

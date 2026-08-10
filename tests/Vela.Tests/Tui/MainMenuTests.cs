@@ -171,6 +171,25 @@ public sealed class MainMenuTests
         Assert.Equal("YES", confirmation.RequiredInput);
     }
 
+    [Fact]
+    public void CreateExecuteConfirmation_identifies_the_locked_distribution_as_the_operation_target()
+    {
+        var selectedTarget = CreateProfile() with
+        {
+            DistroName = "docker-desktop",
+            VhdxPath = @"D:\Docker\wsl\data\ext4.vhdx",
+            ShutdownMode = ShutdownMode.Distro
+        };
+
+        var confirmation = MainMenu.CreateExecuteConfirmation(
+            selectedTarget,
+            ImmutableArray<WslDistribution>.Empty);
+
+        Assert.Contains("发行版“docker-desktop”", confirmation.Prompt, StringComparison.Ordinal);
+        Assert.Contains("来源档案：", confirmation.Prompt, StringComparison.Ordinal);
+        Assert.Contains("目标发行版停止范围", confirmation.Prompt, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("YES", true)]
     [InlineData("yes", false)]

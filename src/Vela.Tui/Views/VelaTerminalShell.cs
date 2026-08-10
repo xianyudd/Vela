@@ -4,6 +4,7 @@ using Terminal.Gui.App;
 using Terminal.Gui.Input;
 using Terminal.Gui.ViewBase;
 using Terminal.Gui.Views;
+using Vela.Core.Contracts;
 using Vela.Core.Models;
 using Vela.Tui;
 using Vela.Tui.Application;
@@ -61,6 +62,7 @@ public sealed class VelaTerminalShell : Window
     private long _navigationRevision;
     private int _selectedTargetIndex;
     private bool _targetLocked;
+    private string? _lockedTargetName;
 
     public VelaTerminalShell(MainMenuViewModel menu, DashboardViewModel dashboard)
     {
@@ -183,10 +185,11 @@ public sealed class VelaTerminalShell : Window
     public int NavigationItemCount => _menuItems.Count;
     public int SelectedMenuIndex => _navigation.SelectedItem ?? 0;
     public int SelectedTargetIndex => _selectedTargetIndex;
-    public string? LockedTargetName => _targetLocked
-        ? PreflightHomeViewModel.Create(Overview, _selectedTargetIndex, true)
-            .Targets.FirstOrDefault(row => row.IsLocked)?.DistroName
+    public WslDistribution? LockedTarget => _targetLocked && _lockedTargetName is { Length: > 0 }
+        ? Overview.InstalledDistros.FirstOrDefault(distribution =>
+            string.Equals(distribution.Name, _lockedTargetName, StringComparison.OrdinalIgnoreCase))
         : null;
+    public string? LockedTargetName => LockedTarget?.Name;
     public MainMenuAction SelectedAction => _menuItems[SelectedMenuIndex].Action;
     public bool HasSingleNavigationFocus => true;
     public string DecisionSchemeName => _decision.SchemeName ?? VelaTerminalTheme.Muted;
@@ -195,6 +198,9 @@ public sealed class VelaTerminalShell : Window
     public event Action<MainMenuAction>? ActionRequested;
     public event Action<MainMenuAction, long>? SelectionPreviewRequested;
     public event Action<ConfirmationInputResult>? ConfirmationSubmitted;
+
+    public Profile? CreateLockedTargetProfile(Profile baseProfile) =>
+        CompactionTargetProfileFactory.Create(baseProfile, LockedTarget);
 
     public bool IsCurrentSelection(MainMenuAction action, long revision) =>
         revision == _navigationRevision && SelectedAction == action;
@@ -445,6 +451,7 @@ public sealed class VelaTerminalShell : Window
         ResetNavigationToOverview();
         _selectedTargetIndex = 0;
         _targetLocked = false;
+        _lockedTargetName = null;
         UpdateEvidence();
         _logList.Visible = false;
         _targetDetailView.Visible = false;
@@ -472,6 +479,7 @@ public sealed class VelaTerminalShell : Window
         {
             _selectedTargetIndex = 0;
             _targetLocked = false;
+            _lockedTargetName = null;
             CurrentPage = VelaWorkspacePage.Overview;
             SetContentTitle("执行目标选择");
             ApplyOverviewSurface();
@@ -572,7 +580,11 @@ public sealed class VelaTerminalShell : Window
     {
         ArgumentNullException.ThrowIfNull(state);
         PreflightState = state;
-        if (state.Dashboard is not null) _dashboard = state.Dashboard;
+        if (state.Dashboard is not null)
+        {
+            _dashboard = state.Dashboard;
+            SyncLockedTarget();
+        }
         _header.Text = BuildHeader(_applicationTitle, _dashboard, state);
         UpdateDecision(state);
         if (CurrentPage == VelaWorkspacePage.Overview)
@@ -681,6 +693,7 @@ public sealed class VelaTerminalShell : Window
             0,
             targetCount - 1);
         _targetLocked = false;
+        _lockedTargetName = null;
         ApplyOverviewSurface();
         _header.Text = BuildHeader(_applicationTitle, _dashboard, PreflightState);
         SetNavigationStatus();
@@ -690,6 +703,7 @@ public sealed class VelaTerminalShell : Window
     private void OpenSelectedTargetDetail(PreflightHomeViewModel home)
     {
         _selectedTargetIndex = Math.Clamp(_selectedTargetIndex, 0, home.Targets.Length - 1);
+        _lockedTargetName = home.Targets[_selectedTargetIndex].DistroName;
         _targetLocked = true;
         _header.Text = BuildHeader(_applicationTitle, _dashboard, PreflightState);
         ApplyTargetDetailSurface();
@@ -764,6 +778,13 @@ public sealed class VelaTerminalShell : Window
             ShowStatus("执行压缩前需要完成当前档案的只读预检");
             return;
         }
+
+        if (action == MainMenuAction.ExecuteCompaction && LockedTarget is null)
+        {
+            ShowStatus("请先在 01 预检结果中锁定一个实例");
+            return;
+        }
+
         ActionRequested?.Invoke(action);
     }
 
@@ -815,16 +836,44 @@ public sealed class VelaTerminalShell : Window
         SelectionPreviewRequested?.Invoke(action, _navigationRevision);
     }
 
-    private string[] BuildCompactionPreview() =>
-    [
-        "当前选择：执行压缩",
-        $"档案       {TuiDisplayText.Sanitize(_dashboard.ProfileTitle.Replace("档案：", string.Empty, StringComparison.Ordinal), 40)}",
-        $"发行版     {TuiDisplayText.Sanitize(_dashboard.DistroName, 32)}",
-        $"VHDX       {(_dashboard.TargetConfigured ? "已配置" : "待配置")}",
-        "",
-        "按 Enter 进入精确 YES 确认页。",
-        "此处只展示影响范围，不启动压缩。"
-    ];
+    private string[] BuildCompactionPreview()
+    {
+        var target = LockedTarget;
+        if (target is null)
+        {
+            return
+            [
+                "当前选择：执行压缩",
+                "锁定目标   尚未选择",
+                "请返回 01 预检结果，选择并锁定一个实例。",
+                "",
+                "此处只展示影响范围，不启动压缩。"
+            ];
+        }
+
+        var overview = Overview;
+        var targetPath = string.IsNullOrWhiteSpace(target.VhdxPath) &&
+            string.Equals(target.Name, overview.DistroName, StringComparison.OrdinalIgnoreCase)
+                ? overview.Evidence.FilePath
+                : target.VhdxPath;
+        var targetSize = target.VhdxSizeBytes is { } sizeBytes
+            ? PreflightOverviewFormatter.FormatCapacity(sizeBytes)
+            : string.Equals(target.Name, overview.DistroName, StringComparison.OrdinalIgnoreCase)
+                ? overview.Evidence.FileSize
+                : "尚未采集";
+        var formattedPath = PreflightOverviewFormatter.FormatVhdxPath(targetPath, 96);
+
+        return
+        [
+            "当前选择：执行压缩",
+            $"锁定目标   {TuiDisplayText.Sanitize(target.Name, 64)}",
+            $"当前体积   {targetSize}",
+            $"VHDX       {(string.IsNullOrWhiteSpace(formattedPath) ? "未读取" : formattedPath)}",
+            "",
+            "按 Enter 进入精确 YES 确认页。",
+            "此处只展示影响范围，不启动压缩。"
+        ];
+    }
 
     private string[] BuildProfilePreview() =>
     [
@@ -1038,6 +1087,40 @@ public sealed class VelaTerminalShell : Window
         SetNavigationStatus();
         _targetDetailView.SetFocus();
         SetNeedsDraw();
+    }
+
+    private void SyncLockedTarget()
+    {
+        if (!_targetLocked || string.IsNullOrWhiteSpace(_lockedTargetName))
+        {
+            return;
+        }
+
+        var rows = PreflightOverviewFormatter.CreateTargetRows(
+            Overview,
+            selectedTargetIndex: 0,
+            targetLocked: false);
+        var lockedIndex = -1;
+        for (var index = 0; index < rows.Length; index++)
+        {
+            if (string.Equals(
+                    rows[index].DistroName,
+                    _lockedTargetName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                lockedIndex = index;
+                break;
+            }
+        }
+
+        if (lockedIndex < 0)
+        {
+            _targetLocked = false;
+            _lockedTargetName = null;
+            return;
+        }
+
+        _selectedTargetIndex = lockedIndex;
     }
 
     private void SetContentTitle(string title) =>

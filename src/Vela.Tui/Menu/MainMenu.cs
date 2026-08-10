@@ -115,7 +115,8 @@ public sealed class MainMenu
         };
 
         return new ConfirmationViewModel(
-            $"即将为档案“{TuiDisplayText.Sanitize(profile.DisplayName, 64)}”执行压缩。{Environment.NewLine}" +
+            $"即将对发行版“{TuiDisplayText.Sanitize(profile.DistroName, 64)}”执行压缩。{Environment.NewLine}" +
+            $"来源档案：{TuiDisplayText.Sanitize(profile.DisplayName, 64)}{Environment.NewLine}" +
             $"停止范围：{GetShutdownModeLabel(profile.ShutdownMode)}{Environment.NewLine}" +
             $"VHDX 路径：{TuiDisplayText.PathStatus(profile.VhdxPath)}{Environment.NewLine}" +
             $"{runningDistroSummary}{Environment.NewLine}" +
