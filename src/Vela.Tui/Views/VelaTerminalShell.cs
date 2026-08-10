@@ -37,12 +37,15 @@ public sealed class VelaTerminalShell : Window
     private readonly Label _workspace;
     private readonly PreflightHomeView _homeView;
     private readonly PreflightTargetDetailView _targetDetailView;
+    private readonly CompactionImpactView _impactView;
     private readonly Label _decision;
     private readonly FrameView _evidencePanel;
     private readonly Label _evidence;
     private readonly FrameView _actionBar;
     private readonly Label _status;
+    private readonly Label _quitHint;
     private readonly IReadOnlyList<MainMenuItem> _menuItems;
+    private readonly IReadOnlyList<MainMenuItem> _visibleMenuItems;
     private readonly string _applicationTitle;
     private DashboardViewModel _dashboard;
     private ConfirmationViewModel? _confirmation;
@@ -57,6 +60,7 @@ public sealed class VelaTerminalShell : Window
     private string[] _logLines = [];
     private RunEventLevel[] _logLevels = [];
     private bool _updatingNavigationLabels;
+    private bool _selectingLegacyMenuIndex;
     private bool _navigationReady;
     private int _lastPreviewedSelection = -1;
     private long _navigationRevision;
@@ -64,12 +68,16 @@ public sealed class VelaTerminalShell : Window
     private bool _targetLocked;
     private string? _lockedTargetName;
     private CompactionImpactEstimate? _compactionEstimate;
+    private int? _legacySelectedMenuIndex;
 
     public VelaTerminalShell(MainMenuViewModel menu, DashboardViewModel dashboard)
     {
         ArgumentNullException.ThrowIfNull(menu);
         _dashboard = dashboard ?? throw new ArgumentNullException(nameof(dashboard));
         _menuItems = menu.Items;
+        _visibleMenuItems = menu.Items
+            .Where(item => item.Action is MainMenuAction.Preflight or MainMenuAction.OpenLogs)
+            .ToArray();
         _applicationTitle = menu.Title;
         Title = "Vela";
         Width = Dim.Fill();
@@ -82,12 +90,13 @@ public sealed class VelaTerminalShell : Window
         _contentPanel = new FrameView { X = Pos.Right(_navigationPanel) + 2, Y = 2, Width = Dim.Fill(), Height = 13, BorderStyle = Terminal.Gui.Drawing.LineStyle.None };
         _navigationPanel.SchemeName = VelaTerminalTheme.Panel;
         _contentPanel.SchemeName = VelaTerminalTheme.Panel;
-        _groupCaptions = new Label { X = 1, Y = 0, Width = Dim.Fill(1), Height = 2, Text = "工作区\n检查 / 执行 / 追溯" };
+        _groupCaptions = new Label { X = 1, Y = 0, Width = Dim.Fill(1), Height = 2, Text = "功能导航" };
         _navigation = new ListView { X = 1, Y = 3, Width = Dim.Fill(1), Height = 6 };
         _navigation.SchemeName = VelaTerminalTheme.Navigation;
         _navigation.KeyDown += (_, key) =>
         {
-            if (TryHandleRunLifecycleKey(key) ||
+            if (TryHandleQuitKey(key) ||
+                TryHandleRunLifecycleKey(key) ||
                 TryHandleActionPreviewKey(key) ||
                 TryHandleRefreshKey(key))
             {
@@ -95,18 +104,22 @@ public sealed class VelaTerminalShell : Window
             }
         };
         _groupCaptions.SchemeName = VelaTerminalTheme.Muted;
-        _navigationLabels = new ObservableCollection<string>(_menuItems.Select((item, index) => FormatNavigationLabel(item, index == 0)));
+        _navigationLabels = new ObservableCollection<string>(_visibleMenuItems.Select((item, index) => FormatNavigationLabel(item, index == 0)));
         _navigation.SetSource(_navigationLabels);
         _navigation.SelectedItem = 0;
         _navigation.ValueChanged += (_, _) =>
         {
+            if (!_selectingLegacyMenuIndex)
+            {
+                _legacySelectedMenuIndex = null;
+            }
             UpdateNavigationMarker();
             if (_navigationReady)
             {
                 PreviewSelectedMenu();
             }
         };
-        _navigation.Accepted += (_, _) => RequestAction(_navigation.SelectedItem ?? -1);
+        _navigation.Accepted += (_, _) => RequestVisibleAction(_navigation.SelectedItem ?? -1);
         _confirmationInput = new TextField
         {
             Visible = false,
@@ -159,6 +172,14 @@ public sealed class VelaTerminalShell : Window
             PreflightOverviewFormatter.CreateTargetDetail(
                 Overview,
                 PreflightHomeViewModel.Create(Overview, _selectedTargetIndex, _targetLocked)));
+        _impactView = new CompactionImpactView
+        {
+            X = 1,
+            Y = 2,
+            Width = Dim.Fill(1),
+            Height = Dim.Fill(),
+            Visible = false
+        };
         _evidencePanel = new FrameView { Title = "关键证据", Visible = false, SchemeName = VelaTerminalTheme.Panel };
         _evidence = new Label { X = 1, Y = 0, Width = Dim.Fill(1), Height = Dim.Fill(), SchemeName = VelaTerminalTheme.Base };
         _evidencePanel.Add(_evidence);
@@ -171,15 +192,17 @@ public sealed class VelaTerminalShell : Window
             BorderStyle = Terminal.Gui.Drawing.LineStyle.None,
             SchemeName = VelaTerminalTheme.ActionBar
         };
-        _status = new Label { X = 1, Y = 0, Width = Dim.Fill(2), Text = "导航 / 操作  [↑↓] 导航   [Enter] 选择   [Esc] 退出" };
+        _status = new Label { X = 1, Y = 0, Width = Dim.Fill(18), Text = "导航 / 操作  [↑↓] 导航   [Enter] 选择   [Esc] 退出" };
         _status.SchemeName = VelaTerminalTheme.ActionBar;
+        _quitHint = new Label { X = Pos.AnchorEnd(15), Y = 0, Width = 14, Text = "[1-2] 切换模块" };
+        _quitHint.SchemeName = VelaTerminalTheme.ActionBar;
         _header.SchemeName = VelaTerminalTheme.Info;
         _navigationPanel.Add(_groupCaptions, _navigation);
-        _contentPanel.Add(_contentHeading, _decision, _workspace, _homeView, _targetDetailView, _evidencePanel, _logList, _confirmationInput);
+        _contentPanel.Add(_contentHeading, _decision, _workspace, _homeView, _targetDetailView, _impactView, _evidencePanel, _logList, _confirmationInput);
         _decision.Visible = false;
         _workspace.Visible = false;
         UpdateDecision(AutomaticPreflightState.Idle);
-        _actionBar.Add(_status);
+        _actionBar.Add(_status, _quitHint);
         Add(_header, _modeBadge, _navigationPanel, _contentPanel, _actionBar);
         AdaptTo(new Rectangle(0, 0, VelaLayoutMetrics.TwoPaneWidth, VelaLayoutMetrics.TwoPaneHeight));
         _navigationReady = true;
@@ -190,12 +213,13 @@ public sealed class VelaTerminalShell : Window
     public AutomaticPreflightState PreflightState { get; private set; } = AutomaticPreflightState.Idle;
     public Guid CurrentProfileId { get; private set; }
     public string StatusText => _status.Text;
+    public string QuitHintText => _quitHint.Text;
     public string ContentTitle => _contentHeading.Text;
     public string WorkspaceText => _workspace.Text;
     public bool HasLogAnalysis => _logAnalysis is not null;
     public long NavigationRevision => _navigationRevision;
     public int NavigationItemCount => _menuItems.Count;
-    public int SelectedMenuIndex => _navigation.SelectedItem ?? 0;
+    public int SelectedMenuIndex => _legacySelectedMenuIndex ?? _navigation.SelectedItem ?? 0;
     public int SelectedTargetIndex => _selectedTargetIndex;
     public WslDistribution? LockedTarget => _targetLocked && _lockedTargetName is { Length: > 0 }
         ? Overview.InstalledDistros.FirstOrDefault(distribution =>
@@ -214,7 +238,7 @@ public sealed class VelaTerminalShell : Window
 
             return target is not null &&
                 string.Equals(target.Name, _dashboard.DistroName, StringComparison.OrdinalIgnoreCase)
-                ? _dashboard.VhdxEvidence?.FilePath
+                ? _dashboard.VhdxEvidence?.FilePath ?? _dashboard.ConfiguredVhdxPath
                 : null;
         }
     }
@@ -235,7 +259,9 @@ public sealed class VelaTerminalShell : Window
                 : null;
         }
     }
-    public MainMenuAction SelectedAction => _menuItems[SelectedMenuIndex].Action;
+    public MainMenuAction SelectedAction => _legacySelectedMenuIndex is { } legacyIndex
+        ? _menuItems[legacyIndex].Action
+        : _visibleMenuItems[SelectedMenuIndex].Action;
     public bool HasSingleNavigationFocus => true;
     public string DecisionSchemeName => _decision.SchemeName ?? VelaTerminalTheme.Muted;
     public PreflightOverviewViewModel Overview =>
@@ -250,6 +276,27 @@ public sealed class VelaTerminalShell : Window
     public OperationRequest? CreateLockedCompactionRequest(Profile baseProfile, Guid runId) =>
         CompactionTargetProfileFactory.CreateRequest(runId, baseProfile, LockedTarget);
 
+    private bool CanExecuteLockedTarget
+    {
+        get
+        {
+            if (LockedTarget is null ||
+                PreflightState.ProfileId != CurrentProfileId ||
+                PreflightState.Status is AutomaticPreflightStatus.Idle or AutomaticPreflightStatus.Checking or AutomaticPreflightStatus.Failed or AutomaticPreflightStatus.Stale)
+            {
+                return false;
+            }
+
+            var home = PreflightHomeViewModel.Create(
+                Overview,
+                _selectedTargetIndex,
+                targetLocked: true);
+            return PreflightOverviewFormatter
+                .CreateTargetDetail(Overview, home)
+                .IsReady;
+        }
+    }
+
     public bool IsCurrentSelection(MainMenuAction action, long revision) =>
         revision == _navigationRevision && SelectedAction == action;
 
@@ -257,7 +304,20 @@ public sealed class VelaTerminalShell : Window
     {
         if (selectedIndex >= 0 && selectedIndex < _menuItems.Count)
         {
-            _navigation.SelectedItem = selectedIndex;
+            _legacySelectedMenuIndex = selectedIndex;
+            _lastPreviewedSelection = -1;
+            if (selectedIndex < _visibleMenuItems.Count)
+            {
+                _selectingLegacyMenuIndex = true;
+                try
+                {
+                    _navigation.SelectedItem = selectedIndex;
+                }
+                finally
+                {
+                    _selectingLegacyMenuIndex = false;
+                }
+            }
             PreviewSelectedMenu();
             SetNeedsDraw();
         }
@@ -291,6 +351,8 @@ public sealed class VelaTerminalShell : Window
         _logList.Visible = false;
         _homeView.Visible = false;
         _targetDetailView.Visible = false;
+        _impactView.Visible = false;
+        _contentHeading.Visible = true;
         _workspace.Visible = true;
         SetOverviewDecisionVisible(false);
         _workspace.Text = BuildPage();
@@ -313,6 +375,8 @@ public sealed class VelaTerminalShell : Window
         SetOverviewDecisionVisible(false);
         _homeView.Visible = false;
         _targetDetailView.Visible = false;
+        _impactView.Visible = false;
+        _contentHeading.Visible = true;
         _workspace.Visible = false;
         UpdateLogViewLayout();
         _logEntries = lines.Take(20).ToArray();
@@ -333,6 +397,8 @@ public sealed class VelaTerminalShell : Window
         SetOverviewDecisionVisible(false);
         _homeView.Visible = false;
         _targetDetailView.Visible = false;
+        _impactView.Visible = false;
+        _contentHeading.Visible = true;
         UpdateEvidence();
         _workspace.Visible = true;
         UpdateLogViewLayout();
@@ -347,9 +413,12 @@ public sealed class VelaTerminalShell : Window
     {
         CurrentPage = VelaWorkspacePage.Overview;
         SetContentTitle("执行目标选择");
+        _header.Text = BuildHeader(_applicationTitle, _dashboard, PreflightState);
         UpdateEvidence();
         _logList.Visible = false;
         _targetDetailView.Visible = false;
+        _impactView.Visible = false;
+        _contentHeading.Visible = true;
         SetOverviewDecisionVisible(false);
         UpdateDecision(PreflightState);
         _workspace.Text = BuildOverview(_dashboard, PreflightState);
@@ -368,10 +437,39 @@ public sealed class VelaTerminalShell : Window
         _logList.Visible = false;
         _homeView.Visible = false;
         _targetDetailView.Visible = false;
+        _impactView.Visible = false;
         _workspace.Visible = true;
+        _contentHeading.Visible = true;
         SetOverviewDecisionVisible(false);
         SetContentTitle(TuiDisplayText.Sanitize(title, 32));
         _workspace.Text = string.Join(Environment.NewLine, lines.Take(_availablePageRows).Select(line => TuiDisplayText.Sanitize(line, 96)));
+        SetNavigationStatus();
+        _navigation.SetFocus();
+        SetNeedsDraw();
+    }
+
+    private void ShowCompactionImpactPreview()
+    {
+        CurrentPage = VelaWorkspacePage.ActionPreview;
+        _evidencePanel.Visible = false;
+        _logList.Visible = false;
+        _homeView.Visible = false;
+        _targetDetailView.Visible = false;
+        _workspace.Visible = false;
+        _impactView.Visible = true;
+        _contentHeading.Visible = false;
+        SetOverviewDecisionVisible(false);
+        // Keep the legacy content title for callers that use the shell as a
+        // state projection; the visible assessment heading is rendered by the
+        // dedicated impact view below.
+        SetContentTitle("影响预览 · 影响评估（Impact Assessment）");
+        _header.Text = BuildHeader(_applicationTitle, _dashboard, PreflightState);
+        _workspace.Text = string.Join(
+            Environment.NewLine,
+            BuildCompactionPreview()
+                .Take(_availablePageRows)
+                .Select(line => TuiDisplayText.Sanitize(line, 96)));
+        UpdateCompactionImpactView();
         SetNavigationStatus();
         _navigation.SetFocus();
         SetNeedsDraw();
@@ -398,6 +496,7 @@ public sealed class VelaTerminalShell : Window
             BuildCompactionPreview()
                 .Take(_availablePageRows)
                 .Select(line => TuiDisplayText.Sanitize(line, 96)));
+        UpdateCompactionImpactView();
         SetNeedsDraw();
         return true;
     }
@@ -413,6 +512,8 @@ public sealed class VelaTerminalShell : Window
         _logList.Visible = false;
         _homeView.Visible = false;
         _targetDetailView.Visible = false;
+        _impactView.Visible = false;
+        _contentHeading.Visible = true;
         _workspace.Visible = true;
         SetOverviewDecisionVisible(false);
         SetContentTitle(CurrentPage == VelaWorkspacePage.Result ? "运行结果" : "运行进度");
@@ -438,6 +539,8 @@ public sealed class VelaTerminalShell : Window
         _logList.Visible = false;
         _homeView.Visible = false;
         _targetDetailView.Visible = false;
+        _impactView.Visible = false;
+        _contentHeading.Visible = true;
         _workspace.Visible = true;
         SetOverviewDecisionVisible(true);
         _decision.Text = "! 影响摘要：请核对停止范围、运行中的发行版和 VHDX 状态";
@@ -493,6 +596,8 @@ public sealed class VelaTerminalShell : Window
         _workspace.Visible = false;
         _homeView.Visible = true;
         _targetDetailView.Visible = false;
+        _impactView.Visible = false;
+        _contentHeading.Visible = true;
         SetOverviewDecisionVisible(true);
         UpdateDecision(PreflightState);
         SetContentTitle("执行目标选择");
@@ -538,6 +643,17 @@ public sealed class VelaTerminalShell : Window
         RequestAction(_menuItems[selectedIndex].Action);
     }
 
+    private void RequestVisibleAction(int selectedIndex)
+    {
+        if (selectedIndex < 0 || selectedIndex >= _visibleMenuItems.Count)
+        {
+            return;
+        }
+
+        _legacySelectedMenuIndex = null;
+        RequestAction(_visibleMenuItems[selectedIndex].Action);
+    }
+
     public void RequestPreflightRefresh()
     {
         if ((CurrentPage is VelaWorkspacePage.Overview or VelaWorkspacePage.TargetDetail) &&
@@ -564,13 +680,16 @@ public sealed class VelaTerminalShell : Window
         var metrics = VelaLayoutMetrics.Calculate(screen.Width, screen.Height);
         Height = Dim.Fill();
         LayoutMode = metrics.Layout;
+        _header.Text = BuildHeader(_applicationTitle, _dashboard, PreflightState);
         _header.Y = 0;
         _modeBadge.Visible = screen.Width >= 100;
-        _header.Width = _modeBadge.Visible ? Dim.Fill(16) : Dim.Fill();
+        _header.Width = _modeBadge.Visible ? Dim.Fill(14) : Dim.Fill();
         _actionBar.Y = Pos.AnchorEnd(1);
         _actionBar.Width = Dim.Fill();
         _status.X = 1;
-        _status.Width = Dim.Fill(2);
+        _quitHint.Visible = screen.Width >= 44;
+        _status.Width = _quitHint.Visible ? Dim.Fill(16) : Dim.Fill(2);
+        _quitHint.X = Pos.AnchorEnd(15);
         if (LayoutMode == VelaShellLayout.TwoPane)
         {
             var showsEvidenceRail = ShouldShowEvidenceRail;
@@ -580,7 +699,7 @@ public sealed class VelaTerminalShell : Window
             _navigationPanel.Height = Dim.Fill(1);
             _contentPanel.X = Pos.Right(_navigationPanel) + 1; _contentPanel.Y = 2; _contentPanel.Width = Dim.Fill(); _contentPanel.Height = Dim.Fill(1);
             _groupCaptions.X = 1; _groupCaptions.Y = 0; _groupCaptions.Width = Dim.Fill(1);
-            _navigation.X = 1; _navigation.Y = 3; _navigation.Width = Dim.Fill(1); _navigation.Height = 6;
+            _navigation.X = 1; _navigation.Y = 3; _navigation.Width = Dim.Fill(1); _navigation.Height = 3;
             _workspace.X = 1; _workspace.Y = _decision.Visible ? 4 : 2;
             _workspace.Width = showsEvidenceRail ? Dim.Percent(58) : Dim.Fill(1);
             _workspace.Height = _confirmationInput.Visible ? Dim.Fill(2) : Dim.Fill();
@@ -590,6 +709,7 @@ public sealed class VelaTerminalShell : Window
             _targetDetailView.X = 1; _targetDetailView.Y = 2;
             _targetDetailView.Width = Dim.Fill(1);
             _targetDetailView.Height = Dim.Fill();
+            _impactView.X = 1; _impactView.Y = 2; _impactView.Width = Dim.Fill(1); _impactView.Height = Dim.Fill();
             _decision.Width = showsEvidenceRail ? Dim.Percent(58) : Dim.Fill(1);
             _evidencePanel.X = Pos.Right(_workspace) + 1; _evidencePanel.Y = 2; _evidencePanel.Width = Dim.Fill(); _evidencePanel.Height = 11;
             _logList.X = 1; _logList.Width = showsEvidenceRail && CurrentPage == VelaWorkspacePage.LogAnalysis ? Dim.Percent(58) : Dim.Fill(1); _logList.Height = Dim.Fill();
@@ -602,10 +722,11 @@ public sealed class VelaTerminalShell : Window
             var navigationHeight = metrics.NavigationHeight;
             _navigationPanel.X = 0; _navigationPanel.Y = 1; _navigationPanel.Width = Dim.Fill(); _navigationPanel.Height = navigationHeight;
             _contentPanel.X = 0; _contentPanel.Y = Pos.Bottom(_navigationPanel); _contentPanel.Width = Dim.Fill(); _contentPanel.Height = Dim.Fill(1);
-            _navigation.X = 1; _navigation.Y = 0; _navigation.Width = Dim.Fill(1); _navigation.Height = 6;
+            _navigation.X = 1; _navigation.Y = 0; _navigation.Width = Dim.Fill(1); _navigation.Height = 3;
             _workspace.X = 1; _workspace.Y = _decision.Visible ? 3 : 2; _workspace.Width = Dim.Fill(1); _workspace.Height = _confirmationInput.Visible ? Dim.Fill(2) : Dim.Fill();
             _homeView.X = 1; _homeView.Y = _decision.Visible ? 3 : 2; _homeView.Width = Dim.Fill(1); _homeView.Height = _confirmationInput.Visible ? Dim.Fill(2) : Dim.Fill();
             _targetDetailView.X = 1; _targetDetailView.Y = 2; _targetDetailView.Width = Dim.Fill(1); _targetDetailView.Height = Dim.Fill();
+            _impactView.X = 1; _impactView.Y = 2; _impactView.Width = Dim.Fill(1); _impactView.Height = Dim.Fill();
             _decision.Width = Dim.Fill(1);
             _evidencePanel.Visible = false;
             _logList.X = 1; _logList.Width = Dim.Fill(1); _logList.Height = Dim.Fill();
@@ -640,6 +761,15 @@ public sealed class VelaTerminalShell : Window
         else if (CurrentPage == VelaWorkspacePage.TargetDetail)
         {
             ApplyTargetDetailSurface();
+        }
+        else if (CurrentPage == VelaWorkspacePage.ActionPreview && SelectedAction == MainMenuAction.ExecuteCompaction)
+        {
+            _workspace.Text = string.Join(
+                Environment.NewLine,
+                BuildCompactionPreview()
+                    .Take(_availablePageRows)
+                    .Select(line => TuiDisplayText.Sanitize(line, 96)));
+            UpdateCompactionImpactView();
         }
     }
 
@@ -733,15 +863,25 @@ public sealed class VelaTerminalShell : Window
             return false;
         }
 
+        if (key == Key.Esc)
+        {
+            _targetLocked = false;
+            _lockedTargetName = null;
+            _compactionEstimate = null;
+            ResetNavigationToOverview();
+            ShowOverview();
+            return true;
+        }
+
         if (key == Key.Enter)
         {
-            if (!PreflightState.CanExecuteCompaction || PreflightState.ProfileId != CurrentProfileId)
+            if (!CanExecuteLockedTarget)
             {
-                RequestAction(MainMenuAction.ExecuteCompaction);
+                ShowStatus("当前锁定目标的预检尚未通过，先处理检查项或按 R 重扫");
             }
             else
             {
-                SelectMenuIndex(1);
+                OpenCompactionImpactFromDetail();
             }
             return true;
         }
@@ -752,13 +892,36 @@ public sealed class VelaTerminalShell : Window
     internal bool TryHandleActionPreviewKey(Key key)
     {
         if (CurrentPage != VelaWorkspacePage.ActionPreview ||
-            SelectedAction != MainMenuAction.ExecuteCompaction ||
-            !IsYesKey(key))
+            SelectedAction != MainMenuAction.ExecuteCompaction)
+        {
+            return false;
+        }
+
+        if (key == Key.Esc)
+        {
+            _compactionEstimate = null;
+            ResetNavigationToOverview();
+            ApplyTargetDetailSurface();
+            return true;
+        }
+
+        if (!IsYesKey(key))
         {
             return false;
         }
 
         RequestAction(MainMenuAction.ExecuteCompaction);
+        return true;
+    }
+
+    internal bool TryHandleQuitKey(Key key)
+    {
+        if (!IsQuitKey(key))
+        {
+            return false;
+        }
+
+        RequestAction(MainMenuAction.Exit);
         return true;
     }
 
@@ -812,12 +975,24 @@ public sealed class VelaTerminalShell : Window
         ApplyTargetDetailSurface();
     }
 
+    private void OpenCompactionImpactFromDetail()
+    {
+        // 02 is a workflow step in the design, not a second sidebar focus row.
+        // Keep the workspace row active while retaining the legacy action index
+        // for the existing program event contract.
+        _legacySelectedMenuIndex = 1;
+        _lastPreviewedSelection = -1;
+        PreviewSelectedMenu();
+        SetNeedsDraw();
+    }
+
     protected override bool OnKeyDown(Key key)
     {
         // Terminal.Gui represents lowercase r as Key.R and uppercase R as
         // Key.R.WithShift. Normalize both forms so the visible [R] hint is
         // reliable in tmux and on a physical keyboard.
         if (TryHandleRunLifecycleKey(key)) return true;
+        if (TryHandleQuitKey(key)) return true;
         if (TryHandleFocusToggleKey(key)) return true;
         if (TryHandleTargetNavigationKey(key)) return true;
         if (TryHandleTargetDetailKey(key)) return true;
@@ -856,10 +1031,14 @@ public sealed class VelaTerminalShell : Window
     private static bool IsYesKey(Key key) =>
         !key.IsCtrl && !key.IsAlt && key.NoShift == Key.Y;
 
+    private static bool IsQuitKey(Key key) =>
+        !key.IsCtrl && !key.IsAlt && key.NoShift == Key.Q;
+
     private void ResetNavigationToOverview()
     {
         // Esc returns to the same page represented by the focused item. This
         // avoids a stale 04/05 marker sitting beside an overview preview.
+        _legacySelectedMenuIndex = null;
         _navigationRevision++;
         _lastPreviewedSelection = 0;
         _navigation.SelectedItem = 0;
@@ -868,7 +1047,16 @@ public sealed class VelaTerminalShell : Window
 
     private void RequestAction(MainMenuAction action)
     {
-        if (action == MainMenuAction.ExecuteCompaction && (!PreflightState.CanExecuteCompaction || PreflightState.ProfileId != CurrentProfileId))
+        if (action == MainMenuAction.ExecuteCompaction &&
+            LockedTarget is null &&
+            !PreflightState.CanExecuteCompaction)
+        {
+            ShowStatus("执行压缩前需要完成当前档案的只读预检");
+            return;
+        }
+
+        if (action == MainMenuAction.ExecuteCompaction &&
+            PreflightState.ProfileId != CurrentProfileId)
         {
             ShowStatus("执行压缩前需要完成当前档案的只读预检");
             return;
@@ -876,7 +1064,15 @@ public sealed class VelaTerminalShell : Window
 
         if (action == MainMenuAction.ExecuteCompaction && LockedTarget is null)
         {
-            ShowStatus("请先在 01 预检结果中锁定一个实例");
+            ShowStatus(PreflightState.CanExecuteCompaction
+                ? "请先在 01 预检结果中锁定一个实例"
+                : "执行压缩前需要完成当前档案的只读预检");
+            return;
+        }
+
+        if (action == MainMenuAction.ExecuteCompaction && !CanExecuteLockedTarget)
+        {
+            ShowStatus("当前锁定目标的只读预检未通过，暂不可进入执行确认");
             return;
         }
 
@@ -891,7 +1087,7 @@ public sealed class VelaTerminalShell : Window
     private void PreviewSelectedMenu()
     {
         if (!_navigationReady || _navigation.SelectedItem is not { } selected
-            || selected < 0 || selected >= _menuItems.Count
+            || selected < 0 || selected >= _visibleMenuItems.Count
             || _lastPreviewedSelection == selected)
         {
             return;
@@ -899,7 +1095,7 @@ public sealed class VelaTerminalShell : Window
 
         _lastPreviewedSelection = selected;
         _navigationRevision++;
-        var action = _menuItems[selected].Action;
+        var action = SelectedAction;
         switch (action)
         {
             case MainMenuAction.Preflight:
@@ -907,7 +1103,7 @@ public sealed class VelaTerminalShell : Window
                 break;
             case MainMenuAction.ExecuteCompaction:
                 _compactionEstimate = null;
-                ShowActionPreview("影响预览", BuildCompactionPreview());
+                ShowCompactionImpactPreview();
                 break;
             case MainMenuAction.ManageProfiles:
                 ShowWorkspacePage("目标档案", BuildProfilePreview());
@@ -983,6 +1179,37 @@ public sealed class VelaTerminalShell : Window
         CompactionImpactStatus.Unavailable => "暂不可用",
         _ => "计算中…"
     };
+
+    private void UpdateCompactionImpactView()
+    {
+        var target = LockedTarget;
+        var targetSizeBytes = LockedTargetVhdxSizeBytes;
+        var estimateSizeBytes = _compactionEstimate?.CurrentVhdxSizeBytes;
+        var currentBytes = estimateSizeBytes ?? targetSizeBytes;
+        var reclaimableBytes = _compactionEstimate?.Status == CompactionImpactStatus.Estimated
+            ? _compactionEstimate.ReclaimableBytes
+            : null;
+        var projectedBytes = currentBytes is { } current && reclaimableBytes is { } reclaim
+            ? Math.Max(0, current - reclaim)
+            : (long?)null;
+        var currentSize = currentBytes is { } currentValue
+            ? PreflightOverviewFormatter.FormatCapacity(currentValue)
+            : target is null
+                ? "尚未锁定"
+                : "尚未读取";
+        var projectedSize = projectedBytes is { } projected
+            ? PreflightOverviewFormatter.FormatCapacity(projected)
+            : "计算中…";
+        var reclaimableSize = reclaimableBytes is { } reclaimValue
+            ? PreflightOverviewFormatter.FormatCapacity(reclaimValue)
+            : FormatCompactionEstimate();
+        _impactView.Apply(
+            target?.Name ?? string.Empty,
+            currentSize,
+            projectedSize,
+            reclaimableSize,
+            _compactionEstimate?.Status == CompactionImpactStatus.Estimated && projectedBytes is not null);
+    }
 
     private string BuildRunProgress(RunProgressViewModel progress)
     {
@@ -1092,11 +1319,11 @@ public sealed class VelaTerminalShell : Window
     {
         var label = item.Action switch
         {
-            MainMenuAction.Preflight => "01  预检结果",
+            MainMenuAction.Preflight => "01  工作区",
             MainMenuAction.ExecuteCompaction => "02  执行压缩",
+            MainMenuAction.OpenLogs => "02  日志归档",
             MainMenuAction.ManageProfiles => "03  目标档案",
             MainMenuAction.RecentRuns => "04  最近运行",
-            MainMenuAction.OpenLogs => "05  日志分析",
             MainMenuAction.Exit => "06  退出 Vela",
             _ => item.Label
         };
@@ -1113,9 +1340,9 @@ public sealed class VelaTerminalShell : Window
         _updatingNavigationLabels = true;
         try
         {
-            for (var index = 0; index < _menuItems.Count; index++)
+            for (var index = 0; index < _visibleMenuItems.Count; index++)
             {
-                _navigationLabels[index] = FormatNavigationLabel(_menuItems[index], index == selected);
+                _navigationLabels[index] = FormatNavigationLabel(_visibleMenuItems[index], index == selected);
             }
         }
         finally
@@ -1131,19 +1358,59 @@ public sealed class VelaTerminalShell : Window
             overview,
             _selectedTargetIndex,
             _targetLocked);
-        var status = _targetLocked
-            ? "✓ 目标已锁定"
-            : state.Status == AutomaticPreflightStatus.Checking
-                ? "◌ 扫描中"
-                : targets.Length > 1
-                    ? "ⓘ 发现多实例"
-                    : overview.Conclusion;
-        var context = _targetLocked
-            ? targets.FirstOrDefault(row => row.IsLocked)?.DistroName ?? overview.DistroName
-            : targets.Length > 1
-                ? "等待选择..."
-                : TuiDisplayText.Sanitize(dashboard.DistroName, 32);
-        return $"VELA  ·  {status}  ·  {context}";
+        if (CurrentPage == VelaWorkspacePage.Logs || CurrentPage == VelaWorkspacePage.LogAnalysis)
+        {
+            return "VELA  ·  历史运行记录浏览";
+        }
+
+        if (CurrentPage == VelaWorkspacePage.ActionPreview)
+        {
+            var targetName = LockedTargetName ?? "未锁定目标";
+            return _screenWidth < 110
+                ? $"VELA  ·  ③ 影响评估  ·  {targetName}"
+                : $"VELA  ·  ✔ 选择实例  ─  ✔ 环境预检  ─  ③ 影响评估  ·  {targetName}";
+        }
+
+        if (_targetLocked)
+        {
+            var lockedName = targets.FirstOrDefault(row => row.IsLocked)?.DistroName
+                ?? TuiDisplayText.Sanitize(dashboard.DistroName, 32);
+            var targetDetail = PreflightOverviewFormatter.CreateTargetDetail(
+                overview,
+                PreflightHomeViewModel.Create(
+                    overview,
+                    _selectedTargetIndex,
+                    targetLocked: true));
+            var preflightStatus = targetDetail.IsReady ? "✓" : "!";
+            var statusLabel = targetDetail.IsReady ? "预检通过" : "预检需处理";
+            if (_screenWidth < 72)
+            {
+                return $"VELA  ·  {preflightStatus} {lockedName}  ·  ② 环境预检";
+            }
+
+            return _screenWidth < 110
+                ? $"VELA  ·  {preflightStatus} {lockedName} {statusLabel}  ·  ② 环境预检"
+                : $"VELA  ·  {preflightStatus} {lockedName} {statusLabel}  ·  ① 选择实例 ✔  ─  ② 环境预检  ─  > 02 影响评估";
+        }
+
+        if (state.Status == AutomaticPreflightStatus.Checking)
+        {
+            return _screenWidth < 110
+                ? "VELA  ·  ◌ 扫描中  ·  等待结果…"
+                : "VELA  ·  ◌ 扫描中  ·  等待预检结果…";
+        }
+
+        var targetSummary = targets.Length == 0
+            ? "! 未发现可用实例  ·  按 R 重扫"
+            : $"ⓘ 发现 {targets.Length} 个实例  ·  ① 选择实例";
+        if (_screenWidth < 72)
+        {
+            return $"VELA  ·  {targetSummary}";
+        }
+
+        return _screenWidth < 110
+            ? $"VELA  ·  {targetSummary}  >  ② 环境预检"
+            : $"VELA  ·  {targetSummary}  ─  ② 环境预检  ─  ③ 影响评估  ─  ④ 执行压缩";
     }
 
     private string BuildOverview(DashboardViewModel dashboard, AutomaticPreflightState state)
@@ -1234,7 +1501,9 @@ public sealed class VelaTerminalShell : Window
             : Math.Clamp(_selectedTargetIndex, 0, home.Targets.Length - 1);
         _homeView.Visible = true;
         _targetDetailView.Visible = false;
+        _impactView.Visible = false;
         _workspace.Visible = false;
+        _contentHeading.Visible = true;
         _homeView.Apply(PreflightHomeViewModel.Create(
             Overview,
             _selectedTargetIndex,
@@ -1255,12 +1524,15 @@ public sealed class VelaTerminalShell : Window
         _homeView.Visible = false;
         _workspace.Visible = false;
         _targetDetailView.Visible = true;
+        _impactView.Visible = false;
         _evidencePanel.Visible = false;
         _logList.Visible = false;
         _targetDetailView.Apply(
             PreflightOverviewFormatter.CreateTargetDetail(Overview, home));
         SetOverviewDecisionVisible(false);
         SetContentTitle("目标预检详情");
+        _contentHeading.Visible = false;
+        _header.Text = BuildHeader(_applicationTitle, _dashboard, PreflightState);
         SetNavigationStatus();
         _targetDetailView.SetFocus();
         SetNeedsDraw();
@@ -1301,7 +1573,7 @@ public sealed class VelaTerminalShell : Window
     }
 
     private void SetContentTitle(string title) =>
-        _contentHeading.Text = TuiDisplayText.Sanitize(title, 32).ToUpperInvariant();
+        _contentHeading.Text = TuiDisplayText.Sanitize(title, 32);
 
     private void SetNavigationStatus()
     {
@@ -1313,22 +1585,23 @@ public sealed class VelaTerminalShell : Window
         var compact = _screenWidth < 110;
         var hint = CurrentPage switch
         {
-            VelaWorkspacePage.Overview when compact => "[↑↓]实例 [Enter]锁定 [R]重扫 [Esc]退出",
-            VelaWorkspacePage.TargetDetail when compact => "[Enter]预览压缩 [Esc]返回实例",
+            VelaWorkspacePage.Overview when compact && _screenWidth < 72 => "[↑↓]实例 [R]重扫 [Esc]退出",
+            VelaWorkspacePage.Overview when compact => "[↑↓]实例 [Enter]锁定并预检 [R]重扫 [Esc]退出",
+            VelaWorkspacePage.TargetDetail when compact => "[Esc]重新选择 [Enter]影响评估",
             VelaWorkspacePage.Profiles when compact => "[↑↓]切换 [Enter]刷新 [Esc]返回",
             VelaWorkspacePage.RecentRuns when compact => "[↑↓]切换 [Enter]刷新 [Esc]返回",
             VelaWorkspacePage.Logs or VelaWorkspacePage.LogAnalysis when compact => "[↑↓]切换 [Enter]日志 [Esc]返回",
-            VelaWorkspacePage.ActionPreview when compact => "[Y]开始执行 [Enter]确认 [Esc]返回",
+            VelaWorkspacePage.ActionPreview when compact => "[Esc]返回预检 [Y]确认执行压缩",
             VelaWorkspacePage.Confirmation when compact => "[Enter]确认 YES [Esc]取消",
             VelaWorkspacePage.Running when compact => "[执行中]journal 实时更新",
             VelaWorkspacePage.Result when compact => "[Enter/Esc]返回实例",
-            VelaWorkspacePage.Overview when _navigation.HasFocus => "[↑↓] 导航菜单   [Enter] 执行当前项   [Tab] 选择实例   [R] 重新扫描   [Esc] 退出",
-            VelaWorkspacePage.Overview => "[↑↓] 切换实例   [Enter] 查看明细并锁定目标   [R] 重新扫描   [Esc] 退出",
-            VelaWorkspacePage.TargetDetail => "[Enter] 预览压缩   [R] 重扫   [Esc] 返回实例列表",
+            VelaWorkspacePage.Overview when _navigation.HasFocus => "[↑↓]  导航菜单   [Enter]  执行当前项   [Tab]  选择实例   [Esc]  退出",
+            VelaWorkspacePage.Overview => "[↑↓]  切换目标   [Enter]  锁定并预检   [R]  重新扫描   [Esc] 退出",
+            VelaWorkspacePage.TargetDetail => "[Esc]  重新选择   [Enter]  进入影响评估",
             VelaWorkspacePage.Profiles => "[↑↓] 导航   [Enter] 刷新档案摘要   [Esc] 返回状态总览",
             VelaWorkspacePage.RecentRuns => "[↑↓] 导航   [Enter] 刷新运行记录   [Esc] 返回状态总览",
             VelaWorkspacePage.Logs or VelaWorkspacePage.LogAnalysis => "[↑↓] 导航   [Enter] 打开日志目录   [Esc] 返回状态总览",
-            VelaWorkspacePage.ActionPreview => "[↑↓] 导航   [Y] 开始执行   [Enter] 进入确认   [Esc] 返回状态总览",
+            VelaWorkspacePage.ActionPreview => "[Esc]  返回预检   [Y]  确认执行压缩",
             VelaWorkspacePage.Confirmation => "[Enter] 确认 YES   [Esc] 取消",
             VelaWorkspacePage.Running => "[执行中] journal 实时更新   键盘输入已锁定",
             VelaWorkspacePage.Result => "[Enter/Esc] 返回实例列表",
@@ -1549,14 +1822,14 @@ public sealed class VelaTerminalShell : Window
     private void ApplyContentRailLayout()
     {
         var showsEvidenceRail = ShouldShowEvidenceRail;
-        var unifiedSurface = (CurrentPage is VelaWorkspacePage.Overview or VelaWorkspacePage.TargetDetail)
+        var unifiedSurface = (CurrentPage is VelaWorkspacePage.Overview or VelaWorkspacePage.TargetDetail or VelaWorkspacePage.ActionPreview)
             && LayoutMode == VelaShellLayout.TwoPane;
         if (unifiedSurface)
         {
             // The homepage is a dashboard surface. Let the cards use the
             // available vertical space instead of compressing every fact into
             // one text block above a large empty area.
-            if (_homeView.Visible || _targetDetailView.Visible)
+            if (_homeView.Visible || _targetDetailView.Visible || _impactView.Visible)
             {
                 _contentPanel.Height = Dim.Fill(1);
             }
@@ -1589,6 +1862,10 @@ public sealed class VelaTerminalShell : Window
         _targetDetailView.Y = 2;
         _targetDetailView.Width = Dim.Fill(1);
         _targetDetailView.Height = _confirmationInput.Visible ? Dim.Fill(2) : Dim.Fill();
+        _impactView.X = 1;
+        _impactView.Y = 2;
+        _impactView.Width = Dim.Fill(1);
+        _impactView.Height = _confirmationInput.Visible ? Dim.Fill(2) : Dim.Fill();
         _evidencePanel.Visible = showsEvidenceRail;
         if (showsEvidenceRail)
         {
@@ -1660,6 +1937,7 @@ public sealed class TerminalGuiShellHost : IDisposable
     private void OnApplicationKeyDown(object? sender, Key key)
     {
         if (_shell.TryHandleRunLifecycleKey(key) ||
+            _shell.TryHandleQuitKey(key) ||
             _shell.TryHandleFocusToggleKey(key) ||
             _shell.TryHandleTargetNavigationKey(key) ||
             _shell.TryHandleTargetDetailKey(key) ||

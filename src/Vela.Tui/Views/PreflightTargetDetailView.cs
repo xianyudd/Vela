@@ -33,7 +33,7 @@ public sealed class PreflightTargetDetailView : View
         Height = Dim.Fill();
 
         _statusPanel = CreatePanel(VelaTerminalTheme.InfoPanel);
-        _statusPanel.Title = "状态总览";
+        _statusPanel.Title = string.Empty;
         _statusCode = CreateLabel(VelaTerminalTheme.Info);
         _statusTitle = CreateLabel(VelaTerminalTheme.Base);
         _statusSupport = CreateLabel(VelaTerminalTheme.Muted);
@@ -45,11 +45,10 @@ public sealed class PreflightTargetDetailView : View
         _targetPanel = CreatePanel(VelaTerminalTheme.Panel);
         _targetFields =
         [
-            new DetailField("目标档案"),
-            new DetailField("发行版"),
+            new DetailField("目标发行版"),
             new DetailField("当前体积"),
-            new DetailField("VHDX 路径"),
-            new DetailField("最终状态")
+            new DetailField("VHDX 绝对路径"),
+            new DetailField("实例锁定状态")
         ];
         foreach (var field in _targetFields)
         {
@@ -85,34 +84,33 @@ public sealed class PreflightTargetDetailView : View
             : detail.StatusCode.StartsWith("!", StringComparison.Ordinal)
                 ? VelaTerminalTheme.Attention
                 : VelaTerminalTheme.Info;
-        _statusTitle.Text = detail.StatusTitle;
+        _statusTitle.Text = BuildStatusTitle(detail);
         _statusTitle.SchemeName = VelaTerminalTheme.Base;
         _statusSupport.Text = detail.StatusSupport;
         _statusSupport.SchemeName = VelaTerminalTheme.Muted;
         _nextPanel.SchemeName = ready ? VelaTerminalTheme.Info : VelaTerminalTheme.Panel;
-        _nextStep.Text = detail.NextStep;
+        _nextStep.Text = ready ? "下一步  [Enter] 预览压缩" : detail.NextStep;
         _nextStep.SchemeName = ready ? VelaTerminalTheme.Info : VelaTerminalTheme.Muted;
 
-        _targetPanel.Title = "目标信息";
+        _targetPanel.Title = "TARGET INFO  目标信息";
         var targetValues = new[]
         {
             detail.DistroName,
-            detail.DistroName,
-            detail.CurrentSize,
-            detail.VhdxPath,
-            detail.FinalStatus
+            string.IsNullOrWhiteSpace(detail.CurrentSize) ? "尚未读取" : detail.CurrentSize,
+            string.IsNullOrWhiteSpace(detail.VhdxPath) ? "尚未读取" : detail.VhdxPath,
+            FormatDisplayStatus(detail.FinalStatus)
         };
         for (var index = 0; index < _targetFields.Length; index++)
         {
-            _targetFields[index].SetValue(targetValues[index], index == 3
+            _targetFields[index].SetValue(targetValues[index], index == 2
                 ? VelaTerminalTheme.Info
-                : index == 4 && detail.IsReady
+                : index == 3 && detail.IsReady
                     ? VelaTerminalTheme.Success
                     : VelaTerminalTheme.Base);
         }
 
         var passedChecks = detail.Checks.Count(check => check.Status == PreflightGateStatus.Matched);
-        _checksPanel.Title = $"检查明细（{passedChecks}/{MaxChecks}）";
+        _checksPanel.Title = $"CHECK DETAILS  检查明细（{passedChecks}/{MaxChecks}）";
         for (var index = 0; index < _checkRows.Length; index++)
         {
             var row = _checkRows[index];
@@ -170,7 +168,7 @@ public sealed class PreflightTargetDetailView : View
             }
 
             _statusPanel.BorderStyle = LineStyle.Single;
-            _statusPanel.Title = "状态总览";
+            _statusPanel.Title = string.Empty;
             _statusSupport.Visible = true;
             Place(_statusPanel, 0, 0, width, height);
             ArrangeStatus(width, height, compact: true);
@@ -180,7 +178,7 @@ public sealed class PreflightTargetDetailView : View
         _statusPanel.Visible = true;
         _targetPanel.Visible = true;
         _statusPanel.BorderStyle = LineStyle.Single;
-        _statusPanel.Title = "状态总览";
+        _statusPanel.Title = string.Empty;
         _statusSupport.Visible = true;
         var compact = width < 72 || height < 22;
         var statusHeight = compact ? 4 : 6;
@@ -212,7 +210,7 @@ public sealed class PreflightTargetDetailView : View
         {
             _statusTitle.Text = compact && width < 72
                 ? _detail.IsReady ? "5 项 PASS · 无阻断" : "预检需处理"
-                : _detail.StatusTitle;
+                : BuildStatusTitle(_detail);
         }
         Place(_statusCode, 2, 1, compact ? 18 : 20, 1);
         var titleX = compact ? 21 : 22;
@@ -235,7 +233,7 @@ public sealed class PreflightTargetDetailView : View
     {
         var valueX = compact ? Math.Max(20, width / 2) : Math.Max(28, width - 48);
         var valueWidth = Math.Max(1, width - valueX - 2);
-        var leaderWidth = Math.Max(1, valueX - 18);
+        var leaderWidth = Math.Max(1, valueX - 22);
         for (var index = 0; index < _targetFields.Length; index++)
         {
             var y = compact ? 1 + index : 1 + index * 2;
@@ -246,9 +244,9 @@ public sealed class PreflightTargetDetailView : View
                 continue;
             }
 
-            Place(field.Key, 2, y, 14, 1);
+            Place(field.Key, 2, y, 18, 1);
             field.Leader.Text = new string('·', leaderWidth);
-            Place(field.Leader, 16, y, leaderWidth, 1);
+            Place(field.Leader, 20, y, leaderWidth, 1);
             Place(field.Value, valueX, y, valueWidth, 1);
             field.AlignValue(valueWidth);
         }
@@ -359,7 +357,7 @@ public sealed class PreflightTargetDetailView : View
                     : check.Status == PreflightGateStatus.Failed
                         ? VelaTerminalTheme.Error
                         : VelaTerminalTheme.Muted;
-            Label.Text = check.Label;
+            Label.Text = FormatDisplayCheckLabel(check.Label);
             Status.Text = check.StatusText;
             Status.SchemeName = Symbol.SchemeName;
         }
@@ -370,4 +368,26 @@ public sealed class PreflightTargetDetailView : View
         var safe = TuiDisplayText.Sanitize(value, width);
         return new string(' ', Math.Max(0, width - safe.Length)) + safe;
     }
+
+    private static string FormatDisplayStatus(string status) => status switch
+    {
+        "Ready ✓" => "READY ✓",
+        "Running ⚠" => "RUNNING ⚠",
+        "Blocked !" => "BLOCKED !",
+        "Failed ×" => "FAILED ×",
+        "Checking …" => "CHECKING …",
+        _ => status
+    };
+
+    private static string FormatDisplayCheckLabel(string label) => label switch
+    {
+        "目标档案已读取" => "目标档案可读性",
+        "VHDX 已配置" => "磁盘快照挂载点",
+        "快照与日志可用" => "VHDX 文件系统结构",
+        "发行版映射匹配" => "系统环境诊断",
+        "无进程独占锁定" => "闲置状态校验",
+        _ => label
+    };
+
+    private static string BuildStatusTitle(PreflightTargetDetailViewModel detail) => detail.StatusTitle;
 }

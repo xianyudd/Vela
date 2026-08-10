@@ -15,6 +15,7 @@ public static class VelaTerminalTheme
     public const string Error = "Vela.Error";
     public const string Muted = "Vela.Muted";
     public const string Surface = "Vela.Surface";
+    public const string SurfacePanel = "Vela.SurfacePanel";
     public const string InfoPanel = "Vela.InfoPanel";
     public const string SuccessPanel = "Vela.SuccessPanel";
     public const string Input = "Vela.Input";
@@ -64,6 +65,11 @@ public static class VelaTerminalTheme
         Add(Surface, new Scheme
         {
             Normal = new TAttribute(PrimaryText, PanelSurface),
+            Focus = new TAttribute(Color.White, PanelSurface, TextStyle.Bold)
+        });
+        Add(SurfacePanel, new Scheme
+        {
+            Normal = new TAttribute(Border, PanelSurface),
             Focus = new TAttribute(Color.White, PanelSurface, TextStyle.Bold)
         });
         Add(InfoPanel, new Scheme

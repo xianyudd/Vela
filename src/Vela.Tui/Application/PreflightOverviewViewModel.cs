@@ -192,7 +192,8 @@ public sealed record PreflightOverviewViewModel(
     PreflightEvidenceViewModel Evidence,
     int NoticeCount,
     string? FirstNotice,
-    string NextStep)
+    string NextStep,
+    string? ConfiguredVhdxPath = null)
 {
     private const string MappingGate = "注册表 / Lxss 映射";
     private const string VhdxGate = "VHDX 快照";
@@ -232,7 +233,8 @@ public sealed record PreflightOverviewViewModel(
             evidence,
             notices.Length + (dashboard.ErrorMessage is null ? 0 : 1),
             firstNotice,
-            FormatNextStep(state.Status));
+            FormatNextStep(state.Status),
+            dashboard.ConfiguredVhdxPath);
     }
 
     private static ImmutableArray<PreflightGateViewModel> CreateGates(
@@ -969,28 +971,53 @@ public static class PreflightOverviewFormatter
 
         var selected = home.Targets.FirstOrDefault(row => row.IsSelected)
             ?? home.Targets.FirstOrDefault();
-        var checks = home.Details
-            .Select(detail => new PreflightTargetCheckViewModel(
-                FormatTargetCheckLabel(detail.Title),
-                detail.Detail,
-                detail.Status))
+        var selectedDistribution = selected is null
+            ? null
+            : overview.InstalledDistros.FirstOrDefault(distribution =>
+                string.Equals(
+                    distribution.Name,
+                    selected.DistroName,
+                    StringComparison.OrdinalIgnoreCase));
+        var isConfiguredTarget = selected is not null && string.Equals(
+            selected.DistroName,
+            overview.DistroName,
+            StringComparison.OrdinalIgnoreCase);
+        var isRunning = selectedDistribution?.State == WslDistributionState.Running;
+        var vhdxPath = selectedDistribution?.VhdxPath;
+        if (string.IsNullOrWhiteSpace(vhdxPath) && isConfiguredTarget)
+        {
+            vhdxPath = string.IsNullOrWhiteSpace(overview.Evidence.FilePath)
+                ? overview.ConfiguredVhdxPath
+                : overview.Evidence.FilePath;
+        }
+        var hasVhdxPath = !string.IsNullOrWhiteSpace(vhdxPath);
+
+        var checks = CreateTargetChecks(
+                overview,
+                selected,
+                selectedDistribution,
+                isConfiguredTarget,
+                hasVhdxPath,
+                isRunning)
             .ToImmutableArray();
-        var blockerCount = checks.Count(check =>
-            check.Status is PreflightGateStatus.Attention or PreflightGateStatus.Failed);
-        var isReady = overview.Status == AutomaticPreflightStatus.Ready && blockerCount == 0;
+        var blockerCount = checks.Count(check => check.Status != PreflightGateStatus.Matched);
+        var isReady = selected is not null &&
+            overview.Status is not (AutomaticPreflightStatus.Idle or AutomaticPreflightStatus.Checking or AutomaticPreflightStatus.Failed or AutomaticPreflightStatus.Stale) &&
+            blockerCount == 0;
+        var statusCode = isReady
+            ? "✓ PASS"
+            : overview.Status == AutomaticPreflightStatus.Failed
+                ? "× FAIL"
+                : overview.Status is AutomaticPreflightStatus.Idle or AutomaticPreflightStatus.Checking or AutomaticPreflightStatus.Stale
+                    ? "◌ CHECK"
+                    : "! BLOCKED";
 
         return new PreflightTargetDetailViewModel(
             selected?.DistroName ?? overview.DistroName,
             selected?.CurrentSize ?? overview.Evidence.FileSize,
-            selected?.VhdxPath ?? FormatVhdxPath(overview.Evidence.FilePath),
+            FormatVhdxPath(vhdxPath),
             selected is null ? "待检查" : FormatDetailTargetStatus(selected.Status),
-            isReady
-                ? "✓ PASS"
-                : overview.Status == AutomaticPreflightStatus.Failed
-                    ? "× FAIL"
-                    : overview.Status == AutomaticPreflightStatus.Checking
-                        ? "◌ CHECK"
-                        : "! BLOCKED",
+            statusCode,
             isReady
                 ? "5 项已通过，未发现阻断项"
                 : blockerCount > 0
@@ -1004,6 +1031,87 @@ public static class PreflightOverviewFormatter
                 : "下一步：处理检查项后按 R 重扫",
             checks,
             blockerCount);
+    }
+
+    private static IEnumerable<PreflightTargetCheckViewModel> CreateTargetChecks(
+        PreflightOverviewViewModel overview,
+        PreflightTargetRowViewModel? selected,
+        WslDistribution? selectedDistribution,
+        bool isConfiguredTarget,
+        bool hasVhdxPath,
+        bool isRunning)
+    {
+        var isChecking = overview.Status is AutomaticPreflightStatus.Idle or AutomaticPreflightStatus.Checking or AutomaticPreflightStatus.Stale;
+        var mapping = Gate(overview, "注册表 / Lxss 映射");
+        var vhdx = Gate(overview, "VHDX 快照");
+        var logs = Gate(overview, "日志可用性");
+
+        var targetStatus = selected is null
+            ? PreflightGateStatus.Attention
+            : isChecking
+                ? PreflightGateStatus.NotChecked
+                : PreflightGateStatus.Matched;
+        var vhdxStatus = !hasVhdxPath
+            ? PreflightGateStatus.Attention
+            : isChecking
+                ? PreflightGateStatus.NotChecked
+                : isConfiguredTarget
+                    ? vhdx.Status
+                    : PreflightGateStatus.Matched;
+        var storageStatus = !hasVhdxPath
+            ? PreflightGateStatus.Attention
+            : isChecking
+                ? PreflightGateStatus.NotChecked
+                : logs.Status == PreflightGateStatus.Failed
+                    ? PreflightGateStatus.Failed
+                    : logs.Status == PreflightGateStatus.NotChecked
+                        ? PreflightGateStatus.NotChecked
+                        : PreflightGateStatus.Matched;
+        var mappingStatus = selected is null
+            ? PreflightGateStatus.Attention
+            : isChecking
+                ? PreflightGateStatus.NotChecked
+                : isConfiguredTarget
+                    ? mapping.Status
+                    : PreflightGateStatus.Matched;
+        var finalStatus = selected is null
+            ? PreflightGateStatus.Attention
+            : isChecking
+                ? PreflightGateStatus.NotChecked
+                : overview.Status == AutomaticPreflightStatus.Failed
+                    ? PreflightGateStatus.Failed
+                    : isRunning
+                        ? PreflightGateStatus.Attention
+                        : PreflightGateStatus.Matched;
+
+        yield return new PreflightTargetCheckViewModel(
+            FormatTargetCheckLabel("目标档案已读取"),
+            selected is null ? "未在当前 WSL 清单中找到。" : "实例已从当前清单读取。",
+            targetStatus);
+        yield return new PreflightTargetCheckViewModel(
+            FormatTargetCheckLabel("VHDX 已配置"),
+            hasVhdxPath ? "目标 VHDX 路径已解析。" : "目标没有可用的 VHDX 路径。",
+            vhdxStatus);
+        yield return new PreflightTargetCheckViewModel(
+            FormatTargetCheckLabel("快照与日志可用"),
+            storageStatus == PreflightGateStatus.Matched
+                ? selectedDistribution?.VhdxSizeBytes is not null
+                    ? "VHDX 路径和日志均可用。"
+                    : "VHDX 路径和日志均可用，体积待采集。"
+                : logs.Detail,
+            storageStatus);
+        yield return new PreflightTargetCheckViewModel(
+            FormatTargetCheckLabel("发行版映射"),
+            isConfiguredTarget ? mapping.Detail : "已从实例清单锁定目标。",
+            mappingStatus);
+        yield return new PreflightTargetCheckViewModel(
+            FormatTargetCheckLabel("执行前最终校验"),
+            finalStatus == PreflightGateStatus.Matched
+                ? "目标已锁定，可进入影响评估。"
+                : isRunning
+                    ? "实例正在运行，请先停止目标。"
+                : "完成阻断项后重新检查。",
+            finalStatus);
     }
 
     private static string FormatTargetCheckLabel(string title) => title switch
@@ -1032,7 +1140,6 @@ public static class PreflightOverviewFormatter
             distribution.Name,
             overview.DistroName,
             StringComparison.OrdinalIgnoreCase);
-        var status = GetTargetRowStatus(overview, distribution, isTarget);
         var currentSize = distribution.VhdxSizeBytes is { } sizeBytes
             ? PreflightOverviewFormatter.FormatCapacity(sizeBytes)
             : isTarget && overview.Evidence.IsAvailable
@@ -1046,6 +1153,11 @@ public static class PreflightOverviewFormatter
             evidencePath = overview.Evidence.FilePath;
         }
 
+        if (string.IsNullOrWhiteSpace(evidencePath) && isTarget)
+        {
+            evidencePath = overview.ConfiguredVhdxPath;
+        }
+
         var vhdx = PreflightOverviewFormatter.FormatVhdxPath(evidencePath);
         if (string.IsNullOrWhiteSpace(vhdx))
         {
@@ -1053,6 +1165,11 @@ public static class PreflightOverviewFormatter
                 ? overview.VhdxConfigured ? "已配置" : "未配置"
                 : "未读取";
         }
+        var status = GetTargetRowStatus(
+            overview,
+            distribution,
+            isTarget,
+            !string.IsNullOrWhiteSpace(evidencePath));
 
         return new PreflightTargetRowViewModel(
             TuiDisplayText.Sanitize(distribution.Name, 64),
@@ -1067,7 +1184,8 @@ public static class PreflightOverviewFormatter
     private static PreflightTargetRowStatus GetTargetRowStatus(
         PreflightOverviewViewModel overview,
         WslDistribution distribution,
-        bool isTarget)
+        bool isTarget,
+        bool hasVhdxPath)
     {
         if (distribution.State == WslDistributionState.Running)
         {
@@ -1076,7 +1194,9 @@ public static class PreflightOverviewFormatter
 
         if (!isTarget)
         {
-            return PreflightTargetRowStatus.Ready;
+            return hasVhdxPath
+                ? PreflightTargetRowStatus.Ready
+                : PreflightTargetRowStatus.Attention;
         }
 
         var mapping = overview.Gates.FirstOrDefault(gate => gate.Label == "注册表 / Lxss 映射");

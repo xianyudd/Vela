@@ -411,13 +411,13 @@ public sealed class PreflightOverviewViewModelTests
         Assert.Equal("65.00 GiB", detail.CurrentSize);
         Assert.Contains(@"D:\Docker\wsl\data\ext4.vhdx", detail.VhdxPath, StringComparison.Ordinal);
         Assert.Equal("Running ⚠", detail.FinalStatus);
-        Assert.Equal("✓ PASS", detail.StatusCode);
-        Assert.Equal("5 项已通过，未发现阻断项", detail.StatusTitle);
+        Assert.Equal("! BLOCKED", detail.StatusCode);
+        Assert.Equal("1 项检查需要处理", detail.StatusTitle);
         Assert.Equal(
             ["目标档案已读取", "VHDX 已配置", "快照与日志可用", "发行版映射匹配", "无进程独占锁定"],
             detail.Checks.Select(check => check.Label));
-        Assert.All(detail.Checks, check => Assert.Equal("PASS", check.StatusText));
-        Assert.Equal(0, detail.BlockerCount);
+        Assert.Equal("处理", detail.Checks[^1].StatusText);
+        Assert.Equal(1, detail.BlockerCount);
     }
 
     [Fact]

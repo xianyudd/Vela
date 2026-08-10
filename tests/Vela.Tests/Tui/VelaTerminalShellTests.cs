@@ -15,6 +15,145 @@ namespace Vela.Tests.Tui;
 public sealed class VelaTerminalShellTests
 {
     [Fact]
+    public void Design_sidebar_exposes_workspace_and_log_archive_modules()
+    {
+        using var app = Application.Create(new VirtualTimeProvider());
+        app.Init(DriverRegistry.Names.ANSI);
+        VelaTerminalTheme.Register();
+        using var shell = new VelaTerminalShell(
+            new MainMenu().ViewModel,
+            DashboardViewModel.CreateInitial(CreateProfile()));
+        app.Driver!.SetScreenSize(160, 45);
+        using var host = new TerminalGuiShellHost(app, shell);
+        var session = app.Begin(shell);
+
+        try
+        {
+            shell.ShowOverview();
+            app.LayoutAndDraw(forceRedraw: true);
+
+            var rendered = app.Driver.ToString();
+            Assert.Contains("01  工作区", rendered, StringComparison.Ordinal);
+            Assert.Contains("02  日志归档", rendered, StringComparison.Ordinal);
+            Assert.DoesNotContain("03  日志归档", rendered, StringComparison.Ordinal);
+            Assert.DoesNotContain("04  最近运行", rendered, StringComparison.Ordinal);
+            Assert.DoesNotContain("05  日志分析", rendered, StringComparison.Ordinal);
+        }
+        finally
+        {
+            app.End(session!);
+        }
+    }
+
+    [Fact]
+    public void Design_detail_uses_target_info_check_details_and_breadcrumb_copy()
+    {
+        var profile = CreateProfile();
+        var dashboard = CreateReadyDashboard(profile);
+        using var app = Application.Create(new VirtualTimeProvider());
+        app.Init(DriverRegistry.Names.ANSI);
+        VelaTerminalTheme.Register();
+        using var shell = new VelaTerminalShell(new MainMenu().ViewModel, dashboard);
+        app.Driver!.SetScreenSize(160, 45);
+        using var host = new TerminalGuiShellHost(app, shell);
+        var session = app.Begin(shell);
+
+        try
+        {
+            shell.SetCurrentProfile(profile);
+            shell.ApplyPreflight(new AutomaticPreflightState(
+                profile.Id,
+                1,
+                1,
+                AutomaticPreflightStatus.Ready,
+                dashboard,
+                "预检已完成。"));
+            shell.ShowOverview();
+            Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.Enter));
+            app.LayoutAndDraw(forceRedraw: true);
+
+            var rendered = app.Driver.ToString();
+            Assert.Contains("TARGET INFO", rendered, StringComparison.Ordinal);
+            Assert.Contains("CHECK DETAILS", rendered, StringComparison.Ordinal);
+            Assert.Contains("目标发行版", rendered, StringComparison.Ordinal);
+            Assert.Contains("实例锁定状态", rendered, StringComparison.Ordinal);
+            Assert.Contains("✓ Ubuntu-24.04 预检通过", rendered, StringComparison.Ordinal);
+            Assert.Contains("> 02 影响评估", rendered, StringComparison.Ordinal);
+        }
+        finally
+        {
+            app.End(session!);
+        }
+    }
+
+    [Fact]
+    public void Design_impact_view_renders_actual_reclaimable_space_for_locked_target()
+    {
+        var profile = CreateProfile();
+        var dashboard = CreateReadyDashboard(profile);
+        using var app = Application.Create(new VirtualTimeProvider());
+        app.Init(DriverRegistry.Names.ANSI);
+        VelaTerminalTheme.Register();
+        using var shell = new VelaTerminalShell(new MainMenu().ViewModel, dashboard);
+        app.Driver!.SetScreenSize(160, 45);
+        using var host = new TerminalGuiShellHost(app, shell);
+        var session = app.Begin(shell);
+
+        try
+        {
+            shell.SetCurrentProfile(profile);
+            shell.ApplyPreflight(new AutomaticPreflightState(
+                profile.Id,
+                1,
+                1,
+                AutomaticPreflightStatus.Ready,
+                dashboard,
+                "预检已完成。"));
+            shell.ShowOverview();
+            Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.Enter));
+            shell.SelectMenuIndex(1);
+            var revision = shell.NavigationRevision;
+            Assert.True(shell.ApplyCompactionImpactEstimate(
+                revision,
+                profile.DistroName,
+                new CompactionImpactEstimate(
+                    CompactionImpactStatus.Estimated,
+                    124L * PreflightOverviewFormatter.Gibibyte,
+                    118L * PreflightOverviewFormatter.Gibibyte,
+                    6L * PreflightOverviewFormatter.Gibibyte,
+                    "按根文件系统已用空间估算。")));
+            app.LayoutAndDraw(forceRedraw: true);
+
+            var rendered = app.Driver.ToString();
+            Assert.Contains("影响评估（Impact Assessment）", rendered, StringComparison.Ordinal);
+            Assert.Contains("Sparse diskpart", rendered, StringComparison.Ordinal);
+            Assert.Contains("预计可回收空间", rendered, StringComparison.Ordinal);
+            Assert.Contains("6.00 GiB", rendered, StringComparison.Ordinal);
+            Assert.Contains("[Y]  确认执行", rendered, StringComparison.Ordinal);
+        }
+        finally
+        {
+            app.End(session!);
+        }
+    }
+
+    [Theory]
+    [InlineData('q')]
+    [InlineData('Q')]
+    public void Design_q_shortcut_requests_exit_from_read_only_views(char input)
+    {
+        using var shell = new VelaTerminalShell(
+            new MainMenu().ViewModel,
+            DashboardViewModel.CreateInitial(CreateProfile()));
+        var actions = new List<MainMenuAction>();
+        shell.ActionRequested += actions.Add;
+
+        Assert.True(shell.NewKeyDownEvent(new Key(input)));
+
+        Assert.Equal([MainMenuAction.Exit], actions);
+    }
+
+    [Fact]
     public void Requesting_a_menu_item_raises_its_typed_action()
     {
         using var shell = new VelaTerminalShell(
@@ -232,6 +371,92 @@ public sealed class VelaTerminalShellTests
 
         Assert.Empty(actions);
         Assert.Contains("锁定", shell.StatusText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Missing_profile_does_not_block_a_locked_installed_target()
+    {
+        var profile = CreateProfile();
+        var dockerPath = @"D:\Docker\wsl\data\ext4.vhdx";
+        var dashboard = CreateReadyDashboard(profile) with
+        {
+            MappingState = TargetMappingState.NotFound,
+            Notices = ImmutableArray.Create("目标发行版未安装"),
+            ErrorMessage = "目标发行版未安装",
+            InstalledDistros = ImmutableArray.Create(
+                new Vela.Core.Contracts.WslDistribution(
+                    "docker-desktop",
+                    Vela.Core.Contracts.WslDistributionState.Stopped,
+                    2,
+                    true,
+                    dockerPath,
+                    10L * PreflightOverviewFormatter.Gibibyte))
+        };
+        using var shell = new VelaTerminalShell(new MainMenu().ViewModel, dashboard);
+        var actions = new List<MainMenuAction>();
+        shell.ActionRequested += actions.Add;
+        shell.SetCurrentProfile(profile);
+        shell.ApplyPreflight(new AutomaticPreflightState(
+            profile.Id,
+            1,
+            1,
+            AutomaticPreflightStatus.Attention,
+            dashboard,
+            "预检已完成，发现需要关注的问题。"));
+        shell.ShowOverview();
+
+        shell.NewKeyDownEvent(Key.Enter);
+        Assert.Equal("docker-desktop", shell.LockedTargetName);
+        Assert.Equal(VelaWorkspacePage.TargetDetail, shell.CurrentPage);
+
+        shell.NewKeyDownEvent(Key.Enter);
+
+        Assert.Equal(VelaWorkspacePage.ActionPreview, shell.CurrentPage);
+        shell.RequestAction(1);
+
+        Assert.Equal([MainMenuAction.ExecuteCompaction], actions);
+        var request = shell.CreateLockedCompactionRequest(profile, Guid.NewGuid());
+        Assert.NotNull(request);
+        Assert.Equal("docker-desktop", request!.Profile.DistroName);
+        Assert.Equal(dockerPath, request.Profile.VhdxPath);
+    }
+
+    [Fact]
+    public void Running_locked_target_stays_blocked_until_the_instance_is_stopped()
+    {
+        var profile = CreateProfile();
+        var dashboard = CreateReadyDashboard(profile) with
+        {
+            InstalledDistros = ImmutableArray.Create(
+                new Vela.Core.Contracts.WslDistribution(
+                    profile.DistroName,
+                    Vela.Core.Contracts.WslDistributionState.Running,
+                    2,
+                    true,
+                    profile.VhdxPath,
+                    10L * PreflightOverviewFormatter.Gibibyte))
+        };
+        using var shell = new VelaTerminalShell(new MainMenu().ViewModel, dashboard);
+        var actions = new List<MainMenuAction>();
+        shell.ActionRequested += actions.Add;
+        shell.SetCurrentProfile(profile);
+        shell.ApplyPreflight(new AutomaticPreflightState(
+            profile.Id,
+            1,
+            1,
+            AutomaticPreflightStatus.Ready,
+            dashboard,
+            "预检已完成。"));
+        shell.ShowOverview();
+
+        shell.NewKeyDownEvent(Key.Enter);
+        Assert.Equal(VelaWorkspacePage.TargetDetail, shell.CurrentPage);
+
+        shell.NewKeyDownEvent(Key.Enter);
+
+        Assert.Equal(VelaWorkspacePage.TargetDetail, shell.CurrentPage);
+        Assert.Contains("尚未通过", shell.StatusText, StringComparison.Ordinal);
+        Assert.Empty(actions);
     }
 
     [Fact]
@@ -746,8 +971,7 @@ public sealed class VelaTerminalShellTests
             Assert.Contains("正在扫描 WSL 实例", rendered);
             Assert.Contains("INFO", rendered);
             Assert.Contains("实例列表", rendered);
-            Assert.Contains("检查 / 执行", rendered);
-            Assert.Contains("追溯", rendered);
+            Assert.Contains("工作区", rendered);
         }
         finally
         {
@@ -782,7 +1006,17 @@ public sealed class VelaTerminalShellTests
                 RunningDistros: System.Collections.Immutable.ImmutableArray.Create("Ubuntu-24.04"),
                 Notices: System.Collections.Immutable.ImmutableArray.Create("稀疏状态未知"),
                 ErrorMessage: "稀疏状态未知",
-                LogsAvailable: true),
+                LogsAvailable: true,
+                RunningInventoryState: PreflightDataState.Available,
+                LogAvailabilityState: PreflightDataState.Available,
+                InstalledDistros: ImmutableArray.Create(
+                    new Vela.Core.Contracts.WslDistribution(
+                        "Ubuntu-24.04",
+                        Vela.Core.Contracts.WslDistributionState.Stopped,
+                        2,
+                        true,
+                        profile.VhdxPath,
+                        2L * PreflightOverviewFormatter.Gibibyte))),
             "预检已完成，发现需要关注的问题。"));
         app.Driver!.SetScreenSize(80, 24);
         using var host = new TerminalGuiShellHost(app, shell);
@@ -956,9 +1190,11 @@ public sealed class VelaTerminalShellTests
                     true),
                 new Vela.Core.Contracts.WslDistribution(
                     "docker-desktop",
-                    Vela.Core.Contracts.WslDistributionState.Running,
+                    Vela.Core.Contracts.WslDistributionState.Stopped,
                     2,
-                    false)),
+                    false,
+                    @"D:\Docker\wsl\data\ext4.vhdx",
+                    65L * PreflightOverviewFormatter.Gibibyte)),
             RunningInventoryState = PreflightDataState.Available,
             LogAvailabilityState = PreflightDataState.Available,
             LogsAvailable = true
@@ -1008,6 +1244,8 @@ public sealed class VelaTerminalShellTests
             Assert.Empty(actions);
 
             Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.Esc));
+            Assert.Equal(VelaWorkspacePage.TargetDetail, shell.CurrentPage);
+            Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.Esc));
             Assert.Equal(VelaWorkspacePage.Overview, shell.CurrentPage);
             Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.Tab));
             Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.CursorDown));
@@ -1055,10 +1293,13 @@ public sealed class VelaTerminalShellTests
 
             var rendered = app.Driver.ToString();
             Assert.Equal(VelaWorkspacePage.TargetDetail, shell.CurrentPage);
-            Assert.Contains("目标预检详情", rendered, StringComparison.Ordinal);
             if (width >= 80)
             {
-                Assert.Contains("状态总览", rendered, StringComparison.Ordinal);
+                Assert.Contains("TARGET INFO", rendered, StringComparison.Ordinal);
+            }
+            if (width >= 140 && height >= 40)
+            {
+                Assert.Contains("CHECK DETAILS", rendered, StringComparison.Ordinal);
             }
             Assert.Contains("PASS", rendered, StringComparison.Ordinal);
             Assert.Contains("导航 / 操作", rendered, StringComparison.Ordinal);

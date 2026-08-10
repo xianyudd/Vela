@@ -156,7 +156,7 @@ public sealed class PreflightHomeView : View
         _infoPanel.Visible = true;
         _tablePanel.Visible = true;
         _compactSummary.Visible = false;
-        var infoHeight = width < 72 ? 3 : 5;
+        var infoHeight = width < 48 ? 3 : width < 72 ? 4 : 5;
         var tableY = infoHeight + 2;
         var remaining = Math.Max(4, height - tableY);
         var desiredTableHeight = _home.Targets.Length == 0
@@ -167,15 +167,17 @@ public sealed class PreflightHomeView : View
         Place(_infoPanel, 0, 0, width, infoHeight);
         Place(_tablePanel, 0, tableY, width, tableHeight);
         ArrangeInfo(width, infoHeight);
-        ArrangeTable(width, tableHeight, showDetails: width >= 96);
+        ArrangeTable(width, tableHeight, showDetails: width >= 72);
     }
 
     private void ArrangeInfo(int width, int height)
     {
-        Place(_infoPrefix, 2, 1, Math.Min(12, Math.Max(1, width - 4)), 1);
-        var titleX = width < 72 ? 2 : 14;
+        var compact = width < 72;
+        var prefixWidth = Math.Min(12, Math.Max(1, width - 4));
+        var titleX = compact ? Math.Min(prefixWidth + 2, Math.Max(2, width / 3)) : 16;
+        Place(_infoPrefix, 2, 1, prefixWidth, 1);
         Place(_infoTitle, titleX, 1, Math.Max(1, width - titleX - 2), 1);
-        Place(_infoDetail, titleX, Math.Min(2, height - 1), Math.Max(1, width - titleX - 2), 1);
+        Place(_infoDetail, compact ? 2 : titleX, Math.Min(2, height - 1), Math.Max(1, width - (compact ? 4 : titleX + 2)), 1);
     }
 
     private void ArrangeTable(int width, int height, bool showDetails)
@@ -249,15 +251,23 @@ public sealed class PreflightHomeView : View
             AutomaticPreflightStatus.Checking => "正在扫描 WSL 实例…",
             AutomaticPreflightStatus.Failed => "扫描失败，请按 R 重试。",
             _ when home.Targets.Length == 0 => "未发现可用的 WSL 实例。",
-            _ when home.StatusReason == "目标发行版未安装" =>
-                $"扫描完成，发现 {home.Targets.Length} 个 WSL 实例；目标发行版未安装。",
             _ => $"扫描完成，发现 {home.Targets.Length} 个 WSL 实例。"
         };
     }
 
-    private static string BuildInfoDetail(PreflightHomeViewModel home) => home.TargetLocked
-        ? "已锁定目标；按 R 重新扫描，或按 Esc 返回菜单。"
-        : "使用上下方向键选择需要优化的目标，按 Enter 查看其详细检查报告。";
+    private static string BuildInfoDetail(PreflightHomeViewModel home)
+    {
+        if (home.TargetLocked)
+        {
+            return "已锁定目标；按 R 重新扫描，或按 Esc 返回实例列表。";
+        }
+
+        var detail = "请使用 ↑↓ 键选择目标，按 Enter 查看详细预检报告。";
+        return home.Status is AutomaticPreflightStatus.Attention or AutomaticPreflightStatus.Failed &&
+            !string.IsNullOrWhiteSpace(home.StatusReason)
+            ? $"{detail} 关注项：{home.StatusReason}"
+            : detail;
+    }
 
     private static FrameView CreatePanel() => new()
     {
@@ -319,9 +329,7 @@ public sealed class PreflightHomeView : View
             Distro.SchemeName = rowScheme;
             Size.SchemeName = rowScheme;
             Path.SchemeName = row.IsSelected ? VelaTerminalTheme.Selection : VelaTerminalTheme.Muted;
-            Status.SchemeName = row.IsSelected
-                ? VelaTerminalTheme.Selection
-                : SchemeFor(row.Status);
+            Status.SchemeName = SchemeFor(row.Status);
         }
 
         public void SetPathWidth(int width) =>

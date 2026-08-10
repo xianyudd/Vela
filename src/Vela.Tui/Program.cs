@@ -407,7 +407,8 @@ using (var terminalApplication = Application.Create())
     async Task ShowCompactionImpactAsync(long revision)
     {
         var target = shell.LockedTarget;
-        var currentSize = shell.LockedTargetVhdxSizeBytes;
+        var targetPath = shell.LockedTargetVhdxPath;
+        var currentSize = shell.LockedTargetVhdxSizeBytes ?? TryReadVhdxLength(targetPath);
         if (target is null)
         {
             return;
@@ -417,7 +418,7 @@ using (var terminalApplication = Application.Create())
             ? await impactEstimator
                 .EstimateAsync(
                     target.Name,
-                    shell.LockedTargetVhdxPath ?? string.Empty,
+                    targetPath ?? string.Empty,
                     sizeBytes,
                     executionCancellation.Token)
                 .ConfigureAwait(false)
@@ -438,6 +439,24 @@ using (var terminalApplication = Application.Create())
         }
         catch (InvalidOperationException) when (executionCancellation.IsCancellationRequested)
         {
+        }
+    }
+
+    static long? TryReadVhdxLength(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || path.Any(char.IsControl))
+        {
+            return null;
+        }
+
+        try
+        {
+            var file = new FileInfo(path);
+            return file.Exists && file.Length >= 0 ? file.Length : null;
+        }
+        catch (Exception)
+        {
+            return null;
         }
     }
 

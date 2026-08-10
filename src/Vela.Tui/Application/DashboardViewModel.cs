@@ -53,7 +53,8 @@ public sealed record DashboardViewModel(
     bool LogsAvailable,
     PreflightDataState RunningInventoryState = PreflightDataState.NotChecked,
     PreflightDataState LogAvailabilityState = PreflightDataState.NotChecked,
-    ImmutableArray<WslDistribution> InstalledDistros = default)
+    ImmutableArray<WslDistribution> InstalledDistros = default,
+    string? ConfiguredVhdxPath = null)
 {
     public static DashboardViewModel CreateInitial(Profile profile)
     {
@@ -73,7 +74,8 @@ public sealed record DashboardViewModel(
             LogsAvailable: false,
             RunningInventoryState: PreflightDataState.NotChecked,
             LogAvailabilityState: PreflightDataState.NotChecked,
-            InstalledDistros: ImmutableArray<WslDistribution>.Empty);
+            InstalledDistros: ImmutableArray<WslDistribution>.Empty,
+            ConfiguredVhdxPath: profile.VhdxPath);
     }
 
     public static DashboardViewModel FromWorkflow(WorkflowResult workflowResult)
@@ -134,7 +136,8 @@ public sealed record DashboardViewModel(
             !string.IsNullOrWhiteSpace(workflowResult.RunDirectory),
             runningInventoryState,
             logAvailabilityState,
-            installedDistros);
+            installedDistros,
+            workflowResult.Summary.Profile.VhdxPath);
     }
 
     private static TargetMappingState MapMappingState(
