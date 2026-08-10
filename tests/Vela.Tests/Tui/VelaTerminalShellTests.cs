@@ -338,11 +338,69 @@ public sealed class VelaTerminalShellTests
 
         shell.ShowRunProgress(new RunProgressViewModel(
             RunProgressState.Running,
-            "正在读取快照事件。",
-            Percent: null));
+            "正在读取 journal 事件。",
+            Percent: null,
+            TargetName: "docker-desktop",
+            VhdxPath: @"D:\Docker\wsl\data\ext4.vhdx",
+            LogLines: ["[INFO] target locked: docker-desktop"]));
 
         Assert.Equal(VelaWorkspacePage.Running, shell.CurrentPage);
-        Assert.Contains("Esc", shell.StatusText, StringComparison.Ordinal);
+        Assert.Contains("执行中", shell.StatusText, StringComparison.Ordinal);
+        Assert.Contains("docker-desktop", shell.WorkspaceText, StringComparison.Ordinal);
+        Assert.Contains("[INFO] target locked", shell.WorkspaceText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Action_preview_accepts_lowercase_and_shifted_uppercase_y()
+    {
+        var profile = CreateProfile();
+        var dashboard = CreateReadyDashboard(profile);
+        using var shell = new VelaTerminalShell(new MainMenu().ViewModel, dashboard);
+        var actions = new List<MainMenuAction>();
+        shell.ActionRequested += actions.Add;
+        shell.SetCurrentProfile(profile);
+        shell.ApplyPreflight(new AutomaticPreflightState(
+            profile.Id,
+            1,
+            1,
+            AutomaticPreflightStatus.Ready,
+            dashboard,
+            "预检已完成。"));
+        shell.ShowOverview();
+        shell.NewKeyDownEvent(Key.Enter);
+        shell.SelectMenuIndex(1);
+
+        shell.NewKeyDownEvent(new Key('y'));
+        shell.NewKeyDownEvent(Key.Y.WithShift);
+
+        Assert.Equal(
+            [MainMenuAction.ExecuteCompaction, MainMenuAction.ExecuteCompaction],
+            actions);
+    }
+
+    [Fact]
+    public void Completed_run_view_shows_release_summary_and_returns_to_instance_list()
+    {
+        using var shell = new VelaTerminalShell(
+            new MainMenu().ViewModel,
+            DashboardViewModel.CreateInitial(CreateProfile()));
+
+        shell.ShowRunProgress(new RunProgressViewModel(
+            RunProgressState.Succeeded,
+            "运行终态：已完成。",
+            Percent: null,
+            TargetName: "docker-desktop",
+            Elapsed: TimeSpan.FromSeconds(42),
+            ReclaimedBytes: 53L * PreflightOverviewFormatter.Gibibyte));
+
+        Assert.Equal(VelaWorkspacePage.Result, shell.CurrentPage);
+        Assert.Contains("DONE", shell.WorkspaceText, StringComparison.Ordinal);
+        Assert.Contains("53.00 GiB", shell.WorkspaceText, StringComparison.Ordinal);
+
+        shell.NewKeyDownEvent(Key.Enter);
+
+        Assert.Equal(VelaWorkspacePage.Overview, shell.CurrentPage);
+        Assert.Equal(0, shell.SelectedMenuIndex);
     }
 
     [Theory]

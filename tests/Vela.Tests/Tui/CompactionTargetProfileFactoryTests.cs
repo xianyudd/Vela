@@ -57,6 +57,29 @@ public sealed class CompactionTargetProfileFactoryTests
         Assert.Null(result);
     }
 
+    [Fact]
+    public void CreateRequest_carries_the_locked_target_into_the_compact_operation()
+    {
+        var runId = Guid.NewGuid();
+        var target = new WslDistribution(
+            "docker-desktop",
+            WslDistributionState.Stopped,
+            2,
+            false,
+            @"D:\Docker\wsl\data\ext4.vhdx");
+
+        var request = CompactionTargetProfileFactory.CreateRequest(
+            runId,
+            CreateProfile(),
+            target);
+
+        Assert.NotNull(request);
+        Assert.Equal(runId, request!.RunId);
+        Assert.Equal(OperationIntent.Compact, request.Intent);
+        Assert.Equal(target.Name, request.Profile.DistroName);
+        Assert.Equal(target.VhdxPath, request.Profile.VhdxPath);
+    }
+
     private static Profile CreateProfile() => new(
         Guid.Parse("ed979041-296f-49fd-9aae-61ceacbb06c0"),
         "Ubuntu 24.04",
