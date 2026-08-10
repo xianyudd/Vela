@@ -18,9 +18,9 @@ VHDX 原始路径不进入首页投影，只展示「已配置 / 未读取」状
 
 验证记录：
 
-- `dotnet test Vela.sln -c Debug --no-restore --nologo`：378/378 通过。
+- `dotnet test Vela.sln -c Debug --no-restore --nologo`：386/386 通过。
 - `dotnet build Vela.sln -c Release --no-restore --nologo`：0 警告、0 错误。
-- `dotnet test Vela.sln -c Release --no-restore --nologo`：378/378 通过。
-- Release Cobertura：`Vela.Core` 80.33%、`Vela.Windows` 81.30%；`scripts/Verify-Coverage.ps1` 通过。
+- `dotnet test Vela.sln -c Release --no-restore --nologo`：386/386 通过。
+- Release Cobertura：`Vela.Core` 80.37%、`Vela.Windows` 82.15%；`scripts/Verify-Coverage.ps1` 通过。
 
 菜单 01 的 R/r 仍只触发只读预检；菜单 02 的影响预览从已锁定实例创建 `OperationRequest`，只有用户在 YES 确认页提交后才交给 `ElevatedOperationCoordinator`。父 TUI 轮询同一 RunId 的 worker journal，运行页只展示真实事件，完成页从可信 summary 显示耗时与实际回收空间；存储档案只保留显示名和停止范围等配置。

@@ -12,4 +12,4 @@ RED/GREEN execution: local Linux shell has no .NET SDK; Windows PowerShell repor
 
 The optional `scripts/test-tui-readonly-tmux.sh` sends navigation, `yes`, `YES `, and Escape only. It never submits `YES`; when a test guard log is supplied it compares the log before and after the session.
 
-Follow-up verification on 2026-08-10 used the installed Windows .NET SDK 10.0.302: the full Debug and Release suites each passed 361 tests; Release coverage remained above the Core/Windows 80% line threshold.
+Follow-up verification on 2026-08-10 used the installed Windows .NET SDK 10.0.302: the full Debug and Release suites each passed 386 tests; Release coverage remained above the Core/Windows 80% line threshold.
