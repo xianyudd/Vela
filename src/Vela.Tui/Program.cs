@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Spectre.Console;
+using Vela.Core.Contracts;
 using Terminal.Gui.App;
 using Vela.Core.Models;
 using Vela.Core.Workflows;
@@ -209,6 +210,7 @@ catch (Exception)
 var profile = profileService.CurrentProfile;
 var menu = new MainMenu();
 var preflightSource = CreatePreflightViewModelSource();
+var impactEstimator = new WslCompactionImpactEstimator();
 var secondaryActions = new TuiSecondaryActionHandler(
     profileService,
     new RunHistoryReader(paths),
@@ -279,6 +281,9 @@ using (var terminalApplication = Application.Create())
     {
         switch (action)
         {
+            case MainMenuAction.ExecuteCompaction:
+                _ = ShowCompactionImpactAsync(revision);
+                break;
             case MainMenuAction.RecentRuns:
                 _ = ShowRecentRunsAsync(revision);
                 break;
@@ -397,6 +402,39 @@ using (var terminalApplication = Application.Create())
 
             shell.ShowLogAnalysis(snapshot);
         });
+    }
+
+    async Task ShowCompactionImpactAsync(long revision)
+    {
+        var target = shell.LockedTarget;
+        var currentSize = shell.LockedTargetVhdxSizeBytes;
+        if (target is null)
+        {
+            return;
+        }
+
+        var estimate = currentSize is { } sizeBytes
+            ? await impactEstimator
+                .EstimateAsync(target.Name, sizeBytes, executionCancellation.Token)
+                .ConfigureAwait(false)
+            : new CompactionImpactEstimate(
+                CompactionImpactStatus.Unavailable,
+                null,
+                null,
+                null,
+                "目标 VHDX 当前体积尚未采集。");
+
+        try
+        {
+            terminalApplication.Invoke(() =>
+                shell.ApplyCompactionImpactEstimate(revision, target.Name, estimate));
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        catch (InvalidOperationException) when (executionCancellation.IsCancellationRequested)
+        {
+        }
     }
 
     async Task StartCompactionAsync(OperationRequest request)

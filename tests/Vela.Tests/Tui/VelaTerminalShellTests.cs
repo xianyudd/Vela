@@ -2,6 +2,7 @@ using Terminal.Gui.App;
 using Terminal.Gui.Drivers;
 using Terminal.Gui.Input;
 using Terminal.Gui.Time;
+using Vela.Core.Contracts;
 using Vela.Core.Models;
 using Vela.Tui;
 using Vela.Tui.Application;

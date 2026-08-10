@@ -63,6 +63,7 @@ public sealed class VelaTerminalShell : Window
     private int _selectedTargetIndex;
     private bool _targetLocked;
     private string? _lockedTargetName;
+    private CompactionImpactEstimate? _compactionEstimate;
 
     public VelaTerminalShell(MainMenuViewModel menu, DashboardViewModel dashboard)
     {
@@ -201,6 +202,23 @@ public sealed class VelaTerminalShell : Window
             string.Equals(distribution.Name, _lockedTargetName, StringComparison.OrdinalIgnoreCase))
         : null;
     public string? LockedTargetName => LockedTarget?.Name;
+    public long? LockedTargetVhdxSizeBytes
+    {
+        get
+        {
+            var target = LockedTarget;
+            if (target?.VhdxSizeBytes is { } sizeBytes)
+            {
+                return sizeBytes;
+            }
+
+            return target is not null &&
+                string.Equals(target.Name, _dashboard.DistroName, StringComparison.OrdinalIgnoreCase) &&
+                _dashboard.VhdxEvidence is { } evidence
+                ? evidence.FileLengthBytes
+                : null;
+        }
+    }
     public MainMenuAction SelectedAction => _menuItems[SelectedMenuIndex].Action;
     public bool HasSingleNavigationFocus => true;
     public string DecisionSchemeName => _decision.SchemeName ?? VelaTerminalTheme.Muted;
@@ -343,6 +361,31 @@ public sealed class VelaTerminalShell : Window
         SetNeedsDraw();
     }
 
+    public bool ApplyCompactionImpactEstimate(
+        long revision,
+        string distroName,
+        CompactionImpactEstimate estimate)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(distroName);
+        ArgumentNullException.ThrowIfNull(estimate);
+
+        if (!IsCurrentSelection(MainMenuAction.ExecuteCompaction, revision) ||
+            CurrentPage != VelaWorkspacePage.ActionPreview ||
+            !string.Equals(LockedTargetName, distroName, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        _compactionEstimate = estimate;
+        _workspace.Text = string.Join(
+            Environment.NewLine,
+            BuildCompactionPreview()
+                .Take(_availablePageRows)
+                .Select(line => TuiDisplayText.Sanitize(line, 96)));
+        SetNeedsDraw();
+        return true;
+    }
+
     public void ShowRunProgress(RunProgressViewModel progress)
     {
         ArgumentNullException.ThrowIfNull(progress);
@@ -458,6 +501,7 @@ public sealed class VelaTerminalShell : Window
         _selectedTargetIndex = 0;
         _targetLocked = false;
         _lockedTargetName = null;
+        _compactionEstimate = null;
         UpdateEvidence();
         _logList.Visible = false;
         _targetDetailView.Visible = false;
@@ -486,6 +530,7 @@ public sealed class VelaTerminalShell : Window
             _selectedTargetIndex = 0;
             _targetLocked = false;
             _lockedTargetName = null;
+            _compactionEstimate = null;
             CurrentPage = VelaWorkspacePage.Overview;
             SetContentTitle("执行目标选择");
             ApplyOverviewSurface();
@@ -589,6 +634,7 @@ public sealed class VelaTerminalShell : Window
         if (state.Dashboard is not null)
         {
             _dashboard = state.Dashboard;
+            _compactionEstimate = null;
             SyncLockedTarget();
         }
         _header.Text = BuildHeader(_applicationTitle, _dashboard, state);
@@ -733,6 +779,7 @@ public sealed class VelaTerminalShell : Window
             targetCount - 1);
         _targetLocked = false;
         _lockedTargetName = null;
+        _compactionEstimate = null;
         ApplyOverviewSurface();
         _header.Text = BuildHeader(_applicationTitle, _dashboard, PreflightState);
         SetNavigationStatus();
@@ -744,6 +791,7 @@ public sealed class VelaTerminalShell : Window
         _selectedTargetIndex = Math.Clamp(_selectedTargetIndex, 0, home.Targets.Length - 1);
         _lockedTargetName = home.Targets[_selectedTargetIndex].DistroName;
         _targetLocked = true;
+        _compactionEstimate = null;
         _header.Text = BuildHeader(_applicationTitle, _dashboard, PreflightState);
         ApplyTargetDetailSurface();
     }
@@ -842,6 +890,7 @@ public sealed class VelaTerminalShell : Window
                 ShowOverview();
                 break;
             case MainMenuAction.ExecuteCompaction:
+                _compactionEstimate = null;
                 ShowActionPreview("影响预览", BuildCompactionPreview());
                 break;
             case MainMenuAction.ManageProfiles:
@@ -879,7 +928,7 @@ public sealed class VelaTerminalShell : Window
                 "状态       返回 01 预检结果选择实例",
                 "",
                 "当前体积   未读取",
-                "预计可回收空间  完成后由 worker 报告"
+                "预计可回收空间  等待锁定目标"
             ];
         }
 
@@ -901,13 +950,23 @@ public sealed class VelaTerminalShell : Window
             $"目标       {TuiDisplayText.Sanitize(target.Name, 64)}",
             $"当前体积   {targetSize}",
             "预计体积   执行后读取",
-            "预计可回收空间  执行完成后报告",
+            $"预计可回收空间  {FormatCompactionEstimate()}",
+            "估算口径   当前 VHDX 体积 − 根文件系统已用空间",
             $"VHDX       {(string.IsNullOrWhiteSpace(formattedPath) ? "未读取" : formattedPath)}",
             "",
             "[Y] 开始执行 · [Enter] 进入 YES 确认",
             "当前页面只读取锁定目标，不切换发行版。"
         ];
     }
+
+    private string FormatCompactionEstimate() => _compactionEstimate?.Status switch
+    {
+        CompactionImpactStatus.Estimated when _compactionEstimate.ReclaimableBytes is { } bytes =>
+            PreflightOverviewFormatter.FormatCapacity(bytes),
+        CompactionImpactStatus.Failed => "采集失败",
+        CompactionImpactStatus.Unavailable => "暂不可用",
+        _ => "计算中…"
+    };
 
     private string BuildRunProgress(RunProgressViewModel progress)
     {
