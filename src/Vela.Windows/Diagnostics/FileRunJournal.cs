@@ -43,7 +43,8 @@ public sealed class FileRunJournal : IRunJournal
             var runDirectory = _paths.GetRunDirectory(runId);
             if (!_paths.IsTrustedRootDirectory() ||
                 !_paths.IsTrustedLogsDirectory() ||
-                !_paths.IsTrustedRunDirectory(runId))
+                !_paths.IsTrustedRunDirectory(runId) ||
+                !_paths.IsTrustedPath(_paths.GetJournalLockFilePath(runId)))
             {
                 return JournalOperationResult.Failure();
             }
@@ -54,7 +55,7 @@ public sealed class FileRunJournal : IRunJournal
             }
 
             Directory.CreateDirectory(runDirectory);
-            var runCreated = await AppendAsync(
+            var runCreated = await AppendCoreAsync(
                 new RunEventDraft(
                     DateTimeOffset.UtcNow,
                     runId,
@@ -65,7 +66,8 @@ public sealed class FileRunJournal : IRunJournal
                     ExitCode: null,
                     Duration: null,
                     Output: null),
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                allowInitialCreation: true).ConfigureAwait(false);
 
             return runCreated.Succeeded
                 ? JournalOperationResult.Success(runDirectory)
@@ -98,6 +100,7 @@ public sealed class FileRunJournal : IRunJournal
                 !_paths.IsTrustedRootDirectory() ||
                 !_paths.IsTrustedLogsDirectory() ||
                 !_paths.IsTrustedRunDirectory(runId) ||
+                !_paths.IsTrustedPath(_paths.GetJournalLockFilePath(runId)) ||
                 !Directory.Exists(runDirectory) ||
                 !File.Exists(_paths.GetEventsFilePath(runId)))
             {
@@ -108,6 +111,7 @@ public sealed class FileRunJournal : IRunJournal
                     _paths.GetEventsFilePath(runId),
                     cancellationToken)
                 .ConfigureAwait(false);
+            ValidateEvents(runId, events);
             var first = events.IsDefaultOrEmpty ? null : events[0];
             return first is not null &&
                    first.RunId == runId &&
@@ -125,9 +129,15 @@ public sealed class FileRunJournal : IRunJournal
             return JournalOperationResult.Failure();
         }
     }
-    public async Task<JournalAppendResult> AppendAsync(
+    public Task<JournalAppendResult> AppendAsync(
         RunEventDraft eventDraft,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken) =>
+        AppendCoreAsync(eventDraft, cancellationToken, allowInitialCreation: false);
+
+    private async Task<JournalAppendResult> AppendCoreAsync(
+        RunEventDraft eventDraft,
+        CancellationToken cancellationToken,
+        bool allowInitialCreation)
     {
         if (eventDraft is null || eventDraft.RunId == Guid.Empty)
         {
@@ -141,6 +151,7 @@ public sealed class FileRunJournal : IRunJournal
             if (!_paths.IsTrustedRunDirectory(eventDraft.RunId) ||
                 !_paths.IsTrustedPath(_paths.GetEventsFilePath(eventDraft.RunId)) ||
                 !_paths.IsTrustedPath(_paths.GetRunLogFilePath(eventDraft.RunId)) ||
+                !_paths.IsTrustedPath(_paths.GetJournalLockFilePath(eventDraft.RunId)) ||
                 !Directory.Exists(runDirectory))
             {
                 return JournalAppendResult.Failure();
@@ -149,12 +160,36 @@ public sealed class FileRunJournal : IRunJournal
             await _appendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                var existingEvents = await ReadCompleteEventsAsync(
-                    _paths.GetEventsFilePath(eventDraft.RunId),
+                await using var processLock = await AcquireProcessLockAsync(
+                    _paths.GetJournalLockFilePath(eventDraft.RunId),
                     cancellationToken).ConfigureAwait(false);
+                var existingEvents = !File.Exists(_paths.GetEventsFilePath(eventDraft.RunId)) &&
+                                      allowInitialCreation
+                    ? ImmutableArray<RunEvent>.Empty
+                    : await ReadCompleteEventsAsync(
+                        _paths.GetEventsFilePath(eventDraft.RunId),
+                        cancellationToken,
+                        repairIncompleteTail: true).ConfigureAwait(false);
+                if (existingEvents.IsDefaultOrEmpty)
+                {
+                    if (!allowInitialCreation || !IsCreationEvent(eventDraft))
+                    {
+                        return JournalAppendResult.Failure();
+                    }
+                }
+                else
+                {
+                    if (allowInitialCreation)
+                    {
+                        return JournalAppendResult.Failure();
+                    }
+
+                    ValidateEvents(eventDraft.RunId, existingEvents);
+                }
+
                 var sequence = existingEvents.IsDefaultOrEmpty
                     ? 1
-                    : checked(existingEvents.Max(static @event => @event.Sequence) + 1);
+                    : checked(existingEvents[^1].Sequence + 1);
                 var @event = new RunEvent(
                     sequence,
                     eventDraft.OccurredAtUtc,
@@ -165,7 +200,8 @@ public sealed class FileRunJournal : IRunJournal
                     eventDraft.Arguments,
                     eventDraft.ExitCode,
                     eventDraft.Duration,
-                    eventDraft.Output);
+                    eventDraft.Output,
+                    eventDraft.TerminalResult);
 
                 await AppendEventAsync(
                     _paths.GetEventsFilePath(eventDraft.RunId),
@@ -209,23 +245,36 @@ public sealed class FileRunJournal : IRunJournal
             if (!_paths.IsTrustedRunDirectory(summary.RunId) ||
                 !_paths.IsTrustedPath(_paths.GetSummaryFilePath(summary.RunId)) ||
                 !_paths.IsTrustedPath(_paths.GetSummaryTemporaryFilePath(summary.RunId)) ||
+                !_paths.IsTrustedPath(_paths.GetJournalLockFilePath(summary.RunId)) ||
                 !Directory.Exists(runDirectory))
             {
                 return JournalOperationResult.Failure();
             }
 
-            var temporaryPath = _paths.GetSummaryTemporaryFilePath(summary.RunId);
+            await _appendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                await WriteJsonAsync(temporaryPath, summary, cancellationToken).ConfigureAwait(false);
-                ReplaceAtomically(temporaryPath, _paths.GetSummaryFilePath(summary.RunId));
+                await using var processLock = await AcquireProcessLockAsync(
+                    _paths.GetJournalLockFilePath(summary.RunId),
+                    cancellationToken).ConfigureAwait(false);
+
+                var temporaryPath = _paths.GetSummaryTemporaryFilePath(summary.RunId);
+                try
+                {
+                    await WriteJsonAsync(temporaryPath, summary, cancellationToken).ConfigureAwait(false);
+                    ReplaceAtomically(temporaryPath, _paths.GetSummaryFilePath(summary.RunId));
+                }
+                finally
+                {
+                    if (File.Exists(temporaryPath))
+                    {
+                        File.Delete(temporaryPath);
+                    }
+                }
             }
             finally
             {
-                if (File.Exists(temporaryPath))
-                {
-                    File.Delete(temporaryPath);
-                }
+                _appendLock.Release();
             }
 
             return JournalOperationResult.Success(runDirectory);
@@ -247,7 +296,7 @@ public sealed class FileRunJournal : IRunJournal
     {
         if (runId == Guid.Empty)
         {
-            return new JournalReadResult(ImmutableArray<RunEvent>.Empty);
+            return JournalReadResult.Success(ImmutableArray<RunEvent>.Empty);
         }
 
         try
@@ -256,14 +305,25 @@ public sealed class FileRunJournal : IRunJournal
             if (!_paths.IsTrustedRunDirectory(runId) ||
                 !_paths.IsTrustedPath(_paths.GetEventsFilePath(runId)))
             {
-                return new JournalReadResult(ImmutableArray<RunEvent>.Empty);
+                return JournalReadResult.Failure("The journal run directory is not trusted.");
+            }
+
+            if (!Directory.Exists(_paths.GetRunDirectory(runId)))
+            {
+                return JournalReadResult.Failure("The journal run directory does not exist.");
+            }
+
+            if (!File.Exists(_paths.GetEventsFilePath(runId)))
+            {
+                return JournalReadResult.Failure("worker journal 不完整。");
             }
 
             var events = await ReadCompleteEventsAsync(
                 _paths.GetEventsFilePath(runId),
                 cancellationToken).ConfigureAwait(false);
+            ValidateEvents(runId, events);
 
-            return new JournalReadResult(events
+            return JournalReadResult.Success(events
                 .Where(@event => @event.Sequence > afterSequence)
                 .ToImmutableArray());
         }
@@ -273,7 +333,7 @@ public sealed class FileRunJournal : IRunJournal
         }
         catch (Exception)
         {
-            return new JournalReadResult(ImmutableArray<RunEvent>.Empty);
+            return JournalReadResult.Failure("读取 worker journal 失败。");
         }
     }
 
@@ -289,31 +349,67 @@ public sealed class FileRunJournal : IRunJournal
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (!Directory.Exists(_paths.LogsDirectoryPath))
-        {
-            return Task.FromResult(0);
-        }
-
-        var cutoffUtc = DateTime.UtcNow.AddDays(-retentionDays);
-        var deletedRunCount = 0;
-
-        foreach (var runDirectory in Directory.EnumerateDirectories(_paths.LogsDirectoryPath))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var directoryName = Path.GetFileName(runDirectory);
-            if (!Guid.TryParseExact(directoryName, "D", out var runId) ||
-                activeRunId == runId ||
-                Directory.GetLastWriteTimeUtc(runDirectory) >= cutoffUtc)
+            if (!_paths.IsTrustedRootDirectory() ||
+                !_paths.IsTrustedLogsDirectory() ||
+                !Directory.Exists(_paths.LogsDirectoryPath))
             {
-                continue;
+                return Task.FromResult(0);
             }
 
-            Directory.Delete(runDirectory, recursive: true);
-            deletedRunCount++;
-        }
+            var cutoffUtc = DateTime.UtcNow.AddDays(-retentionDays);
+            var deletedRunCount = 0;
 
-        return Task.FromResult(deletedRunCount);
+            foreach (var runDirectory in Directory.EnumerateDirectories(_paths.LogsDirectoryPath))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                try
+                {
+                    var directoryName = Path.GetFileName(runDirectory);
+                    if (!Guid.TryParseExact(directoryName, "D", out var runId) ||
+                        activeRunId == runId ||
+                        Directory.GetLastWriteTimeUtc(runDirectory) >= cutoffUtc ||
+                        !_paths.IsExpectedRunDirectory(runId, runDirectory) ||
+                        !_paths.IsTrustedRunDirectory(runId))
+                    {
+                        continue;
+                    }
+
+                    Directory.Delete(runDirectory, recursive: true);
+                    deletedRunCount++;
+                }
+                catch (IOException)
+                {
+                }
+                catch (UnauthorizedAccessException)
+                {
+                }
+            }
+
+            return Task.FromResult(deletedRunCount);
+    }
+
+    private static async Task<FileStream> AcquireProcessLockAsync(
+        string lockPath,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            try
+            {
+                return new FileStream(
+                    lockPath,
+                    FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite,
+                    FileShare.Read,
+                    bufferSize: 1,
+                    options: FileOptions.WriteThrough);
+            }
+            catch (IOException)
+            {
+                await Task.Delay(ReadRetryDelay, cancellationToken).ConfigureAwait(false);
+            }
+        }
     }
 
     private static async Task AppendEventAsync(
@@ -361,7 +457,8 @@ public sealed class FileRunJournal : IRunJournal
 
     private static async Task<ImmutableArray<RunEvent>> ReadCompleteEventsAsync(
         string eventFilePath,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool repairIncompleteTail = false)
     {
         if (!File.Exists(eventFilePath))
         {
@@ -381,7 +478,26 @@ public sealed class FileRunJournal : IRunJournal
                     useAsync: true);
                 using var reader = new StreamReader(stream, Utf8WithoutBom, detectEncodingFromByteOrderMarks: true);
                 var content = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
-                return ParseCompleteEvents(content);
+                var finalNewlineIndex = content.LastIndexOf('\n');
+                var hasIncompleteTail = content.Length > 0 &&
+                                         finalNewlineIndex < content.Length - 1;
+                var events = ParseCompleteEvents(content);
+
+                if (repairIncompleteTail && hasIncompleteTail)
+                {
+                    await using var repairStream = new FileStream(
+                        eventFilePath,
+                        FileMode.Open,
+                        FileAccess.Write,
+                        FileShare.Read,
+                        bufferSize: 4096,
+                        useAsync: true);
+                    repairStream.SetLength(Utf8WithoutBom.GetByteCount(content[..(finalNewlineIndex + 1)]));
+                    await repairStream.FlushAsync(cancellationToken).ConfigureAwait(false);
+                    repairStream.Flush(flushToDisk: true);
+                }
+
+                return events;
             }
             catch (IOException) when (attempt < ReadRetryCount - 1)
             {
@@ -389,7 +505,41 @@ public sealed class FileRunJournal : IRunJournal
             }
         }
 
-        return ImmutableArray<RunEvent>.Empty;
+        throw new IOException("The journal event file could not be read after retries.");
+    }
+
+    private static bool IsCreationEvent(RunEventDraft eventDraft) =>
+        eventDraft.Phase == RunPhase.Validation &&
+        eventDraft.Level == RunEventLevel.Information &&
+        string.Equals(eventDraft.OperationName, "RunCreated", StringComparison.Ordinal);
+
+    private static void ValidateEvents(Guid runId, ImmutableArray<RunEvent> events)
+    {
+        if (events.IsDefaultOrEmpty)
+        {
+            throw new InvalidDataException("The journal does not contain a creation event.");
+        }
+
+        var expectedSequence = 1L;
+        foreach (var @event in events)
+        {
+            if (@event.RunId != runId ||
+                @event.Sequence != expectedSequence ||
+                @event.Sequence <= 0)
+            {
+                throw new InvalidDataException("The journal event sequence is invalid.");
+            }
+
+            expectedSequence++;
+        }
+
+        var first = events[0];
+        if (first.Phase != RunPhase.Validation ||
+            first.Level != RunEventLevel.Information ||
+            !string.Equals(first.OperationName, "RunCreated", StringComparison.Ordinal))
+        {
+            throw new InvalidDataException("The journal creation event is invalid.");
+        }
     }
 
     private static ImmutableArray<RunEvent> ParseCompleteEvents(string content)
@@ -412,14 +562,16 @@ public sealed class FileRunJournal : IRunJournal
             try
             {
                 var @event = JsonSerializer.Deserialize<RunEvent>(line, SerializerOptions);
-                if (@event is not null)
+                if (@event is null)
                 {
-                    events.Add(@event);
+                    throw new InvalidDataException("The journal contains an empty event.");
                 }
+
+                events.Add(@event);
             }
             catch (JsonException)
             {
-                // A malformed complete line is not a recoverable event and is skipped by the polling reader.
+                throw new InvalidDataException("The journal contains malformed event data.");
             }
         }
 

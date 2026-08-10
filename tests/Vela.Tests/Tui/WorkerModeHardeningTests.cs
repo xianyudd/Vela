@@ -85,6 +85,38 @@ public sealed class WorkerModeHardeningTests
         Assert.Equal(runId, Assert.Single(journal.Summaries).RunId);
     }
 
+    [Fact]
+    public async Task RunAsync_WhenConsumeFails_ReturnsTheDurableTerminalResultAndKeepsCanonicalEvent()
+    {
+        using var root = TestRoot.Create();
+        var paths = new AppPaths(root.RootDirectory);
+        var runId = Guid.Parse("d3e0d0d7-1f3c-4a9b-9ad0-8adf61f8f6f5");
+        var request = CreateRequest(runId);
+        var journal = new RecordingJournal();
+        var store = new RecordingStore(request, paths.GetPendingRequestFilePath(runId), consumeSucceeds: false);
+        var mode = new WorkerMode(
+            paths,
+            store,
+            journal,
+            new FixedAdministratorProbe(true),
+            new FixedResolver(),
+            new FixedExecutor(CreateWorkflow(request, TerminalResult.ValidationFailed)),
+            new FixedClock());
+
+        var result = await mode.RunAsync(
+            ["--worker", "--run-id", runId.ToString("D")],
+            CancellationToken.None);
+
+        Assert.Equal(TerminalResult.ValidationFailed, result.TerminalResult);
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains(journal.Events, item =>
+            item.OperationName == "WorkerFailed" &&
+            item.TerminalResult == TerminalResult.ValidationFailed &&
+            item.ExitCode == 2);
+        Assert.Contains(journal.Events, item => item.OperationName == "WorkerRequestConsumeFailed");
+        Assert.Equal(TerminalResult.ValidationFailed, Assert.Single(journal.Summaries).TerminalResult);
+        Assert.Equal(runId, Assert.Single(store.ConsumedRunIds));
+    }
     private static OperationRequest CreateRequest(Guid runId) =>
         new(
             runId,
@@ -141,7 +173,8 @@ public sealed class WorkerModeHardeningTests
                 eventDraft.Arguments,
                 eventDraft.ExitCode,
                 eventDraft.Duration,
-                eventDraft.Output);
+                eventDraft.Output,
+                eventDraft.TerminalResult);
             Events.Add(@event);
             return Task.FromResult(JournalAppendResult.Success(@event));
         }
@@ -161,10 +194,16 @@ public sealed class WorkerModeHardeningTests
         private readonly OperationRequest _request;
         private readonly string _sourcePath;
 
-        public RecordingStore(OperationRequest request, string sourcePath)
+        private readonly bool _consumeSucceeds;
+
+        public RecordingStore(
+            OperationRequest request,
+            string sourcePath,
+            bool consumeSucceeds = true)
         {
             _request = request;
             _sourcePath = sourcePath;
+            _consumeSucceeds = consumeSucceeds;
         }
 
         public List<Guid> ConsumedRunIds { get; } = new();
@@ -181,7 +220,10 @@ public sealed class WorkerModeHardeningTests
         public Task<OperationRequestConsumeResult> ConsumeAsync(Guid expectedRunId, CancellationToken cancellationToken)
         {
             ConsumedRunIds.Add(expectedRunId);
-            return Task.FromResult(OperationRequestConsumeResult.Success());
+            return Task.FromResult(
+                _consumeSucceeds
+                    ? OperationRequestConsumeResult.Success()
+                    : OperationRequestConsumeResult.Failure());
         }
     }
 

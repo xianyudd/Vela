@@ -40,15 +40,7 @@ public static class WorkerCommandLineParser
 public static class WorkerExitCodes
 {
     public static int FromTerminalResult(TerminalResult terminalResult) =>
-        terminalResult switch
-        {
-            TerminalResult.Succeeded or TerminalResult.CompletedWithNoReclaim => 0,
-            TerminalResult.ValidationFailed => 2,
-            TerminalResult.ShutdownTimedOut => 3,
-            TerminalResult.DiskPartPreflightFailed => 4,
-            TerminalResult.DiskPartCompactFailed => 5,
-            _ => 10
-        };
+        TerminalResultSemantics.ToExitCode(terminalResult);
 }
 
 public sealed record WorkerModeResult(
@@ -125,14 +117,6 @@ public sealed class SystemClock : IClock
 
 public sealed class WorkerMode
 {
-    private static readonly Profile FallbackProfile = new(
-        Guid.Empty,
-        "Unknown",
-        "Unknown",
-        string.Empty,
-        ShutdownMode.Global,
-        TimeSpan.Zero);
-
     private readonly AppPaths _paths;
     private readonly IOperationRequestStore _requestStore;
     private readonly IRunJournal _journal;
@@ -219,12 +203,24 @@ public sealed class WorkerMode
         }
         catch (Exception)
         {
-            return CreateResult(TerminalResult.WorkerInterrupted);
+            return await CompleteUntrustedFailureAsync(
+                    runId,
+                    "WorkerRequestClaimFailed",
+                    RunPhase.Validation,
+                    TerminalResult.WorkerInterrupted,
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
 
         if (claimed is null || !claimed.Succeeded || claimed.Request is null)
         {
-            return CreateResult(TerminalResult.ValidationFailed);
+            return await CompleteUntrustedFailureAsync(
+                    runId,
+                    "WorkerRequestClaimFailed",
+                    RunPhase.Validation,
+                    TerminalResult.ValidationFailed,
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
 
         var request = claimed.Request;
@@ -335,6 +331,18 @@ public sealed class WorkerMode
                     .ConfigureAwait(false);
             }
 
+            if (!TryValidateSummary(workflowResult.Summary, runId, request))
+            {
+                return await CompleteFailureAsync(
+                        runId,
+                        request,
+                        "WorkerSummaryInvalid",
+                        RunPhase.Failed,
+                        TerminalResult.WorkerInterrupted,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             return await CompleteWorkflowAsync(
                     runId,
                     request,
@@ -366,13 +374,38 @@ public sealed class WorkerMode
         CancellationToken cancellationToken)
     {
         var summary = workflowResult.Summary;
-        var terminalResult = summary.TerminalResult;
-        var phase = terminalResult is TerminalResult.Succeeded or TerminalResult.CompletedWithNoReclaim
+        var durableSummary = summary with
+        {
+            RunId = runId,
+            TerminalResult = TerminalResultSemantics.NormalizeSummaryResult(summary)
+        };
+        var phase = durableSummary.TerminalResult is TerminalResult.Succeeded or TerminalResult.CompletedWithNoReclaim
             ? RunPhase.Completed
             : RunPhase.Failed;
         var level = phase == RunPhase.Completed
             ? RunEventLevel.Information
             : RunEventLevel.Error;
+
+        JournalOperationResult summaryWritten;
+        try
+        {
+            summaryWritten = await _journal
+                .WriteSummaryAsync(durableSummary, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return CreateResult(TerminalResult.WorkerInterrupted);
+        }
+
+        if (!summaryWritten.Succeeded)
+        {
+            return CreateResult(TerminalResult.WorkerInterrupted);
+        }
 
         JournalAppendResult appended;
         try
@@ -385,9 +418,10 @@ public sealed class WorkerMode
                         level,
                         phase == RunPhase.Completed ? "WorkerCompleted" : "WorkerFailed",
                         ImmutableArray<string>.Empty,
-                        ExitCode: WorkerExitCodes.FromTerminalResult(terminalResult),
-                        Duration: summary.CompletedAtUtc - summary.StartedAtUtc,
-                        Output: null),
+                        ExitCode: WorkerExitCodes.FromTerminalResult(durableSummary.TerminalResult),
+                        Duration: durableSummary.CompletedAtUtc - durableSummary.StartedAtUtc,
+                        Output: null,
+                        TerminalResult: durableSummary.TerminalResult),
                     cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -405,54 +439,31 @@ public sealed class WorkerMode
             return CreateResult(TerminalResult.WorkerInterrupted);
         }
 
-        JournalOperationResult summaryWritten;
-        try
-        {
-            summaryWritten = await _journal
-                .WriteSummaryAsync(summary with { RunId = runId }, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception)
-        {
-            return CreateResult(TerminalResult.WorkerInterrupted);
-        }
-
-        if (!summaryWritten.Succeeded)
-        {
-            return CreateResult(TerminalResult.WorkerInterrupted);
-        }
-
-        return await ConsumeAndCreateResultAsync(runId, terminalResult, cancellationToken).ConfigureAwait(false);
+        return await ConsumeAndCreateResultAsync(
+                runId,
+                durableSummary.TerminalResult,
+                cancellationToken)
+            .ConfigureAwait(false);
     }
 
-    private async Task<WorkerModeResult> CompleteFailureAsync(
+    private async Task<WorkerModeResult> CompleteUntrustedFailureAsync(
         Guid runId,
-        OperationRequest? request,
         string operationName,
         RunPhase phase,
         TerminalResult terminalResult,
         CancellationToken cancellationToken)
     {
-        var occurredAtUtc = _clock.UtcNow;
-        var profile = request?.Profile ?? FallbackProfile;
-        var intent = request?.Intent ?? OperationIntent.Compact;
-
-        JournalAppendResult appended;
         try
         {
-            appended = await _journal.AppendAsync(
+            await _journal.AppendAsync(
                     new RunEventDraft(
-                        occurredAtUtc,
+                        _clock.UtcNow,
                         runId,
                         phase,
                         RunEventLevel.Error,
                         operationName,
                         ImmutableArray<string>.Empty,
-                        ExitCode: WorkerExitCodes.FromTerminalResult(terminalResult),
+                        ExitCode: null,
                         Duration: null,
                         Output: null),
                     cancellationToken)
@@ -464,27 +475,133 @@ public sealed class WorkerMode
         }
         catch (Exception)
         {
-            return CreateResult(TerminalResult.WorkerInterrupted);
         }
 
-        if (!appended.Succeeded)
+        try
+        {
+            var appended = await _journal.AppendAsync(
+                    new RunEventDraft(
+                        _clock.UtcNow,
+                        runId,
+                        RunPhase.Failed,
+                        RunEventLevel.Error,
+                        "WorkerFailed",
+                        ImmutableArray<string>.Empty,
+                        ExitCode: WorkerExitCodes.FromTerminalResult(terminalResult),
+                        Duration: null,
+                        Output: null,
+                        TerminalResult: terminalResult),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return appended.Succeeded
+                ? CreateResult(terminalResult)
+                : CreateResult(TerminalResult.WorkerInterrupted);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
         {
             return CreateResult(TerminalResult.WorkerInterrupted);
         }
+    }
+
+    private async Task<WorkerModeResult> CompleteFailureAsync(
+        Guid runId,
+        OperationRequest? request,
+        string operationName,
+        RunPhase phase,
+        TerminalResult terminalResult,
+        CancellationToken cancellationToken)
+    {
+        if (request is null)
+        {
+            return await CompleteUntrustedFailureAsync(
+                    runId,
+                    operationName,
+                    phase,
+                    terminalResult,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        var occurredAtUtc = _clock.UtcNow;
+        var profile = request.Profile;
+        var intent = request.Intent;
+
+        if (!string.Equals(operationName, "WorkerFailed", StringComparison.Ordinal))
+        {
+            try
+            {
+                await _journal.AppendAsync(
+                        new RunEventDraft(
+                            occurredAtUtc,
+                            runId,
+                            phase,
+                            RunEventLevel.Error,
+                            operationName,
+                            ImmutableArray<string>.Empty,
+                            ExitCode: null,
+                            Duration: null,
+                            Output: null),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception)
+            {
+                // Preserve the canonical terminal publication even if diagnostic detail fails.
+            }
+        }
+
+        var summary = new RunSummary(
+            runId,
+            profile,
+            intent,
+            occurredAtUtc,
+            _clock.UtcNow,
+            BeforeSnapshot: null,
+            AfterSnapshot: null,
+            terminalResult);
 
         JournalOperationResult summaryWritten;
         try
         {
-            summaryWritten = await _journal.WriteSummaryAsync(
-                    new RunSummary(
-                        runId,
-                        profile,
-                        intent,
-                        occurredAtUtc,
+            summaryWritten = await _journal.WriteSummaryAsync(summary, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return CreateResult(TerminalResult.WorkerInterrupted);
+        }
+
+        if (!summaryWritten.Succeeded)
+        {
+            return CreateResult(TerminalResult.WorkerInterrupted);
+        }
+
+        JournalAppendResult appended;
+        try
+        {
+            appended = await _journal.AppendAsync(
+                    new RunEventDraft(
                         _clock.UtcNow,
-                        BeforeSnapshot: null,
-                        AfterSnapshot: null,
-                        terminalResult),
+                        runId,
+                        RunPhase.Failed,
+                        RunEventLevel.Error,
+                        "WorkerFailed",
+                        ImmutableArray<string>.Empty,
+                        ExitCode: WorkerExitCodes.FromTerminalResult(terminalResult),
+                        Duration: null,
+                        Output: null,
+                        TerminalResult: terminalResult),
                     cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -497,7 +614,7 @@ public sealed class WorkerMode
             return CreateResult(TerminalResult.WorkerInterrupted);
         }
 
-        if (!summaryWritten.Succeeded)
+        if (!appended.Succeeded)
         {
             return CreateResult(TerminalResult.WorkerInterrupted);
         }
@@ -515,9 +632,17 @@ public sealed class WorkerMode
             var consumed = await _requestStore
                 .ConsumeAsync(runId, cancellationToken)
                 .ConfigureAwait(false);
-            return consumed.Succeeded
-                ? CreateResult(terminalResult)
-                : CreateResult(TerminalResult.WorkerInterrupted);
+            if (consumed.Succeeded)
+            {
+                return CreateResult(terminalResult);
+            }
+
+            await AppendDiagnosticAsync(
+                    runId,
+                    "WorkerRequestConsumeFailed",
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return CreateResult(terminalResult);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -525,7 +650,42 @@ public sealed class WorkerMode
         }
         catch (Exception)
         {
-            return CreateResult(TerminalResult.WorkerInterrupted);
+            await AppendDiagnosticAsync(
+                    runId,
+                    "WorkerRequestConsumeFailed",
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return CreateResult(terminalResult);
+        }
+    }
+
+    private async Task AppendDiagnosticAsync(
+        Guid runId,
+        string operationName,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _journal.AppendAsync(
+                    new RunEventDraft(
+                        _clock.UtcNow,
+                        runId,
+                        RunPhase.Failed,
+                        RunEventLevel.Error,
+                        operationName,
+                        ImmutableArray<string>.Empty,
+                        ExitCode: null,
+                        Duration: null,
+                        Output: null),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
         }
     }
 
@@ -540,6 +700,36 @@ public sealed class WorkerMode
         (_paths.IsExpectedPendingRequestPath(runId, sourcePath) ||
           _paths.IsExpectedPendingRequestInflightPath(runId, sourcePath)) &&
         _paths.IsTrustedPath(sourcePath);
+
+    private static bool TryValidateSummary(
+        RunSummary summary,
+        Guid runId,
+        OperationRequest request)
+    {
+        if (summary.RunId != runId ||
+            summary.Profile != request.Profile ||
+            summary.Intent != request.Intent ||
+            !Enum.IsDefined(summary.TerminalResult) ||
+            summary.StartedAtUtc > summary.CompletedAtUtc)
+        {
+            return false;
+        }
+
+        if (summary.TerminalResult is TerminalResult.Succeeded or TerminalResult.CompletedWithNoReclaim)
+        {
+            if (summary.BeforeSnapshot is null || summary.AfterSnapshot is null)
+            {
+                return false;
+            }
+
+            var expected = summary.ReclaimedBytes == 0
+                ? TerminalResult.CompletedWithNoReclaim
+                : TerminalResult.Succeeded;
+            return summary.TerminalResult == expected;
+        }
+
+        return true;
+    }
 
     private static WorkerModeResult CreateResult(TerminalResult terminalResult) =>
         new(terminalResult, WorkerExitCodes.FromTerminalResult(terminalResult));

@@ -25,12 +25,14 @@ Timeout: 45 seconds
 
 ## 2. 最终 TUI 效果
 
+TUI 采用克制、工业化的中文运维控制台。`TuiApplication` 是唯一输入所有者：每次同步读取一个键，路由到当前 typed page controller，串行执行显式 effect，并只在 `TuiFrameViewModel` 状态变化时交给唯一 `FrameRenderer` 重绘。startup confirmation、主菜单、Profile、recent runs、confirmation、running 与 result 共享这一输入路径；次级页面不运行嵌套读键循环，也不启动无法取消的后台 `ReadKey`。
+
 ~~~text
 ╭──────────────── Vela ────────────────╮
 │ WSL VHDX Compact                      │
 │ Profile: Ubuntu-24.04                 │
-│ VHDX: D:\DevTools\WSL2\...\ext4.vhdx │
-│ Last result: 预检尚未运行                │
+│ VHDX: 已配置                           │
+│ Last result: 预检尚未运行               │
 ╰──────────────────────────────────────╯
 
   › 预检（只读）
@@ -41,13 +43,21 @@ Timeout: 45 seconds
     退出
 ~~~
 
-- 用 ↑、↓、Enter 选择；Esc 返回或退出。
-- 预检完成后，以表格显示发行版映射、文件大小、宿主盘空间、运行中的发行版和提示。
-- “执行压缩”先显示影响摘要，再要求输入 YES。
+- ↑、↓ 移动选择；Enter 执行动作；Esc 从次级页面返回，主菜单 Esc 退出。
+- 首启确认、执行压缩确认以及会改变执行目标的 Profile 编辑/删除确认逐字符读取，只有精确大写 `YES` 加 Enter 才接受；Esc 取消；输入最多 16 个字符。
+- Profile 管理使用 `N` 新建、`E` 编辑、`D` 删除，Enter 切换当前 Profile；删除至少保留一个且不能直接删除当前 Profile。
+- Profile 的 VHDX 字段为 write-only edit：旧路径永不回显，新输入只显示字符数；Shutdown mode 使用 typed 选项，timeout 只接受 invariant `5–300` 整数秒。
+- 最近运行使用 ↑、↓、Enter、Esc；详情页 `O` 通过内部可信 RunId capability 打开日志目录，但 renderer-facing state 不携带 RunId 或路径。
+- `FrameRenderer` 对 `<80`、`80–119`、`>=120` 三档宽度分别采用最小、纵向、左右布局；低于 22 行时限制列表证据行，上下文 footer 只显示当前页面有效键位。
+- 交互与 redirected 输出共享同一 composition；redirected 模式只写一个确定性 frame，不清屏、不读键。
+- 预检结果只呈现 mapped/configured/resolved 状态、文件与宿主盘数值证据、运行中的发行版和受控提示。
+- “执行压缩”先显示档案身份、VHDX 已配置状态与影响摘要，再要求精确输入 `YES`。
 - 普通权限 TUI 保持打开并轮询确定的运行目录；提升权限 worker 只追加该目录的事件流。
-- 结束时显示 VHDX 长度差、宿主盘可用空间差、运行目录与结果状态。
+- 结束时显示安全结果投影；`Succeeded` 与 `CompletedWithNoReclaim` 分别显示为“成功”和“完成但未回收空间”。
 
-Spectre.Console 用于键盘选择菜单、确认输入、表格、状态指示器和实时输出。[Spectre.Console 文档](https://spectreconsole.net/console/)
+renderer-facing state 不包含 raw VHDX/registry/run/log path、RunId、raw exception、native command output 或 raw enum name。内部 service/controller 可保留可信路径和 RunId 用于 I/O；`TuiDisplayText` 负责中文标签、ANSI CSI/OSC/control stripping、Spectre markup escaping 与 Unicode display-cell 截断。详细原始证据只在 journal/log 中追溯。
+
+Spectre.Console 用于布局、面板与文本渲染，不建立第二套 UI framework。
 
 ## 3. 解决方案结构与依赖方向
 
@@ -69,9 +79,9 @@ Vela.sln
 │  │  ├─ Configuration/
 │  │  └─ Elevation/
 │  └─ Vela.Tui/                     # 可执行项目与 Spectre.Console
-│     ├─ Menu/
-│     ├─ Screens/
-│     ├─ Rendering/
+│     ├─ Application/                 # frame、状态、服务与输入循环
+│     ├─ Menu/                        # 菜单与确认 view model 工厂
+│     ├─ Rendering/                   # 唯一 FrameRenderer 路径
 │     └─ Program.cs
 └─ tests/
    └─ Vela.Tests/                   # Core、Windows adapter、TUI 测试
@@ -82,6 +92,8 @@ Vela.Tui ─────────► Vela.Core
     │
     └─────────────► Vela.Windows ───► Vela.Core
 ~~~
+
+TUI 内部依赖方向为：可信 service/controller 持有路径和 RunId capability，display-safe projection 将其转换为 typed page state，`FrameRenderer` 只消费该投影。原始 native output 直接保留在 journal/log，不进入 `RunProgressViewModel`。
 
 Vela.Core 不引用 Spectre.Console、注册表、WindowsIdentity、文件系统或进程 API；fake adapter 可完整覆盖工作流。
 
@@ -151,7 +163,8 @@ TUI 选择档案
   → IWslClient 列出已安装、运行中发行版和版本
   → IVhdxInspector 获取 FileInfo、DriveInfo、sparse 标志
   → IRunJournal 写 events.ndjson / run.log / summary.json
-  → TUI 表格呈现结果
+  → display-safe projection 转换为状态、标签与数值证据
+  → TUI 呈现安全投影；原始路径、RunId 与 native output 留在日志
 ~~~
 
 ### 5.2 压缩流程
@@ -246,6 +259,8 @@ exit
 9. worker 分支跳过主菜单、ReadLine 和确认提示；它只写 journal，并返回与最终 summary 对应的退出码；
 10. worker 写入最终事件和摘要后消费 pending 请求；UAC 拒绝和启动异常由父进程写成确定的终态。
 
+Compact 启动前，`CompactRunGate` 在同一受信任数据根内以 `compact.lock` 原子占位，防止同时存在多个 Compact worker；已存在且可验证的 RunId 返回 `AlreadyRunning`。无法验证的 marker 会保留并返回 `Invalid`，不会删除后重试；pending 文件只有在 JSON、RunId、Compact intent、Profile 和路径契约均通过验证后才视为活动请求。父 TUI 的 `RunJournalPoller` 以 sequence 游标按 journal 原始顺序增量读取，拒绝 foreign RunId、gap、duplicate、nonmonotonic sequence 和无效 canonical terminal event，不会通过排序修复损坏输入。默认轮询间隔为 100 ms、连续读取失败 3 次进入 ReadFailed、等待终态默认超时 5 分钟；成功读取会复位连续失败计数。事件 callback 串行、exactly once，并先于 terminal return；callback 异常变为安全的 `ReadFailed`。取消和超时保留已消费 cursor/事件，只返回父界面状态，不向 journal 伪造 worker 终态。`FileRunJournal` 只解析完整换行记录，并对读取 IOException 做有限重试。
+
 这个协议使运行目录、请求、日志和实际执行的目标由同一个 RunId 关联。父界面的旧快照只用于显示，实际动作依据 worker 二次验证的结果。
 
 ## 8. 配置、请求与日志
@@ -256,7 +271,7 @@ exit
 %LocalAppData%\Vela\config.json
 ~~~
 
-AppPaths 接受可注入根目录。发布版默认根为 %LocalAppData%\Vela；首次启动在创建 config.json、pending 或 logs 前展示完整路径并要求用户确认。开发、单元测试和集成测试注入项目内 artifacts\test-data\ 或 fixture 目录，所有开发期生成文件保持在项目根。
+AppPaths 接受可注入根目录。发布版默认根为 %LocalAppData%\Vela；首次启动在创建 config.json、pending 或 logs 前只显示受控的初始化摘要，不在 TUI 中显示原始文件系统路径，并要求用户确认。开发、单元测试和集成测试注入项目内 artifacts\test-data\ 或 fixture 目录，所有开发期生成文件保持在项目根。
 
 建议 schema：
 

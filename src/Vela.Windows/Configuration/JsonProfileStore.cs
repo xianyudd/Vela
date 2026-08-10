@@ -39,30 +39,66 @@ public sealed class JsonProfileStore
     {
         cancellationToken.ThrowIfCancellationRequested();
 
+        var existingState = await LoadExistingAsync(cancellationToken).ConfigureAwait(false);
+        if (existingState is not null)
+        {
+            return existingState;
+        }
+
+        var initialState = CreateInitialState();
+        await SaveAsync(initialState, cancellationToken).ConfigureAwait(false);
+        return initialState;
+    }
+
+    public async Task<ProfileStoreState?> LoadExistingAsync(
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (Directory.Exists(_paths.ConfigurationFilePath))
+        {
+            throw new InvalidDataException("The Vela profile configuration path is not a file.");
+        }
+
         if (!File.Exists(_paths.ConfigurationFilePath))
         {
-            var initialState = CreateInitialState();
-            await SaveAsync(initialState, cancellationToken).ConfigureAwait(false);
-            return initialState;
+            return null;
         }
 
-        await using var stream = new FileStream(
-            _paths.ConfigurationFilePath,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.Read,
-            bufferSize: 4096,
-            useAsync: true);
-        var persistedState = await JsonSerializer.DeserializeAsync<ProfileStoreFile>(
-            stream,
-            SerializerOptions,
-            cancellationToken).ConfigureAwait(false);
-        if (persistedState is null)
+        try
         {
-            throw new InvalidDataException("The Vela profile configuration is empty.");
-        }
+            await using var stream = new FileStream(
+                _paths.ConfigurationFilePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 4096,
+                useAsync: true);
+            var persistedState = await JsonSerializer.DeserializeAsync<ProfileStoreFile>(
+                stream,
+                SerializerOptions,
+                cancellationToken).ConfigureAwait(false);
+            if (persistedState is null)
+            {
+                throw new InvalidDataException("The Vela profile configuration is empty.");
+            }
 
-        return ToState(persistedState);
+            return ToState(persistedState);
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException(
+                "The Vela profile configuration is not valid JSON.",
+                exception);
+        }
+    }
+
+    public async Task<ProfileStoreState> LoadRequiredAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var state = await LoadExistingAsync(cancellationToken).ConfigureAwait(false);
+        return state ?? throw new InvalidDataException(
+            "The Vela profile configuration is missing.");
     }
 
     public async Task SaveAsync(ProfileStoreState state, CancellationToken cancellationToken)
@@ -78,6 +114,51 @@ public sealed class JsonProfileStore
         {
             await WriteJsonAsync(temporaryPath, ToPersistedState(state), cancellationToken).ConfigureAwait(false);
             ReplaceAtomically(temporaryPath, _paths.ConfigurationFilePath);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+            {
+                File.Delete(temporaryPath);
+            }
+        }
+    }
+
+    public async Task<bool> SaveIfMissingAsync(
+        ProfileStoreState state,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        ValidateState(state, invalidData: false);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        Directory.CreateDirectory(_paths.RootDirectory);
+        if (File.Exists(_paths.ConfigurationFilePath))
+        {
+            return false;
+        }
+
+        var temporaryPath = _paths.ConfigurationTemporaryFilePath;
+        try
+        {
+            await WriteJsonAsync(
+                    temporaryPath,
+                    ToPersistedState(state),
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            try
+            {
+                File.Move(
+                    temporaryPath,
+                    _paths.ConfigurationFilePath,
+                    overwrite: false);
+                return true;
+            }
+            catch (IOException) when (File.Exists(_paths.ConfigurationFilePath))
+            {
+                return false;
+            }
         }
         finally
         {
@@ -196,6 +277,13 @@ public sealed class JsonProfileStore
         if (state.Profiles.IsDefaultOrEmpty)
         {
             ThrowInvalidState("The Vela profile configuration must contain at least one profile.", invalidData);
+        }
+
+        if (state.Profiles
+            .GroupBy(static profile => profile.Id)
+            .Any(static profiles => profiles.Key == Guid.Empty || profiles.Count() != 1))
+        {
+            ThrowInvalidState("The Vela profile configuration contains duplicate profile identifiers.", invalidData);
         }
 
         if (state.LastProfileId == Guid.Empty ||

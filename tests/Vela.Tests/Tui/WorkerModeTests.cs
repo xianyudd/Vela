@@ -179,13 +179,17 @@ public sealed class WorkerModeTests
     [Fact]
     public void WorkerMode_HasNoMainMenuOrConfirmationInputDependency()
     {
-        var constructorParameterTypes = typeof(WorkerMode)
+        var constructorParameterTypeNames = typeof(WorkerMode)
             .GetConstructors()
             .SelectMany(static constructor => constructor.GetParameters())
-            .Select(static parameter => parameter.ParameterType);
+            .Select(static parameter => parameter.ParameterType.FullName ?? parameter.ParameterType.Name);
 
-        Assert.DoesNotContain(typeof(IMenuInput), constructorParameterTypes);
-        Assert.DoesNotContain(typeof(IConfirmationInput), constructorParameterTypes);
+        Assert.DoesNotContain(
+            constructorParameterTypeNames,
+            static name => name.Contains("IMenuInput", StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            constructorParameterTypeNames,
+            static name => name.Contains("IConfirmationInput", StringComparison.Ordinal));
     }
 
     private static WorkerMode CreateMode(

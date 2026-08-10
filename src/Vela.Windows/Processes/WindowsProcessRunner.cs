@@ -184,6 +184,12 @@ public sealed class WindowsProcessRunner : IProcessRunner
             CreateNoWindow = true
         };
 
+        if (invocation.OutputEncoding is { } outputEncoding)
+        {
+            startInfo.StandardOutputEncoding = outputEncoding;
+            startInfo.StandardErrorEncoding = outputEncoding;
+        }
+
         foreach (var argument in invocation.Arguments)
         {
             startInfo.ArgumentList.Add(argument);

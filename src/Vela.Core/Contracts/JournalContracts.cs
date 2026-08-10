@@ -12,7 +12,8 @@ public sealed record RunEventDraft(
     ImmutableArray<string> Arguments,
     int? ExitCode,
     TimeSpan? Duration,
-    string? Output);
+    string? Output,
+    TerminalResult? TerminalResult = null);
 
 public sealed record JournalOperationResult(
     bool Succeeded,
@@ -32,7 +33,17 @@ public sealed record JournalAppendResult(
     public static JournalAppendResult Failure() => new(false, null);
 }
 
-public sealed record JournalReadResult(ImmutableArray<RunEvent> Events);
+public sealed record JournalReadResult(
+    ImmutableArray<RunEvent> Events,
+    bool Succeeded = true,
+    string? ErrorMessage = null)
+{
+    public static JournalReadResult Success(ImmutableArray<RunEvent> events) =>
+        new(events, Succeeded: true);
+
+    public static JournalReadResult Failure(string? errorMessage = null) =>
+        new(ImmutableArray<RunEvent>.Empty, Succeeded: false, errorMessage);
+}
 
 public interface IRunJournal
 {

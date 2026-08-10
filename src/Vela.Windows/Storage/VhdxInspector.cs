@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text;
 using System.Text.RegularExpressions;
 using Vela.Core.Contracts;
 using Vela.Core.Models;
@@ -8,11 +9,12 @@ namespace Vela.Windows.Storage;
 
 public sealed class VhdxInspector : IVhdxInspector
 {
+    private static readonly Encoding WindowsChineseConsoleEncoding = CreateWindowsChineseConsoleEncoding();
     private static readonly Regex EnglishNegativeSparsePattern = new(
         @"\bnot\b.*\bsparse\b",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
     private static readonly Regex ChineseNegativeSparsePattern = new(
-        @"(没有|未.*(?:设置|标记).*|不是.*)稀疏",
+        @"(?:没有|未|不是).*稀疏",
         RegexOptions.CultureInvariant);
     private readonly NativeToolPaths _nativeToolPaths;
     private readonly IProcessRunner _processRunner;
@@ -101,7 +103,8 @@ public sealed class VhdxInspector : IVhdxInspector
                 new ProcessInvocation(
                     _nativeToolPaths.FsutilExePath,
                     ImmutableArray.Create("sparse", "queryflag", normalizedPath),
-                    Timeout: null),
+                    Timeout: null,
+                    OutputEncoding: WindowsChineseConsoleEncoding),
                 output: null,
                 cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
@@ -138,7 +141,8 @@ public sealed class VhdxInspector : IVhdxInspector
 
     private static bool? ParseSparseOutput(IEnumerable<string> output)
     {
-        var text = string.Join(Environment.NewLine, output);
+        var text = string.Join(Environment.NewLine, output)
+            .Replace("\0", string.Empty, StringComparison.Ordinal);
         if (string.IsNullOrWhiteSpace(text))
         {
             return null;
@@ -157,5 +161,11 @@ public sealed class VhdxInspector : IVhdxInspector
         }
 
         return null;
+    }
+
+    private static Encoding CreateWindowsChineseConsoleEncoding()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        return Encoding.GetEncoding(936);
     }
 }

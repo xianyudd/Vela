@@ -110,24 +110,43 @@ public sealed class LxssProfileResolver : ILxssProfileResolver
 
     private static string? NormalizeBasePath(string? basePath)
     {
-        if (basePath is null || !IsSafeAbsolutePath(basePath))
+        var normalizedBasePath = NormalizeWindowsPathPrefix(basePath);
+        if (normalizedBasePath is null || !IsSafeAbsolutePath(normalizedBasePath))
         {
             return null;
         }
 
-        return Path.GetFullPath(Path.Combine(basePath, "ext4.vhdx"));
+        return Path.GetFullPath(Path.Combine(normalizedBasePath, "ext4.vhdx"));
     }
 
     private static string? NormalizeVhdxPath(string? path)
     {
-        if (path is null ||
-            !IsSafeAbsolutePath(path) ||
-            !path.EndsWith(".vhdx", StringComparison.OrdinalIgnoreCase))
+        var normalizedPath = NormalizeWindowsPathPrefix(path);
+        if (normalizedPath is null ||
+            !IsSafeAbsolutePath(normalizedPath) ||
+            !normalizedPath.EndsWith(".vhdx", StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
 
-        return Path.GetFullPath(path);
+        return Path.GetFullPath(normalizedPath);
+    }
+
+    private static string? NormalizeWindowsPathPrefix(string? path)
+    {
+        if (path is null)
+        {
+            return null;
+        }
+
+        if (path.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
+        {
+            return @"\\" + path[8..];
+        }
+
+        return path.StartsWith(@"\\?\", StringComparison.OrdinalIgnoreCase)
+            ? path[4..]
+            : path;
     }
 
     private static bool IsSafeAbsolutePath(string? path) =>

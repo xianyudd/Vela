@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text;
 using Vela.Core.Contracts;
 using Vela.Tests.Fakes;
 using Vela.Windows.Processes;
@@ -13,6 +14,7 @@ public sealed class VhdxInspectorTests
     [InlineData("This file is NOT set as sparse.", false)]
     [InlineData("此文件设置为稀疏。", true)]
     [InlineData("此文件未设置为稀疏。", false)]
+    [InlineData("此文件没有设置为稀疏", false)]
     public async Task InspectAsync_ParsesEnglishAndChineseSparseOutput(string nativeOutput, bool expectedSparse)
     {
         using var testFile = TestVhdxFile.Create(length: 1024);
@@ -35,6 +37,23 @@ public sealed class VhdxInspectorTests
         Assert.Equal(
             new[] { "sparse", "queryflag", Path.GetFullPath(testFile.VhdxPath) },
             runner.Invocations[0].Arguments);
+        Assert.Equal(936, runner.Invocations[0].OutputEncoding?.CodePage);
+    }
+
+    [Fact]
+    public async Task InspectAsync_ParsesUtf16LeRedirectedSparseOutput()
+    {
+        using var testFile = TestVhdxFile.Create(length: 1024);
+        var runner = CreateRunner(
+            ProcessExecutionStatus.Succeeded,
+            exitCode: 0,
+            Utf16LeAsByteCharacters("This file is set as sparse."));
+        var inspector = new VhdxInspector(runner, new NativeToolPaths());
+
+        var result = await inspector.InspectAsync(testFile.VhdxPath, CancellationToken.None);
+
+        Assert.Equal(VhdxInspectionStatus.Succeeded, result.Status);
+        Assert.True(result.Snapshot?.IsSparse);
     }
 
     [Fact]
@@ -138,6 +157,9 @@ public sealed class VhdxInspectorTests
             ImmutableArray<string>.Empty,
             DateTimeOffset.UnixEpoch,
             DateTimeOffset.UnixEpoch);
+
+    private static string Utf16LeAsByteCharacters(string value) =>
+        string.Concat(Encoding.Unicode.GetBytes(value).Select(static value => (char)value));
 
     private static string FindRepositoryRoot()
     {

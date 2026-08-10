@@ -57,6 +57,30 @@ public sealed class UacWorkerLauncherTests
     }
 
     [Fact]
+    public async Task StartAsync_TransfersGateLeaseToCallerUntilPollingCompletes()
+    {
+        using var root = TestRoot.Create();
+        var paths = new Vela.Windows.Diagnostics.AppPaths(root.Path);
+        var request = CreateRequest();
+        var coordinator = new ElevatedOperationCoordinator(
+            new FakeRunJournal(),
+            new RecordingRequestStore([], OperationRequestWriteResult.Success(paths.GetPendingRequestFilePath(request.RunId))),
+            new RecordingLauncher([], ElevatedWorkerLaunchStatus.Started),
+            new FixedClock(),
+            new CompactRunGate(paths));
+
+        var result = await coordinator.StartAsync(request, CancellationToken.None);
+
+        Assert.Equal(ElevatedOperationStartStatus.Started, result.Status);
+        Assert.NotNull(result.GateLease);
+        Assert.True(File.Exists(paths.CompactGateFilePath));
+
+        result.GateLease!.Dispose();
+
+        Assert.False(File.Exists(paths.CompactGateFilePath));
+    }
+
+    [Fact]
     public async Task StartAsync_WhenUacIsCancelled_WritesCancelledSummaryThenConsumesPendingRequest()
     {
         var request = CreateRequest();
@@ -127,6 +151,49 @@ public sealed class UacWorkerLauncherTests
                 ShutdownMode.Global,
                 TimeSpan.FromSeconds(45)),
             OperationIntent.Compact);
+
+    private sealed class TestRoot : IDisposable
+    {
+        private TestRoot(string path) => Path = path;
+
+        public string Path { get; }
+
+        public static TestRoot Create()
+        {
+            var path = System.IO.Path.Combine(
+                FindRepositoryRoot(),
+                "artifacts",
+                "test-data",
+                "uac-launcher-tests",
+                Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(path);
+            return new TestRoot(path);
+        }
+
+        public void Dispose()
+        {
+            if (Directory.Exists(Path))
+            {
+                Directory.Delete(Path, recursive: true);
+            }
+        }
+
+        private static string FindRepositoryRoot()
+        {
+            DirectoryInfo? directory = new(AppContext.BaseDirectory);
+            while (directory is not null)
+            {
+                if (File.Exists(System.IO.Path.Combine(directory.FullName, "Vela.sln")))
+                {
+                    return directory.FullName;
+                }
+
+                directory = directory.Parent;
+            }
+
+            throw new DirectoryNotFoundException("The Vela repository root was not found.");
+        }
+    }
 
     private sealed class FixedExecutablePathProvider : IExecutablePathProvider
     {

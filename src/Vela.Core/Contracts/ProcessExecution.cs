@@ -1,11 +1,13 @@
 using System.Collections.Immutable;
+using System.Text;
 
 namespace Vela.Core.Contracts;
 
 public sealed record ProcessInvocation(
     string ExecutablePath,
     ImmutableArray<string> Arguments,
-    TimeSpan? Timeout);
+    TimeSpan? Timeout,
+    Encoding? OutputEncoding = null);
 
 public sealed record ProcessOutput(
     DateTimeOffset OccurredAtUtc,

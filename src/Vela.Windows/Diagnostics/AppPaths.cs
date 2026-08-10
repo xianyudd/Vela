@@ -22,6 +22,8 @@ public sealed class AppPaths
 
     public string LogsDirectoryPath => Path.Combine(RootDirectory, "logs");
 
+    public string CompactGateFilePath => Path.Combine(RootDirectory, "compact.lock");
+
     public static AppPaths CreateDefault() =>
         new(Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -44,6 +46,9 @@ public sealed class AppPaths
 
     public string GetRunLogFilePath(Guid runId) =>
         Path.Combine(GetRunDirectory(runId), "run.log");
+
+    public string GetJournalLockFilePath(Guid runId) =>
+        Path.Combine(GetRunDirectory(runId), "journal.lock");
 
     public string GetSummaryFilePath(Guid runId) =>
         Path.Combine(GetRunDirectory(runId), "summary.json");

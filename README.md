@@ -34,7 +34,21 @@ D:\DevTools\Vela\Vela.exe
 
 开发期不向该项目外目录写入；发布前先完成项目内 artifacts\publish\win-x64\Vela.exe 的验证。
 
-## 运行日志
+## TUI 交互与运行日志
+
+`TuiApplication` 是唯一输入所有者：每次串行读取一个键，将其交给当前 typed page controller，再执行显式异步 effect；Profile、Recent、Confirmation 等次级页面不拥有独立读键循环，也不会启动后台 `ReadKey`。只有 frame 状态变化时才重绘。键位固定为：
+
+- ↑ / ↓：移动当前菜单或次级列表选择；
+- Enter：执行菜单项、切换 Profile 或打开最近运行详情；
+- Esc：返回次级页面/取消确认，在主菜单退出；
+- 首启、执行压缩和涉及执行目标的 Profile 编辑/删除确认：逐字符输入，必须精确输入大写 `YES` 后按 Enter；
+- Profile 管理：`N` 新建、`E` 编辑、`D` 删除；最近运行详情：`O` 打开当前可信日志目录。
+
+`FrameRenderer` 为交互输出与重定向输出复用同一 composition：宽度 `<80` 时只保留目标、状态、当前焦点和上下文帮助，`80–119` 时纵向堆叠导航与证据，`>=120` 时使用左右工作区；低于 22 行时限制列表行数。重定向模式只输出一个确定性 frame，不清屏、不读取输入。
+
+renderer-facing state 只包含本地化标签、configured/resolved/mapped 状态、数值证据和受控错误。TUI 不接收或显示原始 VHDX/注册表/运行目录/日志路径、RunId、原始异常、native command output 或 raw enum name。Profile 的 VHDX 字段采用 write-only 编辑：旧路径永不回显，新输入仅显示字符数。`Succeeded` 显示为“成功”，`CompletedWithNoReclaim` 显示为“完成但未回收空间”。
+
+首次启动在创建数据根前只展示受控初始化摘要，不泄露原始文件系统路径，只有精确 `YES` 才继续。Profile 管理支持选择、新建、编辑、删除（至少保留一个，当前 Profile 不能直接删除）和持久化当前选择。最近运行内部最多读取 20 个可信 RunId 目录，列表和详情只显示安全投影；损坏或缺失 `summary.json` 的记录显示为“损坏”。详情页可显示结果、时间、耗时、回收字节和日志是否可用，`O` 通过内部可信 RunId capability 打开对应日志目录，但 frame 不携带该 RunId 或路径。主菜单 `OpenLogs` 只打开受信任的数据根日志目录。
 
 发布版的每次运行使用：
 
@@ -42,13 +56,15 @@ D:\DevTools\Vela\Vela.exe
 %LocalAppData%\Vela\logs\<RunId>\
 ~~~
 
-目录包含 events.ndjson、run.log 和 summary.json。首次创建发布版数据根前，TUI 会展示完整路径并等待确认。开发与测试注入项目内的 artifacts\test-data\，避免项目外写入。
+目录包含 events.ndjson、run.log 和 summary.json。开发与测试注入项目内的 `artifacts\test-data\`，避免项目外写入。
+
+父 TUI 轮询 worker journal，使用 sequence 游标；轮询支持取消、默认五分钟 timeout，以及连续读取失败达到阈值后的 `ReadFailed`。取消或 timeout 只改变父界面状态，不伪造 worker 终态。Compact 启动前使用项目数据根下的 `compact.lock` 做 single-worker gate；检测到可信活动 RunId 时返回 `AlreadyRunning`，UAC 取消、启动失败和创建失败路径写入确定终态。
 
 ## 预检与执行
 
 **预检**仅采集发行版、Lxss 映射、VHDX 和宿主盘快照；它使用只读适配器，不触发 WSL 停止、发行版终止或 DiskPart compact。
 
-**执行压缩**先展示精确档案、VHDX 路径、Global 或 Distro 影响范围及运行中发行版。输入 **YES** 后，父 TUI 创建 RunId 日志，提升权限 worker 以 Distro 重新解析 Lxss 映射并严格核对 VHDX 路径。真实停止和 DiskPart compact 属于最终人工验收，由用户在影响面板确认后发起。
+**执行压缩**先展示档案身份、VHDX 已配置状态、Global 或 Distro 影响范围及运行中发行版，不在 frame 中显示原始目标路径。输入精确大写 **YES** 后，父 TUI 创建 RunId 日志，提升权限 worker 以 Distro 重新解析 Lxss 映射并严格核对 VHDX 路径。真实停止和 DiskPart compact 属于最终人工验收，由用户在影响面板确认后发起。
 
 ## 基线命令
 

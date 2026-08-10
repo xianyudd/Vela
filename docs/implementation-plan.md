@@ -223,8 +223,8 @@ dotnet add .\tests\Vela.Tests\Vela.Tests.csproj reference .\src\Vela.Tui\Vela.Tu
 - [ ] **Step 7：restore、生成 lock file、构建与测试**
 
 ~~~powershell
-dotnet restore .\Vela.sln
 dotnet restore .\Vela.sln -r win-x64 --locked-mode --ignore-failed-sources -p:EnableRuntimePackDownload=false -p:DisableTransitiveFrameworkReferenceDownloads=true
+dotnet restore .\Vela.sln -r win-x64 --locked-mode --ignore-failed-sources -p:EnableRuntimePackDownload=false -p:DisableTransitiveFrameworkReferenceDownloads=true -r win-x64 --locked-mode --ignore-failed-sources -p:EnableRuntimePackDownload=false -p:DisableTransitiveFrameworkReferenceDownloads=true
 dotnet build .\Vela.sln -c Debug
 dotnet test .\Vela.sln -c Debug
 ~~~
@@ -421,8 +421,8 @@ git commit -m "feat: persist profiles and run diagnostics"
 
 - 修改：Directory.Packages.props、src\Vela.Tui\Vela.Tui.csproj
 - 创建：src\Vela.Tui\Menu\MainMenu.cs
-- 创建：src\Vela.Tui\Screens\DashboardScreen.cs
-- 创建：src\Vela.Tui\Rendering\RunRenderer.cs
+- 创建：src\Vela.Tui\Application\DashboardViewModel.cs
+- 创建：src\Vela.Tui\Rendering\FrameRenderer.cs
 - 创建：tests\Vela.Tests\Tui\MainMenuTests.cs
 
 - [ ] **Step 1：先集中登记 Spectre.Console**
@@ -544,7 +544,7 @@ dotnet test .\tests\Vela.Tests\Vela.Tests.csproj -c Release -p:CollectCoverage=t
 - [ ] **Step 3：验证锁定依赖**
 
 ~~~powershell
-dotnet restore .\Vela.sln -r win-x64 --locked-mode --ignore-failed-sources -p:EnableRuntimePackDownload=false -p:DisableTransitiveFrameworkReferenceDownloads=true
+dotnet restore .\Vela.sln -r win-x64 --locked-mode --ignore-failed-sources -p:EnableRuntimePackDownload=false -p:DisableTransitiveFrameworkReferenceDownloads=true -r win-x64 --locked-mode --ignore-failed-sources -p:EnableRuntimePackDownload=false -p:DisableTransitiveFrameworkReferenceDownloads=true
 dotnet build .\Vela.sln -c Release
 dotnet test .\Vela.sln -c Release
 ~~~
@@ -584,7 +584,7 @@ git commit -m "test: add Vela quality gates"
 - [ ] **Step 2：通过 profile 发布**
 
 ~~~powershell
-dotnet restore .\Vela.sln -r win-x64 --locked-mode --ignore-failed-sources -p:EnableRuntimePackDownload=false -p:DisableTransitiveFrameworkReferenceDownloads=true
+dotnet restore .\Vela.sln -r win-x64 --locked-mode --ignore-failed-sources -p:EnableRuntimePackDownload=false -p:DisableTransitiveFrameworkReferenceDownloads=true -r win-x64 --locked-mode --ignore-failed-sources -p:EnableRuntimePackDownload=false -p:DisableTransitiveFrameworkReferenceDownloads=true
 dotnet test .\Vela.sln -c Release --no-restore
 dotnet publish .\src\Vela.Tui\Vela.Tui.csproj -c Release --no-restore -p:PublishProfile=win-x64-singlefile -o .\artifacts\publish\win-x64
 ~~~

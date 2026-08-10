@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 using Vela.Core.Contracts;
 using Vela.Windows.Processes;
@@ -85,7 +86,7 @@ public sealed class WslClient : IWslClient
     }
 
     private ProcessInvocation CreateInvocation(ImmutableArray<string> arguments) =>
-        new(_nativeToolPaths.WslExePath, arguments, Timeout: null);
+        new(_nativeToolPaths.WslExePath, arguments, Timeout: null, OutputEncoding: Encoding.Unicode);
 
     private static ImmutableArray<WslDistribution> ParseVerboseInventory(
         ImmutableArray<string> output)
@@ -111,7 +112,7 @@ public sealed class WslClient : IWslClient
             return null;
         }
 
-        var value = line.Trim().TrimStart('\uFEFF');
+        var value = NormalizeRedirectedLine(line).Trim().TrimStart('\uFEFF');
         var isDefault = value.StartsWith('*');
         if (isDefault)
         {
@@ -149,7 +150,7 @@ public sealed class WslClient : IWslClient
 
         foreach (var line in output)
         {
-            var name = line.Trim().TrimStart('\uFEFF');
+            var name = NormalizeRedirectedLine(line).Trim().TrimStart('\uFEFF');
             if (!string.IsNullOrWhiteSpace(name))
             {
                 distributions.Add(new WslDistribution(
@@ -162,6 +163,11 @@ public sealed class WslClient : IWslClient
 
         return distributions.ToImmutable();
     }
+
+    private static string NormalizeRedirectedLine(string line) =>
+        line.IndexOf('\0', StringComparison.Ordinal) >= 0
+            ? line.Replace("\0", string.Empty, StringComparison.Ordinal)
+            : line;
 
     private static WslDistributionState ParseState(string state)
     {

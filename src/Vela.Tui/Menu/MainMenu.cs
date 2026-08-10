@@ -1,7 +1,8 @@
 using System.Collections.Immutable;
 using Spectre.Console;
 using Vela.Core.Contracts;
-using Vela.Tui.Screens;
+using Vela.Tui.Application;
+using Vela.Windows.Diagnostics;
 using Profile = Vela.Core.Models.Profile;
 
 namespace Vela.Tui.Menu;
@@ -27,48 +28,64 @@ public sealed record ConfirmationViewModel(
     string RequiredInput,
     ImmutableArray<string> RunningDistros);
 
-public interface IMenuInput
-{
-    MainMenuAction Select(MainMenuViewModel viewModel);
-}
-
-public interface IConfirmationInput
-{
-    string Read(ConfirmationViewModel viewModel);
-}
-
 public sealed class MainMenu
 {
     public const string ApplicationTitle = "Vela — WSL VHDX Compact";
 
     private static readonly ImmutableArray<MainMenuItem> MenuItems =
         ImmutableArray.Create(
-            new MainMenuItem(MainMenuAction.Preflight, "预检（只读）"),
+            new MainMenuItem(MainMenuAction.Preflight, "预检结果"),
             new MainMenuItem(MainMenuAction.ExecuteCompaction, "执行压缩"),
             new MainMenuItem(MainMenuAction.ManageProfiles, "管理目标档案"),
             new MainMenuItem(MainMenuAction.RecentRuns, "查看最近运行记录"),
             new MainMenuItem(MainMenuAction.OpenLogs, "打开日志目录"),
             new MainMenuItem(MainMenuAction.Exit, "退出"));
 
-    private readonly IVelaConsole _console;
-    private readonly IMenuInput _input;
-
-    public MainMenu(IVelaConsole console, IMenuInput input)
-    {
-        ArgumentNullException.ThrowIfNull(console);
-        ArgumentNullException.ThrowIfNull(input);
-
-        _console = console;
-        _input = input;
-        ViewModel = new MainMenuViewModel(ApplicationTitle, MenuItems);
-    }
+    public MainMenu() => ViewModel = new MainMenuViewModel(ApplicationTitle, MenuItems);
 
     public MainMenuViewModel ViewModel { get; }
 
-    public MainMenuAction Prompt()
+    public static ConfirmationViewModel CreateFirstRunConfirmation(AppPaths paths)
     {
-        _console.RenderMenu(ViewModel);
-        return _input.Select(ViewModel);
+        ArgumentNullException.ThrowIfNull(paths);
+        return new ConfirmationViewModel(
+            $"首次启动需要初始化 Vela 数据目录。{Environment.NewLine}" +
+            "将创建缺失的配置、待处理请求和日志目录；已有文件不会覆盖。" +
+            $"{Environment.NewLine}输入 YES 继续；其他输入将退出。",
+            "YES",
+            ImmutableArray<string>.Empty);
+    }
+
+    public static ConfirmationViewModel CreateRepairConfirmation(
+        bool configurationExists,
+        bool pendingDirectoryExists,
+        bool logsDirectoryExists)
+    {
+        var missing = new List<string>();
+        if (!configurationExists)
+        {
+            missing.Add("配置");
+        }
+
+        if (!pendingDirectoryExists)
+        {
+            missing.Add("待处理请求目录");
+        }
+
+        if (!logsDirectoryExists)
+        {
+            missing.Add("日志目录");
+        }
+
+        var missingSummary = missing.Count == 0
+            ? "数据目录需要安全检查。"
+            : $"将补齐缺失的：{string.Join("、", missing)}。";
+        return new ConfirmationViewModel(
+            $"Vela 数据目录尚未完整。{Environment.NewLine}" +
+            missingSummary +
+            $"{Environment.NewLine}已有文件不会覆盖。输入 YES 继续；其他输入将退出。",
+            "YES",
+            ImmutableArray<string>.Empty);
     }
 
     public static ConfirmationViewModel CreateExecuteConfirmation(
@@ -86,21 +103,21 @@ public sealed class MainMenu
                 .ToImmutableArray();
         var runningDistroSummary = runningDistros.IsDefaultOrEmpty
             ? "当前没有运行中的发行版。"
-            : $"运行中的发行版：{string.Join(", ", runningDistros)}。";
+            : $"运行中的发行版：{BoundedList(runningDistros, "、", 96)}。";
         var dataRootSummary = string.IsNullOrWhiteSpace(dataRootDirectory)
             ? "数据根目录：未指定。"
-            : $"数据根目录：{dataRootDirectory}";
+            : "数据根目录：已配置。";
         var impactSummary = profile.ShutdownMode switch
         {
             Vela.Core.Models.ShutdownMode.Global => "影响：将停止全部正在运行的 WSL 发行版后再执行压缩。",
-            Vela.Core.Models.ShutdownMode.Distro => $"影响：将停止目标发行版 {profile.DistroName} 后再执行压缩。",
+            Vela.Core.Models.ShutdownMode.Distro => $"影响：将停止目标发行版 {TuiDisplayText.Sanitize(profile.DistroName, 64)} 后再执行压缩。",
             _ => "影响：执行前会按当前停止范围处理 WSL 发行版。"
         };
 
         return new ConfirmationViewModel(
-            $"即将为档案“{profile.DisplayName}”执行压缩。{Environment.NewLine}" +
-            $"停止范围：{profile.ShutdownMode}{Environment.NewLine}" +
-            $"VHDX 路径：{profile.VhdxPath}{Environment.NewLine}" +
+            $"即将为档案“{TuiDisplayText.Sanitize(profile.DisplayName, 64)}”执行压缩。{Environment.NewLine}" +
+            $"停止范围：{GetShutdownModeLabel(profile.ShutdownMode)}{Environment.NewLine}" +
+            $"VHDX 路径：{TuiDisplayText.PathStatus(profile.VhdxPath)}{Environment.NewLine}" +
             $"{runningDistroSummary}{Environment.NewLine}" +
             $"{impactSummary}{Environment.NewLine}" +
             $"{dataRootSummary}{Environment.NewLine}" +
@@ -108,53 +125,41 @@ public sealed class MainMenu
             "YES",
             runningDistros);
     }
+    private static string BoundedList(
+        IEnumerable<string> values,
+        string separator,
+        int maxCells)
+    {
+        var result = string.Empty;
+        foreach (var value in values.Take(20))
+        {
+            var item = TuiDisplayText.Sanitize(value, 48);
+            var candidate = result.Length == 0
+                ? item
+                : result + separator + item;
+            var bounded = TuiDisplayText.Sanitize(candidate, maxCells);
+            if (!string.Equals(candidate, bounded, StringComparison.Ordinal))
+            {
+                return bounded;
+            }
 
-    public static bool IsConfirmationAccepted(ConfirmationViewModel viewModel, string? response)
+            result = candidate;
+        }
+
+        return result;
+    }
+
+    private static string GetShutdownModeLabel(Vela.Core.Models.ShutdownMode mode) => mode switch
+    {
+        Vela.Core.Models.ShutdownMode.Global => "全局停止范围",
+        Vela.Core.Models.ShutdownMode.Distro => "目标发行版停止范围",
+        _ => "未知停止范围"
+    };
+    public static bool IsConfirmationAccepted(
+        ConfirmationViewModel viewModel,
+        string? response)
     {
         ArgumentNullException.ThrowIfNull(viewModel);
         return string.Equals(response, viewModel.RequiredInput, StringComparison.Ordinal);
-    }
-}
-
-public sealed class SpectreMenuInput : IMenuInput
-{
-    private readonly IAnsiConsole _console;
-
-    public SpectreMenuInput(IAnsiConsole console)
-    {
-        ArgumentNullException.ThrowIfNull(console);
-        _console = console;
-    }
-
-    public MainMenuAction Select(MainMenuViewModel viewModel)
-    {
-        ArgumentNullException.ThrowIfNull(viewModel);
-
-        var prompt = new SelectionPrompt<MainMenuItem>()
-            .Title($"[bold blue]{Markup.Escape(viewModel.Title)}[/]")
-            .UseConverter(static item => Markup.Escape(item.Label))
-            .AddCancelResult(new MainMenuItem(MainMenuAction.Exit, "退出"))
-            .AddChoices(viewModel.Items);
-
-        return _console.Prompt(prompt).Action;
-    }
-}
-
-public sealed class SpectreConfirmationInput : IConfirmationInput
-{
-    private readonly IAnsiConsole _console;
-
-    public SpectreConfirmationInput(IAnsiConsole console)
-    {
-        ArgumentNullException.ThrowIfNull(console);
-        _console = console;
-    }
-
-    public string Read(ConfirmationViewModel viewModel)
-    {
-        ArgumentNullException.ThrowIfNull(viewModel);
-
-        return _console.Prompt(
-            new TextPrompt<string>(Markup.Escape(viewModel.Prompt)));
     }
 }

@@ -1,25 +1,72 @@
 using System.Collections.Immutable;
+using Spectre.Console;
 using Vela.Core.Contracts;
 using Vela.Core.Models;
+using Vela.Tui;
+using Vela.Tui.Application;
 using Vela.Tui.Menu;
 using Vela.Tui.Rendering;
-using Vela.Tui.Screens;
+using Profile = Vela.Core.Models.Profile;
 
 namespace Vela.Tests.Tui;
 
 public sealed class MainMenuTests
 {
     [Fact]
+    public void CreateFirstRunConfirmation_HidesPathsAndRequiresExactYes()
+    {
+        var root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "vela-first-run-" + Guid.NewGuid().ToString("N"));
+        var paths = new Vela.Windows.Diagnostics.AppPaths(root);
+
+        var confirmation = MainMenu.CreateFirstRunConfirmation(paths);
+
+        Assert.Contains("首次启动", confirmation.Prompt, StringComparison.Ordinal);
+        Assert.Contains("配置", confirmation.Prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain(root, confirmation.Prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain(paths.ConfigurationFilePath, confirmation.Prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain('', confirmation.Prompt);
+        Assert.True(MainMenu.IsConfirmationAccepted(confirmation, "YES"));
+        Assert.False(MainMenu.IsConfirmationAccepted(confirmation, "yes"));
+    }
+
+    [Fact]
+    public void FrameRenderer_NarrowWidth_TruncatesLongPathsAndUsesChineseLabels()
+    {
+        var profile = CreateProfile() with { VhdxPath = @"D:\very-long-folder\another-folder\target.vhdx" };
+        var dashboard = DashboardViewModel.CreateInitial(profile) with
+        {
+            InspectionState = TargetInspectionState.Available,
+            VhdxEvidence = new VhdxEvidenceViewModel(
+                1024,
+                DateTimeOffset.UnixEpoch,
+                null,
+                4096,
+                2048)
+        };
+        var frame = new TuiFrameViewModel(
+            new MainMenu().ViewModel,
+            dashboard,
+            new RunProgressViewModel(RunProgressState.Succeeded, "完成", 100));
+
+        var markup = new FrameRenderer().BuildMarkup(frame, FrameRenderer.NarrowTerminalWidth);
+
+        Assert.Contains("字节", markup, StringComparison.Ordinal);
+        Assert.Contains("状态", markup, StringComparison.Ordinal);
+        Assert.Contains("VHDX", markup, StringComparison.Ordinal);
+        Assert.Contains("已配置", markup, StringComparison.Ordinal);
+        Assert.DoesNotContain("very-long-folder", markup, StringComparison.Ordinal);
+        Assert.DoesNotContain('', markup);
+    }
+
+    [Fact]
     public void ViewModel_ContainsTheSixExpectedMenuLabels()
     {
-        var console = new RecordingConsole();
-        var input = new RecordingMenuInput(MainMenuAction.Preflight);
-        var menu = new MainMenu(console, input);
+        var menu = new MainMenu();
 
         Assert.Equal(
             new[]
             {
-                "预检（只读）",
+                "预检结果",
                 "执行压缩",
                 "管理目标档案",
                 "查看最近运行记录",
@@ -31,17 +78,58 @@ public sealed class MainMenuTests
     }
 
     [Fact]
-    public void Prompt_UsesInjectedInputAndConsoleAdapter()
+    public void MenuFactory_ProvidesStableViewModel()
     {
-        var console = new RecordingConsole();
-        var input = new RecordingMenuInput(MainMenuAction.RecentRuns);
-        var menu = new MainMenu(console, input);
+        var menu = new MainMenu();
 
-        var action = menu.Prompt();
+        Assert.Equal(
+            new[]
+            {
+                "预检结果",
+                "执行压缩",
+                "管理目标档案",
+                "查看最近运行记录",
+                "打开日志目录",
+                "退出"
+            },
+            menu.ViewModel.Items.Select(static item => item.Label));
+        Assert.Equal("Vela — WSL VHDX Compact", menu.ViewModel.Title);
+    }
 
-        Assert.Equal(MainMenuAction.RecentRuns, action);
-        Assert.Same(menu.ViewModel, input.LastViewModel);
-        Assert.Same(menu.ViewModel, console.LastMenuViewModel);
+    [Fact]
+    public void FrameRenderer_BuildMarkupIncludesDashboardFieldsAndEscapesDynamicText()
+    {
+        var profile = CreateProfile();
+        var dashboard = DashboardViewModel.CreateInitial(profile) with
+        {
+            ProfileTitle = "Profile [test]",
+            MappingState = TargetMappingState.Matched,
+            InspectionState = TargetInspectionState.Available,
+            VhdxEvidence = new VhdxEvidenceViewModel(
+                1024,
+                DateTimeOffset.UnixEpoch,
+                true,
+                4096,
+                2048),
+            RunningDistros = ImmutableArray.Create("Ubuntu-24.04"),
+            Notices = ImmutableArray.Create("notice [escaped]"),
+            ErrorMessage = "error [escaped]",
+            LogsAvailable = true
+        };
+        var frame = new TuiFrameViewModel(
+            new MainMenu().ViewModel,
+            dashboard,
+            new RunProgressViewModel(RunProgressState.Failed, "failed [message]", 40));
+
+        var markup = new FrameRenderer().BuildMarkup(frame);
+
+        Assert.Contains("驱动器", markup, StringComparison.Ordinal);
+        Assert.Contains("稀疏", markup, StringComparison.Ordinal);
+        Assert.Contains("是", markup, StringComparison.Ordinal);
+        Assert.Contains("Profile", markup, StringComparison.Ordinal);
+        Assert.Contains("test", markup, StringComparison.Ordinal);
+        Assert.Contains("failed", markup, StringComparison.Ordinal);
+        Assert.Contains("message", markup, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -73,9 +161,11 @@ public sealed class MainMenuTests
                 new WslDistribution("Ubuntu-24.04", WslDistributionState.Running, 2, true)),
             dataRootDirectory);
 
-        Assert.Contains(profile.ShutdownMode.ToString(), confirmation.Prompt, StringComparison.Ordinal);
-        Assert.Contains(profile.VhdxPath, confirmation.Prompt, StringComparison.Ordinal);
-        Assert.Contains(dataRootDirectory, confirmation.Prompt, StringComparison.Ordinal);
+        Assert.Contains("全局停止范围", confirmation.Prompt, StringComparison.Ordinal);
+        Assert.Contains("VHDX 路径：已配置", confirmation.Prompt, StringComparison.Ordinal);
+        Assert.Contains("数据根目录：已配置", confirmation.Prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain(profile.VhdxPath, confirmation.Prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain(dataRootDirectory, confirmation.Prompt, StringComparison.Ordinal);
         Assert.Contains("影响", confirmation.Prompt, StringComparison.Ordinal);
         Assert.Contains("Ubuntu-24.04", confirmation.Prompt, StringComparison.Ordinal);
         Assert.Equal("YES", confirmation.RequiredInput);
@@ -96,56 +186,344 @@ public sealed class MainMenuTests
         Assert.Equal(expected, MainMenu.IsConfirmationAccepted(confirmation, response));
     }
 
-    [Fact]
-    public void DashboardAndProgress_RenderTheProvidedImmutableViewModels()
+    [Theory]
+    [InlineData(40, false)]
+    [InlineData(79, false)]
+    [InlineData(80, true)]
+    [InlineData(119, true)]
+    [InlineData(120, true)]
+    [InlineData(160, true)]
+    public void FrameRenderer_WidthBands_PreserveStatusAndAdaptNavigation(
+        int width,
+        bool showsNavigation)
     {
-        var console = new RecordingConsole();
-        var dashboard = new DashboardScreen(console);
-        var renderer = new RunRenderer(console);
-        var dashboardViewModel = DashboardViewModel.CreateInitial(CreateProfile()) with
-        {
-            Notices = ImmutableArray.Create("Sparse state is unknown."),
-            ErrorMessage = "Registry mapping does not match the requested VHDX.",
-            RunDirectory = @"D:\Logs\00000000-0000-0000-0000-000000000001"
-        };
-        var progressViewModel = new RunProgressViewModel(
-            RunProgressState.Preflighting,
-            "正在采集只读预检证据。",
-            Percent: 40);
+        var frame = new TuiFrameViewModel(
+            new MainMenu().ViewModel,
+            DashboardViewModel.CreateInitial(CreateProfile()),
+            new RunProgressViewModel(
+                RunProgressState.Succeeded,
+                "只读预检已完成。",
+                100));
 
-        dashboard.Render(dashboardViewModel);
-        renderer.Render(progressViewModel);
+        var markup = new FrameRenderer().BuildMarkup(frame, width, terminalHeight: 30);
 
-        Assert.Equal("Profile: Ubuntu 24.04 on D", dashboardViewModel.ProfileTitle);
-        Assert.Equal("Registry mapping does not match the requested VHDX.", console.LastDashboardViewModel?.ErrorMessage);
-        Assert.Equal(ImmutableArray.Create("Sparse state is unknown."), console.LastDashboardViewModel?.Notices);
-        Assert.Same(progressViewModel, console.LastProgressViewModel);
-        Assert.Equal(RunProgressState.Preflighting, console.LastProgressViewModel?.State);
+        Assert.Contains("Ubuntu-24.04", markup, StringComparison.Ordinal);
+        Assert.Contains("只读预检已完成", markup, StringComparison.Ordinal);
+        Assert.Equal(
+            showsNavigation,
+            markup.Contains("执行压缩", StringComparison.Ordinal));
     }
 
     [Fact]
-    public void PreflightScreen_RendersTheInjectedReadOnlyPreview()
+    public void FrameRenderer_LowHeight_BoundsRecentRows()
     {
-        var profile = CreateProfile();
-        var console = new RecordingConsole();
-        var dashboard = new DashboardScreen(console);
-        var renderer = new RunRenderer(console);
-        var preview = DashboardViewModel.CreateInitial(profile) with
+        var entries = Enumerable.Range(0, 8)
+            .Select(index => new RecentRunListItemViewModel(
+                DateTimeOffset.UnixEpoch.AddMinutes(index),
+                $"PROFILE-{index}",
+                OperationIntent.Preflight,
+                TerminalResult.Succeeded,
+                ReclaimedBytes: index,
+                IsMalformed: false,
+                ErrorMessage: null))
+            .ToImmutableArray();
+        var frame = new TuiFrameViewModel(
+            new MainMenu().ViewModel,
+            DashboardViewModel.CreateInitial(CreateProfile()),
+            new RunProgressViewModel(RunProgressState.Succeeded, "已加载。", 100),
+            page: new RecentRunsPageViewModel(entries, 0, null));
+
+        var markup = new FrameRenderer().BuildMarkup(frame, 100, terminalHeight: 18);
+
+        Assert.Contains("PROFILE-0", markup, StringComparison.Ordinal);
+        Assert.Contains("PROFILE-3", markup, StringComparison.Ordinal);
+        Assert.DoesNotContain("PROFILE-4", markup, StringComparison.Ordinal);
+        Assert.DoesNotContain("PROFILE-7", markup, StringComparison.Ordinal);
+        Assert.Contains("Esc 返回", markup, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FrameRenderer_HostileText_StripsEscapeSequencesControlsAndEscapesMarkup()
+    {
+        var dashboard = DashboardViewModel.CreateInitial(CreateProfile()) with
         {
-            RegistryMapping = profile.VhdxPath,
-            Notices = ImmutableArray.Create("Fake preflight preview."),
-            RunDirectory = @"D:\Artifacts\fake-preflight"
+            ProfileTitle = "档案 [hostile] \u001b[31m红色\u001b[0m",
+            Notices = ImmutableArray.Create("通知\u0001内容"),
+            ErrorMessage = "\u001b]8;;https://secret.example\u0007链接\u001b]8;;\u0007"
         };
-        var source = new RecordingPreflightViewModelSource(preview);
-        var screen = new PreflightScreen(dashboard, renderer, source);
+        var frame = new TuiFrameViewModel(
+            new MainMenu().ViewModel,
+            dashboard,
+            new RunProgressViewModel(
+                RunProgressState.Failed,
+                "失败 [detail] \u001b[2J清屏",
+                null));
 
-        screen.Render(profile);
+        var markup = new FrameRenderer().BuildMarkup(frame, 120, terminalHeight: 30);
 
-        Assert.Same(profile, source.LastProfile);
-        Assert.Same(preview, console.LastDashboardViewModel);
+        Assert.DoesNotContain('\u001b', markup);
+        Assert.DoesNotContain('\u0001', markup);
+        Assert.DoesNotContain("https://secret.example", markup, StringComparison.Ordinal);
+        Assert.Contains("[[hostile]]", markup, StringComparison.Ordinal);
+        Assert.Contains("[[detail]]", markup, StringComparison.Ordinal);
+        Assert.Contains("红色", markup, StringComparison.Ordinal);
+        Assert.Contains("链接", markup, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FrameRenderer_CjkAndCombiningText_TruncatesByDisplayCells()
+    {
+        var dashboard = DashboardViewModel.CreateInitial(CreateProfile()) with
+        {
+            ProfileTitle = string.Concat(Enumerable.Repeat("档案", 40)) + "e\u0301"
+        };
+        var frame = new TuiFrameViewModel(
+            new MainMenu().ViewModel,
+            dashboard,
+            new RunProgressViewModel(RunProgressState.Idle, "等待。", null));
+
+        var markup = new FrameRenderer().BuildMarkup(frame, 40, terminalHeight: 20);
+
+        Assert.Contains("…", markup, StringComparison.Ordinal);
+        Assert.DoesNotContain("�", markup, StringComparison.Ordinal);
+        Assert.Contains("状态", markup, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FrameRenderer_ProfileAndRecentPages_DoNotExposeSensitiveIdentifiers()
+    {
+        const string rawPath = @"D:\secret\target.vhdx";
+        var runId = Guid.Parse("e0d6d9f3-9ec2-43b5-9f90-76d949d17f08");
+        var profile = CreateProfile() with { VhdxPath = rawPath };
+        var profilePage = new ProfileListPageViewModel(
+            new ProfileManagementViewModel(
+                ImmutableArray.Create(new ProfileListItemViewModel(
+                    "目标档案",
+                    "Ubuntu-24.04",
+                    TargetConfigured: true,
+                    ShutdownMode.Global,
+                    TimeSpan.FromSeconds(45),
+                    IsCurrent: true,
+                    IsSelected: true)),
+                0,
+                "档案管理"));
+        var recentPage = new RecentRunDetailPageViewModel(
+            IsMalformed: false,
+            "目标档案",
+            OperationIntent.Compact,
+            TerminalResult.Succeeded,
+            DateTimeOffset.UnixEpoch,
+            DateTimeOffset.UnixEpoch.AddSeconds(1),
+            TimeSpan.FromSeconds(1),
+            ReclaimedBytes: 1,
+            LogsAvailable: true,
+            ErrorMessage: null);
+        var baseFrame = new TuiFrameViewModel(
+            new MainMenu().ViewModel,
+            DashboardViewModel.CreateInitial(profile),
+            new RunProgressViewModel(RunProgressState.Succeeded, "完成。", 100));
+        var renderer = new FrameRenderer();
+
+        var profileMarkup = renderer.BuildMarkup(baseFrame with { Page = profilePage }, 120);
+        var recentMarkup = renderer.BuildMarkup(baseFrame with { Page = recentPage }, 120);
+
+        Assert.DoesNotContain(rawPath, profileMarkup, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(rawPath, recentMarkup, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(runId.ToString(), profileMarkup, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(runId.ToString(), recentMarkup, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("VHDX 已配置", profileMarkup, StringComparison.Ordinal);
+        Assert.Contains("日志", recentMarkup, StringComparison.Ordinal);
+        Assert.Contains("可打开", recentMarkup, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FrameRenderer_RenderRedirected_WritesOneSafeFrameWithoutClearing()
+    {
+        const string rawPath = @"D:\private\redirected-target.vhdx";
+        const string oscSecret = "redirected-exception-secret";
+        var runId = Guid.Parse("e0d6d9f3-9ec2-43b5-9f90-76d949d17f08");
+        var profile = CreateProfile() with { VhdxPath = rawPath };
+        var dashboard = DashboardViewModel.CreateInitial(profile) with
+        {
+            ProfileTitle = "目标 [安全] \u001b[31m红色\u001b[0m",
+            ErrorMessage = $"\u001b]8;;{oscSecret}\u0007受控错误\u001b]8;;\u0007"
+        };
+        var frame = new TuiFrameViewModel(
+            new MainMenu().ViewModel,
+            dashboard,
+            new RunProgressViewModel(
+                RunProgressState.Failed,
+                "只读输出 \u001b[2J不会清屏",
+                null),
+            page: new RecentRunDetailPageViewModel(
+                IsMalformed: false,
+                "目标档案",
+                OperationIntent.Preflight,
+                TerminalResult.CompletedWithNoReclaim,
+                DateTimeOffset.UnixEpoch,
+                DateTimeOffset.UnixEpoch.AddSeconds(1),
+                TimeSpan.FromSeconds(1),
+                ReclaimedBytes: 0,
+                LogsAvailable: true,
+                ErrorMessage: null));
+        using var writer = new StringWriter();
+        var console = AnsiConsole.Create(new AnsiConsoleSettings
+        {
+            Ansi = AnsiSupport.Yes,
+            ColorSystem = ColorSystemSupport.Standard,
+            Interactive = InteractionSupport.No,
+            Out = new AnsiConsoleOutput(writer)
+        });
+
+        new FrameRenderer().RenderRedirected(console, frame);
+
+        var output = writer.ToString();
         Assert.Equal(
-            new[] { RunProgressState.Preflighting, RunProgressState.Succeeded },
-            console.ProgressViewModels.Select(static progress => progress.State));
+            1,
+            output.Split("Vela — WSL VHDX Compact", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("\u001b[2J", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("\u001b[3J", output, StringComparison.Ordinal);
+        Assert.DoesNotContain(rawPath, output, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(runId.ToString(), output, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(oscSecret, output, StringComparison.Ordinal);
+        Assert.DoesNotContain("31m红色", output, StringComparison.Ordinal);
+        Assert.Contains("完成但未回收空间", output, StringComparison.Ordinal);
+        Assert.EndsWith(Environment.NewLine, output, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(80)]
+    [InlineData(119)]
+    public void FrameRenderer_CompactBand_SeparatesNavigationAndWorkspace(int width)
+    {
+        var frame = new TuiFrameViewModel(
+            new MainMenu().ViewModel,
+            DashboardViewModel.CreateInitial(CreateProfile()),
+            new RunProgressViewModel(RunProgressState.Idle, "等待操作。", null));
+
+        var markup = new FrameRenderer().BuildMarkup(frame, width, terminalHeight: 30);
+
+        var navigation = markup.IndexOf("操作", StringComparison.Ordinal);
+        var workspace = markup.IndexOf("目标与状态", StringComparison.Ordinal);
+        Assert.True(navigation >= 0);
+        Assert.True(workspace > navigation);
+        Assert.Contains("[bold blue]操作[/]", markup, StringComparison.Ordinal);
+        Assert.Contains("[bold blue]目标与状态[/]", markup, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FrameRenderer_MinimumBand_EmphasizesCurrentFocusWithoutFullNavigation()
+    {
+        var frame = new TuiFrameViewModel(
+            new MainMenu().ViewModel,
+            DashboardViewModel.CreateInitial(CreateProfile()),
+            new RunProgressViewModel(RunProgressState.Idle, "等待操作。", null),
+            selectedMenuIndex: 2);
+
+        var markup = new FrameRenderer().BuildMarkup(frame, 79, terminalHeight: 30);
+
+        Assert.Contains("[grey]目标[/]", markup, StringComparison.Ordinal);
+        Assert.Contains("[grey]状态[/]", markup, StringComparison.Ordinal);
+        Assert.Contains("[grey]焦点[/]", markup, StringComparison.Ordinal);
+        Assert.Contains("[bold cyan]选择：管理目标档案[/]", markup, StringComparison.Ordinal);
+        Assert.DoesNotContain("执行压缩", markup, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FrameRenderer_MenuSelection_EmphasizesOnlySelectedRow()
+    {
+        var frame = new TuiFrameViewModel(
+            new MainMenu().ViewModel,
+            DashboardViewModel.CreateInitial(CreateProfile()),
+            new RunProgressViewModel(RunProgressState.Idle, "等待操作。", null),
+            selectedMenuIndex: 1);
+
+        var markup = new FrameRenderer().BuildMarkup(frame, 120, terminalHeight: 30);
+
+        Assert.Contains("[bold cyan]› 执行压缩[/]", markup, StringComparison.Ordinal);
+        Assert.Contains("  预检结果", markup, StringComparison.Ordinal);
+        Assert.DoesNotContain("[bold cyan]› 预检结果[/]", markup, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(RunProgressState.Running, "运行中", "cyan")]
+    [InlineData(RunProgressState.Succeeded, "已完成", "green")]
+    [InlineData(RunProgressState.TimedOut, "已超时", "yellow")]
+    [InlineData(RunProgressState.Failed, "失败", "red")]
+    public void FrameRenderer_ProgressStates_UseSemanticStyles(
+        RunProgressState state,
+        string label,
+        string color)
+    {
+        var frame = new TuiFrameViewModel(
+            new MainMenu().ViewModel,
+            DashboardViewModel.CreateInitial(CreateProfile()),
+            new RunProgressViewModel(state, "状态消息。", null));
+
+        var markup = new FrameRenderer().BuildMarkup(frame, 120, terminalHeight: 30);
+
+        Assert.Contains($"[bold {color}]{label}[/]", markup, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(TerminalResult.Succeeded, "成功", "green")]
+    [InlineData(TerminalResult.CompletedWithNoReclaim, "完成但未回收空间", "yellow")]
+    [InlineData(TerminalResult.DiskPartCompactFailed, "压缩失败", "red")]
+    public void FrameRenderer_RecentDetail_DistinguishesTerminalOutcomes(
+        TerminalResult result,
+        string label,
+        string color)
+    {
+        var page = new RecentRunDetailPageViewModel(
+            IsMalformed: false,
+            "目标档案",
+            OperationIntent.Compact,
+            result,
+            DateTimeOffset.UnixEpoch,
+            DateTimeOffset.UnixEpoch.AddSeconds(1),
+            TimeSpan.FromSeconds(1),
+            ReclaimedBytes: result == TerminalResult.CompletedWithNoReclaim ? 0 : 1,
+            LogsAvailable: true,
+            ErrorMessage: null);
+        var frame = new TuiFrameViewModel(
+            new MainMenu().ViewModel,
+            DashboardViewModel.CreateInitial(CreateProfile()),
+            new RunProgressViewModel(RunProgressState.Succeeded, "完成。", 100),
+            page: page);
+
+        var markup = new FrameRenderer().BuildMarkup(frame, 120, terminalHeight: 30);
+
+        Assert.Contains("运行证据", markup, StringComparison.Ordinal);
+        Assert.Contains($"[bold {color}]{label}[/]", markup, StringComparison.Ordinal);
+        Assert.Contains("O 打开可信日志目录", markup, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FrameRenderer_RedirectedFrame_PreservesSemanticSectionOrder()
+    {
+        var frame = new TuiFrameViewModel(
+            new MainMenu().ViewModel,
+            DashboardViewModel.CreateInitial(CreateProfile()),
+            new RunProgressViewModel(RunProgressState.Idle, "等待操作。", null));
+        using var writer = new StringWriter();
+        var console = AnsiConsole.Create(new AnsiConsoleSettings
+        {
+            Ansi = AnsiSupport.No,
+            ColorSystem = ColorSystemSupport.NoColors,
+            Interactive = InteractionSupport.No,
+            Out = new AnsiConsoleOutput(writer)
+        });
+
+        new FrameRenderer().RenderRedirected(console, frame);
+
+        var output = writer.ToString();
+        var navigation = output.IndexOf("操作", StringComparison.Ordinal);
+        var workspace = output.IndexOf("目标与状态", StringComparison.Ordinal);
+        Assert.True(navigation >= 0);
+        Assert.True(workspace > navigation);
+        Assert.Equal(
+            1,
+            output.Split("Vela — WSL VHDX Compact", StringSplitOptions.None).Length - 1);
     }
 
     private static Profile CreateProfile() =>
@@ -157,61 +535,4 @@ public sealed class MainMenuTests
             ShutdownMode.Global,
             TimeSpan.FromSeconds(45));
 
-    private sealed class RecordingConsole : IVelaConsole
-    {
-        public MainMenuViewModel? LastMenuViewModel { get; private set; }
-
-        public DashboardViewModel? LastDashboardViewModel { get; private set; }
-
-        public RunProgressViewModel? LastProgressViewModel { get; private set; }
-
-        public ImmutableArray<RunProgressViewModel> ProgressViewModels { get; private set; } =
-            ImmutableArray<RunProgressViewModel>.Empty;
-
-        public void RenderDashboard(DashboardViewModel viewModel) => LastDashboardViewModel = viewModel;
-
-        public void RenderMenu(MainMenuViewModel viewModel) => LastMenuViewModel = viewModel;
-
-        public void RenderProgress(RunProgressViewModel viewModel)
-        {
-            LastProgressViewModel = viewModel;
-            ProgressViewModels = ProgressViewModels.Add(viewModel);
-        }
-    }
-
-    private sealed class RecordingMenuInput : IMenuInput
-    {
-        private readonly MainMenuAction _selection;
-
-        public RecordingMenuInput(MainMenuAction selection)
-        {
-            _selection = selection;
-        }
-
-        public MainMenuViewModel? LastViewModel { get; private set; }
-
-        public MainMenuAction Select(MainMenuViewModel viewModel)
-        {
-            LastViewModel = viewModel;
-            return _selection;
-        }
-    }
-
-    private sealed class RecordingPreflightViewModelSource : IPreflightViewModelSource
-    {
-        private readonly DashboardViewModel _preview;
-
-        public RecordingPreflightViewModelSource(DashboardViewModel preview)
-        {
-            _preview = preview;
-        }
-
-        public Profile? LastProfile { get; private set; }
-
-        public DashboardViewModel Create(Profile profile)
-        {
-            LastProfile = profile;
-            return _preview;
-        }
-    }
 }

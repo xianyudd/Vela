@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text;
 using Vela.Core.Contracts;
 using Vela.Tests.Fakes;
 using Vela.Windows.Processes;
@@ -40,6 +41,7 @@ public sealed class WslClientTests
             new[] { "--list", "--verbose" },
             Assert.Single(runner.Invocations).Arguments);
         Assert.Equal(paths.WslExePath, runner.Invocations[0].ExecutablePath);
+        Assert.Equal(Encoding.Unicode, runner.Invocations[0].OutputEncoding);
     }
 
     [Fact]
@@ -67,6 +69,23 @@ public sealed class WslClientTests
                 Assert.Equal(1, distro.Version);
                 Assert.False(distro.IsDefault);
             });
+    }
+
+    [Fact]
+    public async Task GetInstalledInventoryAsync_ParsesUtf16LeRedirectedOutput()
+    {
+        var runner = CreateRunner(
+            Utf16LeAsByteCharacters("  NAME                   STATE           VERSION"),
+            Utf16LeAsByteCharacters("* Ubuntu-24.04           Running         2"));
+        var client = new WslClient(runner, new NativeToolPaths());
+
+        var inventory = await client.GetInstalledInventoryAsync(CancellationToken.None);
+
+        var distro = Assert.Single(inventory.Distributions);
+        Assert.Equal("Ubuntu-24.04", distro.Name);
+        Assert.Equal(WslDistributionState.Running, distro.State);
+        Assert.Equal(2, distro.Version);
+        Assert.True(distro.IsDefault);
     }
 
     [Fact]
@@ -188,4 +207,7 @@ public sealed class WslClientTests
             ImmutableArray<string>.Empty,
             DateTimeOffset.UnixEpoch,
             DateTimeOffset.UnixEpoch);
+
+    private static string Utf16LeAsByteCharacters(string value) =>
+        string.Concat(Encoding.Unicode.GetBytes(value).Select(static value => (char)value));
 }

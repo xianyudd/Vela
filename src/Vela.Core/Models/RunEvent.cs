@@ -12,7 +12,8 @@ public sealed record RunEvent(
     ImmutableArray<string> Arguments,
     int? ExitCode,
     TimeSpan? Duration,
-    string? Output);
+    string? Output,
+    TerminalResult? TerminalResult = null);
 
 public enum RunPhase
 {

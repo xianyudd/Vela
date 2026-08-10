@@ -111,6 +111,7 @@ public enum ElevatedOperationStartStatus
 {
     Started,
     ValidationFailed,
+    AlreadyRunning,
     Cancelled,
     Failed
 }
@@ -118,7 +119,10 @@ public enum ElevatedOperationStartStatus
 public sealed record ElevatedOperationStartResult(
     ElevatedOperationStartStatus Status,
     TerminalResult? TerminalResult,
-    string? RunDirectory);
+    string? RunDirectory,
+    Guid? ActiveRunId = null,
+    string? ActiveGatePath = null,
+    CompactRunGateLease? GateLease = null);
 
 public sealed class ElevatedOperationCoordinator
 {
@@ -126,12 +130,14 @@ public sealed class ElevatedOperationCoordinator
     private readonly IOperationRequestStore _requestStore;
     private readonly IElevatedWorkerLauncher _launcher;
     private readonly IClock _clock;
+    private readonly CompactRunGate? _runGate;
 
     public ElevatedOperationCoordinator(
         IRunJournal journal,
         IOperationRequestStore requestStore,
         IElevatedWorkerLauncher launcher,
-        IClock clock)
+        IClock clock,
+        CompactRunGate? runGate = null)
     {
         ArgumentNullException.ThrowIfNull(journal);
         ArgumentNullException.ThrowIfNull(requestStore);
@@ -142,6 +148,7 @@ public sealed class ElevatedOperationCoordinator
         _requestStore = requestStore;
         _launcher = launcher;
         _clock = clock;
+        _runGate = runGate;
     }
 
     public async Task<ElevatedOperationStartResult> StartAsync(
@@ -156,52 +163,96 @@ public sealed class ElevatedOperationCoordinator
                 RunDirectory: null);
         }
 
-        var created = await _journal.CreateRunAsync(request.RunId, cancellationToken).ConfigureAwait(false);
-        if (!created.Succeeded || string.IsNullOrWhiteSpace(created.RunDirectory))
+        var gate = _runGate?.TryAcquire(request);
+        if (gate is { Status: CompactRunGateStatus.AlreadyRunning })
+        {
+            return new ElevatedOperationStartResult(
+                ElevatedOperationStartStatus.AlreadyRunning,
+                TerminalResult.WorkerInterrupted,
+                gate.RunDirectory,
+                gate.ActiveRunId,
+                gate.GatePath);
+        }
+
+        if (gate is { Status: CompactRunGateStatus.Invalid })
         {
             return new ElevatedOperationStartResult(
                 ElevatedOperationStartStatus.ValidationFailed,
                 TerminalResult.ValidationFailed,
-                RunDirectory: null);
+                RunDirectory: null,
+                ActiveGatePath: gate.GatePath);
         }
 
-        var written = await _requestStore.WriteAsync(request, cancellationToken).ConfigureAwait(false);
-        if (!written.Succeeded)
+        var gateLease = gate?.Lease;
+        string? runDirectory = null;
+
+        try
         {
-            return await CompleteParentFailureAsync(
-                    request,
-                    created.RunDirectory,
+            var created = await _journal.CreateRunAsync(request.RunId, cancellationToken).ConfigureAwait(false);
+            runDirectory = created.RunDirectory;
+            if (!created.Succeeded || string.IsNullOrWhiteSpace(runDirectory))
+            {
+                _runGate?.Release(request.RunId);
+                return new ElevatedOperationStartResult(
+                    ElevatedOperationStartStatus.ValidationFailed,
                     TerminalResult.ValidationFailed,
-                    "PendingRequestWriteFailed",
-                    consumeRequest: false,
-                    cancellationToken)
-                .ConfigureAwait(false);
-        }
+                    runDirectory);
+            }
 
-        var launched = await _launcher.LaunchAsync(request.RunId, cancellationToken).ConfigureAwait(false);
-        return launched.Status switch
+            var written = await _requestStore.WriteAsync(request, cancellationToken).ConfigureAwait(false);
+            if (!written.Succeeded)
+            {
+                return await CompleteParentFailureAsync(
+                        request,
+                        runDirectory,
+                        TerminalResult.ValidationFailed,
+                        "PendingRequestWriteFailed",
+                        consumeRequest: false,
+                        gateLease: gateLease,
+                        cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            var launched = await _launcher.LaunchAsync(request.RunId, cancellationToken).ConfigureAwait(false);
+            return launched.Status switch
+            {
+                ElevatedWorkerLaunchStatus.Started => new ElevatedOperationStartResult(
+                    ElevatedOperationStartStatus.Started,
+                    TerminalResult: null,
+                    runDirectory,
+                    GateLease: gateLease),
+                ElevatedWorkerLaunchStatus.Cancelled => await CompleteParentFailureAsync(
+                        request,
+                        runDirectory,
+                        TerminalResult.CancelledBeforeElevation,
+                        "UacCancelled",
+                        consumeRequest: true,
+                        gateLease: gateLease,
+                        cancellationToken: cancellationToken)
+                    .ConfigureAwait(false),
+                _ => await CompleteParentFailureAsync(
+                        request,
+                        runDirectory,
+                        TerminalResult.WorkerInterrupted,
+                        "UacLaunchFailed",
+                        consumeRequest: true,
+                        gateLease: gateLease,
+                        cancellationToken: cancellationToken)
+                    .ConfigureAwait(false)
+            };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            ElevatedWorkerLaunchStatus.Started => new ElevatedOperationStartResult(
-                ElevatedOperationStartStatus.Started,
-                TerminalResult: null,
-                created.RunDirectory),
-            ElevatedWorkerLaunchStatus.Cancelled => await CompleteParentFailureAsync(
-                    request,
-                    created.RunDirectory,
-                    TerminalResult.CancelledBeforeElevation,
-                    "UacCancelled",
-                    consumeRequest: true,
-                    cancellationToken)
-                .ConfigureAwait(false),
-            _ => await CompleteParentFailureAsync(
-                    request,
-                    created.RunDirectory,
-                    TerminalResult.WorkerInterrupted,
-                    "UacLaunchFailed",
-                    consumeRequest: true,
-                    cancellationToken)
-                .ConfigureAwait(false)
-        };
+            throw;
+        }
+        catch (Exception)
+        {
+            return new ElevatedOperationStartResult(
+                ElevatedOperationStartStatus.Failed,
+                TerminalResult.WorkerInterrupted,
+                runDirectory,
+                GateLease: gateLease);
+        }
     }
 
     private async Task<ElevatedOperationStartResult> CompleteParentFailureAsync(
@@ -210,22 +261,10 @@ public sealed class ElevatedOperationCoordinator
         TerminalResult terminalResult,
         string operationName,
         bool consumeRequest,
+        CompactRunGateLease? gateLease,
         CancellationToken cancellationToken)
     {
         var occurredAtUtc = _clock.UtcNow;
-        var appended = await _journal.AppendAsync(
-                new RunEventDraft(
-                    occurredAtUtc,
-                    request.RunId,
-                    RunPhase.Elevation,
-                    RunEventLevel.Error,
-                    operationName,
-                    ImmutableArray<string>.Empty,
-                    ExitCode: null,
-                    Duration: null,
-                    Output: null),
-                cancellationToken)
-            .ConfigureAwait(false);
         var summaryWritten = await _journal.WriteSummaryAsync(
                 new RunSummary(
                     request.RunId,
@@ -239,10 +278,53 @@ public sealed class ElevatedOperationCoordinator
                 cancellationToken)
             .ConfigureAwait(false);
 
-        if (consumeRequest && appended.Succeeded && summaryWritten.Succeeded)
+        if (!summaryWritten.Succeeded)
         {
-            await _requestStore.ConsumeAsync(request.RunId, cancellationToken).ConfigureAwait(false);
+            return new ElevatedOperationStartResult(
+                ElevatedOperationStartStatus.Failed,
+                terminalResult,
+                runDirectory,
+                GateLease: gateLease);
         }
+
+        var appended = await _journal.AppendAsync(
+                new RunEventDraft(
+                    _clock.UtcNow,
+                    request.RunId,
+                    RunPhase.Elevation,
+                    RunEventLevel.Error,
+                    operationName,
+                    ImmutableArray<string>.Empty,
+                    ExitCode: TerminalResultSemantics.ToExitCode(terminalResult),
+                    Duration: null,
+                    Output: null,
+                    TerminalResult: terminalResult),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!appended.Succeeded)
+        {
+            return new ElevatedOperationStartResult(
+                ElevatedOperationStartStatus.Failed,
+                terminalResult,
+                runDirectory,
+                GateLease: gateLease);
+        }
+
+        if (consumeRequest)
+        {
+            var consumed = await _requestStore.ConsumeAsync(request.RunId, cancellationToken).ConfigureAwait(false);
+            if (!consumed.Succeeded)
+            {
+                _runGate?.Release(request.RunId);
+                return new ElevatedOperationStartResult(
+                    ElevatedOperationStartStatus.Failed,
+                    terminalResult,
+                    runDirectory);
+            }
+        }
+
+        _runGate?.Release(request.RunId);
 
         return new ElevatedOperationStartResult(
             terminalResult == TerminalResult.CancelledBeforeElevation
@@ -252,6 +334,7 @@ public sealed class ElevatedOperationCoordinator
                     : ElevatedOperationStartStatus.Failed,
             terminalResult,
             runDirectory);
+
     }
 
     private static bool IsValidCompactRequest(OperationRequest? request) =>

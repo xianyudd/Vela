@@ -240,7 +240,8 @@ public sealed class FakeRunJournal : IRunJournal
             eventDraft.Arguments,
             eventDraft.ExitCode,
             eventDraft.Duration,
-            eventDraft.Output);
+            eventDraft.Output,
+            eventDraft.TerminalResult);
         _events.Add(@event);
         return Task.FromResult(JournalAppendResult.Success(@event));
     }

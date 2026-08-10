@@ -28,6 +28,23 @@ public sealed class LxssProfileResolverTests
     }
 
     [Fact]
+    public async Task ResolveAsync_NormalizesExtendedLengthRegistryBasePath()
+    {
+        var reader = new FixtureLxssRegistryReader(
+            ImmutableArray.Create(
+                new LxssRegistryProfile("Ubuntu-24.04", @"\\?\D:\DevTools\WSL2\Ubuntu24.04")));
+        var resolver = new LxssProfileResolver(reader);
+
+        var result = await resolver.ResolveAsync(
+            "Ubuntu-24.04",
+            @"D:\DevTools\WSL2\Ubuntu24.04\ext4.vhdx",
+            CancellationToken.None);
+
+        Assert.Equal(LxssResolutionStatus.Matched, result.Status);
+        Assert.Equal(@"D:\DevTools\WSL2\Ubuntu24.04\ext4.vhdx", result.ResolvedVhdxPath);
+    }
+
+    [Fact]
     public async Task ResolveAsync_WhenRequestedVhdxDiffers_ReturnsNormalizedMismatch()
     {
         var reader = new FixtureLxssRegistryReader(

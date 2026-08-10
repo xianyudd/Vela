@@ -181,6 +181,32 @@ public sealed class ModelTests
     }
 
     [Fact]
+    public void TerminalResultSemantics_MapsCanonicalTerminalEventsStrictly()
+    {
+        var runId = Guid.Parse("61d3b78f-05db-4ca5-a019-a5d8dba7ce7e");
+        var valid = new RunEvent(
+            2,
+            DateTimeOffset.UnixEpoch,
+            runId,
+            RunPhase.Completed,
+            RunEventLevel.Information,
+            "WorkerCompleted",
+            ImmutableArray<string>.Empty,
+            0,
+            TimeSpan.Zero,
+            null,
+            TerminalResult.CompletedWithNoReclaim);
+
+        Assert.True(TerminalResultSemantics.TryMapTerminalEvent(valid, out var result));
+        Assert.Equal(TerminalResult.CompletedWithNoReclaim, result);
+        Assert.False(TerminalResultSemantics.TryMapTerminalEvent(
+            valid with { ExitCode = 2 },
+            out _));
+        Assert.False(TerminalResultSemantics.TryMapTerminalEvent(
+            valid with { Level = RunEventLevel.Error },
+            out _));
+    }
+    [Fact]
     public void Profile_WithExpression_DoesNotModifyTheOriginalValue()
     {
         var original = CreateProfile();
