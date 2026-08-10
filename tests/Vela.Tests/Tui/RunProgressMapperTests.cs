@@ -8,7 +8,7 @@ namespace Vela.Tests.Tui;
 public sealed class RunProgressMapperTests
 {
     [Fact]
-    public void Event_mapping_uses_real_journal_text_without_a_fake_percentage()
+    public void Event_mapping_projects_the_real_journal_phase_to_a_visible_progress_stage()
     {
         var progress = RunProgressMapper.FromEvent(new RunEvent(
             1, DateTimeOffset.UnixEpoch, Guid.NewGuid(), RunPhase.Validation,
@@ -16,7 +16,7 @@ public sealed class RunProgressMapperTests
             null, null, null));
 
         Assert.Equal(RunProgressState.Running, progress.State);
-        Assert.Null(progress.Percent);
+        Assert.Equal(8, progress.Percent);
     }
 
     [Fact]
@@ -31,6 +31,6 @@ public sealed class RunProgressMapperTests
 
         Assert.Equal(RunProgressState.Succeeded, progress.State);
         Assert.Contains("完成但未回收空间", progress.Message);
-        Assert.Null(progress.Percent);
+        Assert.Equal(100, progress.Percent);
     }
 }

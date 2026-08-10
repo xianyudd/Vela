@@ -250,7 +250,7 @@ public sealed class VelaTerminalShellTests
     }
 
     [Fact]
-    public void Confirmation_page_shows_impact_and_rejects_non_exact_input_without_requesting_an_action()
+    public void Confirmation_page_requires_the_second_y_without_requesting_an_action_for_other_input()
     {
         var profile = CreateProfile();
         using var shell = new VelaTerminalShell(
@@ -265,8 +265,32 @@ public sealed class VelaTerminalShellTests
         shell.SubmitConfirmation("yes");
 
         Assert.Equal(VelaWorkspacePage.Confirmation, shell.CurrentPage);
-        Assert.Contains("确认输入未匹配 YES", shell.StatusText);
+        Assert.Contains("请按 Y 再次确认执行", shell.StatusText);
         Assert.Empty(actions);
+    }
+
+    [Theory]
+    [InlineData('y')]
+    [InlineData('Y')]
+    public void Compaction_confirmation_accepts_the_second_y_without_text_entry(char input)
+    {
+        var profile = CreateProfile();
+        using var shell = new VelaTerminalShell(
+            new MainMenu().ViewModel,
+            DashboardViewModel.CreateInitial(profile));
+        ConfirmationInputResult? submitted = null;
+        shell.ConfirmationSubmitted += result => submitted = result;
+
+        shell.ShowConfirmation(MainMenu.CreateExecuteConfirmation(
+            profile,
+            System.Collections.Immutable.ImmutableArray<Vela.Core.Contracts.WslDistribution>.Empty));
+
+        Assert.True(shell.NewKeyDownEvent(new Key(input)));
+
+        Assert.NotNull(submitted);
+        Assert.Equal(ConfirmationInputStatus.Accepted, submitted!.Status);
+        Assert.Equal("Y", submitted.Response);
+        Assert.NotEqual(VelaWorkspacePage.Confirmation, shell.CurrentPage);
     }
 
     [Fact]
@@ -766,7 +790,18 @@ public sealed class VelaTerminalShellTests
             Assert.Contains("STEP2_RUNNING", shell.WorkspaceText, StringComparison.Ordinal);
             Assert.Contains("docker-desktop", shell.WorkspaceText, StringComparison.Ordinal);
             Assert.Contains("Console Log", shell.WorkspaceText, StringComparison.Ordinal);
-            Assert.Contains("导航 / 操作", app.Driver.ToString(), StringComparison.Ordinal);
+            var rendered = app.Driver.ToString();
+            Assert.Contains(
+                width < 120 ? "VHDX OPTIMIZING" : "Optimizing VHDX Block Allocations",
+                rendered,
+                StringComparison.Ordinal);
+            if (width >= 80 && height >= 24)
+            {
+                Assert.Contains("Console Log", rendered, StringComparison.Ordinal);
+                Assert.Contains("compact target locked", rendered, StringComparison.Ordinal);
+                Assert.Contains("░", rendered, StringComparison.Ordinal);
+            }
+            Assert.Contains("导航 / 操作", rendered, StringComparison.Ordinal);
             Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.CursorDown));
 
             shell.ShowRunProgress(new RunProgressViewModel(
@@ -777,8 +812,15 @@ public sealed class VelaTerminalShellTests
                 Elapsed: TimeSpan.FromSeconds(42),
                 ReclaimedBytes: 53L * PreflightOverviewFormatter.Gibibyte));
 
+            app.LayoutAndDraw(forceRedraw: true);
             Assert.Contains("DONE", shell.WorkspaceText, StringComparison.Ordinal);
             Assert.Contains("53.00 GiB", shell.WorkspaceText, StringComparison.Ordinal);
+            if (width >= 80 && height >= 24)
+            {
+                var resultRendered = app.Driver.ToString();
+                Assert.Contains("DONE", resultRendered, StringComparison.Ordinal);
+                Assert.Contains("53.00 GiB", resultRendered, StringComparison.Ordinal);
+            }
             Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.Enter));
             Assert.Equal(VelaWorkspacePage.Overview, shell.CurrentPage);
         }

@@ -38,6 +38,7 @@ public sealed class VelaTerminalShell : Window
     private readonly PreflightHomeView _homeView;
     private readonly PreflightTargetDetailView _targetDetailView;
     private readonly CompactionImpactView _impactView;
+    private readonly RunProgressView _runProgressView;
     private readonly Label _decision;
     private readonly FrameView _evidencePanel;
     private readonly Label _evidence;
@@ -180,6 +181,14 @@ public sealed class VelaTerminalShell : Window
             Height = Dim.Fill(),
             Visible = false
         };
+        _runProgressView = new RunProgressView
+        {
+            X = 1,
+            Y = 2,
+            Width = Dim.Fill(1),
+            Height = Dim.Fill(),
+            Visible = false
+        };
         _evidencePanel = new FrameView { Title = "关键证据", Visible = false, SchemeName = VelaTerminalTheme.Panel };
         _evidence = new Label { X = 1, Y = 0, Width = Dim.Fill(1), Height = Dim.Fill(), SchemeName = VelaTerminalTheme.Base };
         _evidencePanel.Add(_evidence);
@@ -198,7 +207,7 @@ public sealed class VelaTerminalShell : Window
         _quitHint.SchemeName = VelaTerminalTheme.ActionBar;
         _header.SchemeName = VelaTerminalTheme.Info;
         _navigationPanel.Add(_groupCaptions, _navigation);
-        _contentPanel.Add(_contentHeading, _decision, _workspace, _homeView, _targetDetailView, _impactView, _evidencePanel, _logList, _confirmationInput);
+        _contentPanel.Add(_contentHeading, _decision, _workspace, _homeView, _targetDetailView, _impactView, _runProgressView, _evidencePanel, _logList, _confirmationInput);
         _decision.Visible = false;
         _workspace.Visible = false;
         UpdateDecision(AutomaticPreflightState.Idle);
@@ -513,15 +522,18 @@ public sealed class VelaTerminalShell : Window
         _homeView.Visible = false;
         _targetDetailView.Visible = false;
         _impactView.Visible = false;
+        _runProgressView.Visible = CurrentPage == VelaWorkspacePage.Running;
         _contentHeading.Visible = true;
-        _workspace.Visible = true;
+        _workspace.Visible = CurrentPage == VelaWorkspacePage.Result;
         SetOverviewDecisionVisible(false);
+        _header.Text = BuildHeader(_applicationTitle, _dashboard, PreflightState);
         SetContentTitle(CurrentPage == VelaWorkspacePage.Result ? "运行结果" : "运行进度");
         _workspace.Text = BuildRunProgress(progress);
+        _runProgressView.Apply(progress);
         SetNavigationStatus();
         if (CurrentPage == VelaWorkspacePage.Running)
         {
-            _workspace.SetFocus();
+            _runProgressView.SetFocus();
         }
         else
         {
@@ -546,12 +558,20 @@ public sealed class VelaTerminalShell : Window
         _decision.Text = "! 影响摘要：请核对停止范围、运行中的发行版和 VHDX 状态";
         _decision.SchemeName = VelaTerminalTheme.Attention;
         SetContentTitle("执行确认");
+        _header.Text = BuildHeader(_applicationTitle, _dashboard, PreflightState);
         _confirmationInput.Text = string.Empty;
-        _confirmationInput.Visible = true;
+        _confirmationInput.Visible = !confirmation.AcceptsSingleKey;
         _workspace.Height = Dim.Fill(2);
         _workspace.Text = BuildConfirmation(confirmation);
         SetNavigationStatus();
-        _confirmationInput.SetFocus();
+        if (confirmation.AcceptsSingleKey)
+        {
+            _workspace.SetFocus();
+        }
+        else
+        {
+            _confirmationInput.SetFocus();
+        }
         SetNeedsDraw();
     }
 
@@ -561,12 +581,29 @@ public sealed class VelaTerminalShell : Window
         var boundedResponse = response is null || response.Length <= ConfirmationInputLimit
             ? response
             : response[..ConfirmationInputLimit];
-        var result = ExactConfirmationPolicy.IsAccepted(boundedResponse)
+        var isAccepted = _confirmation.AcceptsSingleKey
+            ? string.Equals(boundedResponse, "Y", StringComparison.OrdinalIgnoreCase)
+            : ExactConfirmationPolicy.IsAccepted(boundedResponse);
+        var result = isAccepted
             ? new ConfirmationInputResult(ConfirmationInputStatus.Accepted, boundedResponse!)
             : new ConfirmationInputResult(ConfirmationInputStatus.Rejected, boundedResponse ?? string.Empty);
         if (result.Status == ConfirmationInputStatus.Rejected)
         {
-            ShowStatus("确认输入未匹配 YES，操作未启动。");
+            ShowStatus(_confirmation.AcceptsSingleKey
+                ? "请按 Y 再次确认执行，操作未启动。"
+                : "确认输入未匹配 YES，操作未启动。");
+        }
+        else if (_confirmation.AcceptsSingleKey)
+        {
+            _confirmation = null;
+            _confirmationInput.Visible = false;
+            ShowRunProgress(new RunProgressViewModel(
+                RunProgressState.Running,
+                "正在创建压缩请求。",
+                Percent: null,
+                TargetName: LockedTargetName ?? _dashboard.DistroName,
+                VhdxPath: LockedTargetVhdxPath));
+            ShowStatus("已确认，正在启动压缩…");
         }
         else
         {
@@ -835,6 +872,29 @@ public sealed class VelaTerminalShell : Window
         return false;
     }
 
+    internal bool TryHandleConfirmationKey(Key key)
+    {
+        if (CurrentPage != VelaWorkspacePage.Confirmation ||
+            _confirmation?.AcceptsSingleKey != true)
+        {
+            return false;
+        }
+
+        if (key == Key.Esc)
+        {
+            CancelConfirmation();
+            return true;
+        }
+
+        if (IsYesKey(key))
+        {
+            SubmitConfirmation("Y");
+            return true;
+        }
+
+        return true;
+    }
+
     internal bool TryHandleFocusToggleKey(Key key)
     {
         if (CurrentPage != VelaWorkspacePage.Overview || key != Key.Tab)
@@ -992,6 +1052,7 @@ public sealed class VelaTerminalShell : Window
         // Key.R.WithShift. Normalize both forms so the visible [R] hint is
         // reliable in tmux and on a physical keyboard.
         if (TryHandleRunLifecycleKey(key)) return true;
+        if (TryHandleConfirmationKey(key)) return true;
         if (TryHandleQuitKey(key)) return true;
         if (TryHandleFocusToggleKey(key)) return true;
         if (TryHandleTargetNavigationKey(key)) return true;
@@ -1363,6 +1424,14 @@ public sealed class VelaTerminalShell : Window
             return "VELA  ·  历史运行记录浏览";
         }
 
+        if (CurrentPage is VelaWorkspacePage.Running or VelaWorkspacePage.Result or VelaWorkspacePage.Confirmation)
+        {
+            var targetName = LockedTargetName ?? TuiDisplayText.Sanitize(dashboard.DistroName, 32);
+            return _screenWidth < 110
+                ? $"VELA  ·  ④ 执行压缩  ·  {targetName}"
+                : $"VELA  ·  ✔ 选择实例  ─  ✔ 环境预检  ─  ✔ 影响评估  ─  ④ 执行压缩  ·  {targetName}";
+        }
+
         if (CurrentPage == VelaWorkspacePage.ActionPreview)
         {
             var targetName = LockedTargetName ?? "未锁定目标";
@@ -1592,6 +1661,7 @@ public sealed class VelaTerminalShell : Window
             VelaWorkspacePage.RecentRuns when compact => "[↑↓]切换 [Enter]刷新 [Esc]返回",
             VelaWorkspacePage.Logs or VelaWorkspacePage.LogAnalysis when compact => "[↑↓]切换 [Enter]日志 [Esc]返回",
             VelaWorkspacePage.ActionPreview when compact => "[Esc]返回预检 [Y]确认执行压缩",
+            VelaWorkspacePage.Confirmation when compact && _confirmation?.AcceptsSingleKey == true => "[Y]再次确认执行 [Esc]取消",
             VelaWorkspacePage.Confirmation when compact => "[Enter]确认 YES [Esc]取消",
             VelaWorkspacePage.Running when compact => "[执行中]journal 实时更新",
             VelaWorkspacePage.Result when compact => "[Enter/Esc]返回实例",
@@ -1602,6 +1672,7 @@ public sealed class VelaTerminalShell : Window
             VelaWorkspacePage.RecentRuns => "[↑↓] 导航   [Enter] 刷新运行记录   [Esc] 返回状态总览",
             VelaWorkspacePage.Logs or VelaWorkspacePage.LogAnalysis => "[↑↓] 导航   [Enter] 打开日志目录   [Esc] 返回状态总览",
             VelaWorkspacePage.ActionPreview => "[Esc]  返回预检   [Y]  确认执行压缩",
+            VelaWorkspacePage.Confirmation when _confirmation?.AcceptsSingleKey == true => "[Y]  再次确认执行   [Esc] 取消",
             VelaWorkspacePage.Confirmation => "[Enter] 确认 YES   [Esc] 取消",
             VelaWorkspacePage.Running => "[执行中] journal 实时更新   键盘输入已锁定",
             VelaWorkspacePage.Result => "[Enter/Esc] 返回实例列表",
@@ -1616,14 +1687,21 @@ public sealed class VelaTerminalShell : Window
             .Split([Environment.NewLine, "\n"], StringSplitOptions.RemoveEmptyEntries)
             .Select(line => TuiDisplayText.Sanitize(line, 120))
             .ToList();
-        if (promptLines.Count > 0 && promptLines[^1].Contains("输入 YES", StringComparison.Ordinal))
+        if (promptLines.Count > 0 &&
+            (promptLines[^1].Contains("输入 YES", StringComparison.Ordinal) ||
+             promptLines[^1].Contains("按 Y 再次确认执行", StringComparison.Ordinal)))
         {
             promptLines.RemoveAt(promptLines.Count - 1);
         }
 
         var rows = new[] { "影响摘要" }
             .Concat(promptLines.Select(line => $"  {line}"))
-            .Concat(["", "输入 YES 并按 Enter 确认；Esc 取消。"]);
+            .Concat([
+                "",
+                confirmation.AcceptsSingleKey
+                    ? "按 [Y] 再次确认执行；Esc 取消。"
+                    : "输入 YES 并按 Enter 确认；Esc 取消。"
+            ]);
         return string.Join(Environment.NewLine, rows);
     }
 
@@ -1822,6 +1900,7 @@ public sealed class VelaTerminalShell : Window
     private void ApplyContentRailLayout()
     {
         var showsEvidenceRail = ShouldShowEvidenceRail;
+        _runProgressView.Visible = CurrentPage == VelaWorkspacePage.Running;
         var unifiedSurface = (CurrentPage is VelaWorkspacePage.Overview or VelaWorkspacePage.TargetDetail or VelaWorkspacePage.ActionPreview)
             && LayoutMode == VelaShellLayout.TwoPane;
         if (unifiedSurface)
@@ -1866,6 +1945,10 @@ public sealed class VelaTerminalShell : Window
         _impactView.Y = 2;
         _impactView.Width = Dim.Fill(1);
         _impactView.Height = _confirmationInput.Visible ? Dim.Fill(2) : Dim.Fill();
+        _runProgressView.X = 1;
+        _runProgressView.Y = 2;
+        _runProgressView.Width = Dim.Fill(1);
+        _runProgressView.Height = _confirmationInput.Visible ? Dim.Fill(2) : Dim.Fill();
         _evidencePanel.Visible = showsEvidenceRail;
         if (showsEvidenceRail)
         {
@@ -1937,6 +2020,7 @@ public sealed class TerminalGuiShellHost : IDisposable
     private void OnApplicationKeyDown(object? sender, Key key)
     {
         if (_shell.TryHandleRunLifecycleKey(key) ||
+            _shell.TryHandleConfirmationKey(key) ||
             _shell.TryHandleQuitKey(key) ||
             _shell.TryHandleFocusToggleKey(key) ||
             _shell.TryHandleTargetNavigationKey(key) ||

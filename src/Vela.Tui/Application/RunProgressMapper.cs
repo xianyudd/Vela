@@ -12,7 +12,7 @@ public static class RunProgressMapper
         return new RunProgressViewModel(
             RunProgressState.Running,
             $"{TuiDisplayText.LabelForPhase(@event.Phase)} / {TuiDisplayText.LabelForOperation(@event.OperationName)}",
-            Percent: null);
+            Percent: ProgressForPhase(@event.Phase));
     }
 
     public static RunProgressViewModel FromTerminal(RunJournalPollResult result)
@@ -37,6 +37,21 @@ public static class RunProgressMapper
         return new RunProgressViewModel(
             succeeded ? RunProgressState.Succeeded : RunProgressState.Failed,
             $"运行终态：{TuiDisplayText.LabelForTerminal(terminal)}。",
-            Percent: null);
+            Percent: succeeded ? 100 : null);
     }
+
+    private static int ProgressForPhase(RunPhase phase) => phase switch
+    {
+        RunPhase.Validation => 8,
+        RunPhase.Inventory => 18,
+        RunPhase.Snapshot => 30,
+        RunPhase.AwaitingConfirmation => 40,
+        RunPhase.Elevation => 50,
+        RunPhase.Shutdown => 62,
+        RunPhase.DiskPartPreflight => 72,
+        RunPhase.Compacting => 90,
+        RunPhase.Completed => 100,
+        RunPhase.Failed => 100,
+        _ => 5
+    };
 }

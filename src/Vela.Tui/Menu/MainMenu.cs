@@ -26,7 +26,8 @@ public sealed record MainMenuViewModel(
 public sealed record ConfirmationViewModel(
     string Prompt,
     string RequiredInput,
-    ImmutableArray<string> RunningDistros);
+    ImmutableArray<string> RunningDistros,
+    bool AcceptsSingleKey = false);
 
 public sealed class MainMenu
 {
@@ -122,9 +123,10 @@ public sealed class MainMenu
             $"{runningDistroSummary}{Environment.NewLine}" +
             $"{impactSummary}{Environment.NewLine}" +
             $"{dataRootSummary}{Environment.NewLine}" +
-            "输入 YES 继续。",
-            "YES",
-            runningDistros);
+            "按 Y 再次确认执行。",
+            "Y",
+            runningDistros,
+            AcceptsSingleKey: true);
     }
     private static string BoundedList(
         IEnumerable<string> values,
@@ -161,6 +163,8 @@ public sealed class MainMenu
         string? response)
     {
         ArgumentNullException.ThrowIfNull(viewModel);
-        return string.Equals(response, viewModel.RequiredInput, StringComparison.Ordinal);
+        return viewModel.AcceptsSingleKey
+            ? string.Equals(response, viewModel.RequiredInput, StringComparison.OrdinalIgnoreCase)
+            : string.Equals(response, viewModel.RequiredInput, StringComparison.Ordinal);
     }
 }

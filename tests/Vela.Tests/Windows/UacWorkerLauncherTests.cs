@@ -11,6 +11,29 @@ namespace Vela.Tests.Windows;
 public sealed class UacWorkerLauncherTests
 {
     [Fact]
+    public void CurrentExecutablePathProvider_prefers_the_launchable_apphost_for_dll_invocations()
+    {
+        var entryAssemblyPath = System.Reflection.Assembly.GetEntryAssembly()?.Location;
+        var expectedAppHost = string.IsNullOrWhiteSpace(entryAssemblyPath)
+            ? null
+            : Path.Combine(
+                Path.GetDirectoryName(entryAssemblyPath) ?? string.Empty,
+                Path.GetFileNameWithoutExtension(entryAssemblyPath) + ".exe");
+
+        var actualPath = new CurrentExecutablePathProvider().GetExecutablePath();
+
+        Assert.True(Path.IsPathFullyQualified(actualPath));
+        if (expectedAppHost is not null && File.Exists(expectedAppHost))
+        {
+            Assert.Equal(expectedAppHost, actualPath);
+        }
+        else
+        {
+            Assert.True(File.Exists(actualPath));
+        }
+    }
+
+    [Fact]
     public async Task LaunchAsync_UsesTheExactRunAsWorkerArgumentBoundaries()
     {
         var runId = Guid.Parse("7cf7f32d-1780-446d-91a1-5d18c8aa74a6");
@@ -28,6 +51,25 @@ public sealed class UacWorkerLauncherTests
         Assert.Equal("runas", startInfo.Verb);
         Assert.Equal(
             new[] { "--worker", "--run-id", runId.ToString("D") },
+            startInfo.Arguments);
+    }
+
+    [Fact]
+    public async Task LaunchAsync_adds_the_entry_dll_when_dotnet_is_the_host()
+    {
+        var runId = Guid.Parse("1e75ec82-3c9f-44e5-b9f7-f26b47c4d30d");
+        var starter = new RecordingProcessStarter();
+        var launcher = new UacWorkerLauncher(
+            new FixedExecutablePathProvider(@"C:\Program Files\dotnet\dotnet.exe"),
+            starter);
+
+        await launcher.LaunchAsync(runId, CancellationToken.None);
+
+        var startInfo = Assert.Single(starter.StartInfos);
+        var entryAssemblyPath = System.Reflection.Assembly.GetEntryAssembly()?.Location;
+        Assert.False(string.IsNullOrWhiteSpace(entryAssemblyPath));
+        Assert.Equal(
+            new[] { entryAssemblyPath!, "--worker", "--run-id", runId.ToString("D") },
             startInfo.Arguments);
     }
 

@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Reflection;
 using Vela.Core.Contracts;
 using Vela.Core.Models;
 using Vela.Core.Validation;
@@ -19,9 +20,24 @@ public interface IUacProcessStarter
 
 public sealed class CurrentExecutablePathProvider : IExecutablePathProvider
 {
-    public string GetExecutablePath() =>
-        Environment.ProcessPath
-        ?? throw new InvalidOperationException("The current executable path is not available.");
+    public string GetExecutablePath()
+    {
+        var entryAssemblyPath = Assembly.GetEntryAssembly()?.Location;
+        if (!string.IsNullOrWhiteSpace(entryAssemblyPath))
+        {
+            var directory = Path.GetDirectoryName(entryAssemblyPath);
+            var appHostPath = Path.Combine(
+                directory ?? string.Empty,
+                Path.GetFileNameWithoutExtension(entryAssemblyPath) + ".exe");
+            if (File.Exists(appHostPath))
+            {
+                return appHostPath;
+            }
+        }
+
+        return Environment.ProcessPath
+            ?? throw new InvalidOperationException("The current executable path is not available.");
+    }
 }
 
 public sealed class ProcessUacProcessStarter : IUacProcessStarter
@@ -86,6 +102,12 @@ public sealed class UacWorkerLauncher : IElevatedWorkerLauncher
                 UseShellExecute = true,
                 Verb = "runas"
             };
+            var entryAssemblyPath = Assembly.GetEntryAssembly()?.Location;
+            if (IsDotnetHost(executablePath) &&
+                !string.IsNullOrWhiteSpace(entryAssemblyPath))
+            {
+                startInfo.ArgumentList.Add(entryAssemblyPath);
+            }
             startInfo.ArgumentList.Add("--worker");
             startInfo.ArgumentList.Add("--run-id");
             startInfo.ArgumentList.Add(runId.ToString("D"));
@@ -105,6 +127,12 @@ public sealed class UacWorkerLauncher : IElevatedWorkerLauncher
                 new ElevatedWorkerLaunchResult(ElevatedWorkerLaunchStatus.Failed));
         }
     }
+
+    private static bool IsDotnetHost(string executablePath) =>
+        string.Equals(
+            Path.GetFileNameWithoutExtension(executablePath),
+            "dotnet",
+            StringComparison.OrdinalIgnoreCase);
 }
 
 public enum ElevatedOperationStartStatus

@@ -133,7 +133,7 @@ public sealed class MainMenuTests
     }
 
     [Fact]
-    public void CreateExecuteConfirmation_RequiresExactYesAndShowsRunningDistros()
+    public void CreateExecuteConfirmation_RequiresSecondYAndShowsRunningDistros()
     {
         var profile = CreateProfile();
         var confirmation = MainMenu.CreateExecuteConfirmation(
@@ -142,8 +142,10 @@ public sealed class MainMenuTests
                 new WslDistribution("Ubuntu-24.04", WslDistributionState.Running, 2, true),
                 new WslDistribution("docker-desktop", WslDistributionState.Running, 2, false)));
 
-        Assert.Equal("YES", confirmation.RequiredInput);
-        Assert.Contains("YES", confirmation.Prompt, StringComparison.Ordinal);
+        Assert.Equal("Y", confirmation.RequiredInput);
+        Assert.True(confirmation.AcceptsSingleKey);
+        Assert.Contains("按 Y 再次确认执行", confirmation.Prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("YES", confirmation.Prompt, StringComparison.Ordinal);
         Assert.Contains("Ubuntu-24.04", confirmation.Prompt, StringComparison.Ordinal);
         Assert.Contains("docker-desktop", confirmation.Prompt, StringComparison.Ordinal);
         Assert.Equal(new[] { "Ubuntu-24.04", "docker-desktop" }, confirmation.RunningDistros);
@@ -168,7 +170,7 @@ public sealed class MainMenuTests
         Assert.DoesNotContain(dataRootDirectory, confirmation.Prompt, StringComparison.Ordinal);
         Assert.Contains("影响", confirmation.Prompt, StringComparison.Ordinal);
         Assert.Contains("Ubuntu-24.04", confirmation.Prompt, StringComparison.Ordinal);
-        Assert.Equal("YES", confirmation.RequiredInput);
+        Assert.Equal("Y", confirmation.RequiredInput);
     }
 
     [Fact]
@@ -188,6 +190,22 @@ public sealed class MainMenuTests
         Assert.Contains("发行版“docker-desktop”", confirmation.Prompt, StringComparison.Ordinal);
         Assert.Contains("来源档案：", confirmation.Prompt, StringComparison.Ordinal);
         Assert.Contains("目标发行版停止范围", confirmation.Prompt, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Y", true)]
+    [InlineData("y", true)]
+    [InlineData("YES", false)]
+    [InlineData(null, false)]
+    public void IsConfirmationAccepted_accepts_only_the_second_y_for_compaction(
+        string? response,
+        bool expected)
+    {
+        var confirmation = MainMenu.CreateExecuteConfirmation(
+            CreateProfile(),
+            ImmutableArray<WslDistribution>.Empty);
+
+        Assert.Equal(expected, MainMenu.IsConfirmationAccepted(confirmation, response));
     }
 
     [Theory]
