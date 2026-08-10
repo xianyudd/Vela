@@ -14,44 +14,68 @@ public static class VelaTerminalTheme
     public const string Attention = "Vela.Attention";
     public const string Error = "Vela.Error";
     public const string Muted = "Vela.Muted";
+    public const string Surface = "Vela.Surface";
+    public const string InfoPanel = "Vela.InfoPanel";
+    public const string SuccessPanel = "Vela.SuccessPanel";
     public const string Input = "Vela.Input";
     public const string Info = "Vela.Info";
     public const string ActionBar = "Vela.ActionBar";
     public const string Selection = "Vela.Selection";
 
-    private static readonly Color SteelBlue = new("#7FA6C9");
-    private static readonly Color ForestGreen = new("#78B88A");
-    private static readonly Color Amber = new("#D2A85C");
-    private static readonly Color Coral = new("#D47777");
-    private static readonly Color BlueGrey = new("#7E8B98");
-    private static readonly Color DeepInk = new("#14212B");
-    private static readonly Color ActionBarText = new("#C4D2DD");
-    private static readonly Color ActionBarSurface = new("#263541");
-    private static readonly Color SelectionSurface = new("#1B2430");
+    private static readonly Color Canvas = new("#0D1117");
+    private static readonly Color PanelSurface = new("#161B22");
+    private static readonly Color Border = new("#30363D");
+    private static readonly Color PrimaryText = new("#C9D1D9");
+    private static readonly Color SteelBlue = new("#58A6FF");
+    private static readonly Color ForestGreen = new("#3FB950");
+    private static readonly Color Amber = new("#D29922");
+    private static readonly Color Coral = new("#F85149");
+    private static readonly Color BlueGrey = new("#8B949E");
+    private static readonly Color DeepInk = new("#0D1117");
+    private static readonly Color ActionBarText = new("#C9D1D9");
+    private static readonly Color ActionBarSurface = new("#161B22");
+    private static readonly Color InfoSurface = new("#111B27");
+    private static readonly Color SuccessSurface = new("#122117");
+    private static readonly Color SelectionSurface = new("#161B22");
 
     public static void Register()
     {
         Add(Base, new Scheme
         {
-            Normal = new TAttribute(Color.None, Color.None),
-            Focus = new TAttribute(SteelBlue, Color.None, TextStyle.Bold)
+            Normal = new TAttribute(PrimaryText, Canvas),
+            Focus = new TAttribute(Color.White, Canvas, TextStyle.Bold)
         });
         Add(Panel, new Scheme
         {
-            Normal = new TAttribute(BlueGrey, Color.None),
-            Focus = new TAttribute(SteelBlue, Color.None, TextStyle.Bold)
+            Normal = new TAttribute(Border, Canvas),
+            Focus = new TAttribute(SteelBlue, Canvas, TextStyle.Bold)
         });
         Add(Navigation, new Scheme
         {
-            Normal = new TAttribute(Color.None, Color.None),
-            Focus = new TAttribute(SteelBlue, Color.None, TextStyle.Bold),
-            Disabled = new TAttribute(BlueGrey, Color.None)
+            Normal = new TAttribute(BlueGrey, Canvas),
+            Focus = new TAttribute(SteelBlue, Canvas, TextStyle.Bold),
+            Disabled = new TAttribute(BlueGrey, Canvas)
         });
         Add(Success, Semantic(ForestGreen));
         Add(Info, Semantic(SteelBlue));
         Add(Attention, Semantic(Amber));
         Add(Error, Semantic(Coral));
         Add(Muted, Semantic(BlueGrey));
+        Add(Surface, new Scheme
+        {
+            Normal = new TAttribute(PrimaryText, PanelSurface),
+            Focus = new TAttribute(Color.White, PanelSurface, TextStyle.Bold)
+        });
+        Add(InfoPanel, new Scheme
+        {
+            Normal = new TAttribute(SteelBlue, InfoSurface),
+            Focus = new TAttribute(Color.White, InfoSurface, TextStyle.Bold)
+        });
+        Add(SuccessPanel, new Scheme
+        {
+            Normal = new TAttribute(ForestGreen, SuccessSurface),
+            Focus = new TAttribute(Color.White, SuccessSurface, TextStyle.Bold)
+        });
         Add(Input, new Scheme
         {
             Normal = new TAttribute(Amber, Color.None),

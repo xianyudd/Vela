@@ -69,7 +69,37 @@ public sealed record PreflightTargetRowViewModel(
     bool IsSelected,
     bool IsLocked)
 {
-    public string Selector => IsSelected ? "›" : " ";
+    public string Selector => IsSelected ? "❯" : " ";
+}
+
+public sealed record PreflightTargetCheckViewModel(
+    string Label,
+    string Detail,
+    PreflightGateStatus Status)
+{
+    public string Symbol => PreflightOverviewFormatter.FormatGateSymbol(Status);
+    public string StatusText => Status switch
+    {
+        PreflightGateStatus.Matched => "PASS",
+        PreflightGateStatus.Attention => "处理",
+        PreflightGateStatus.Failed => "FAIL",
+        _ => "待检查"
+    };
+}
+
+public sealed record PreflightTargetDetailViewModel(
+    string DistroName,
+    string CurrentSize,
+    string VhdxPath,
+    string FinalStatus,
+    string StatusCode,
+    string StatusTitle,
+    string StatusSupport,
+    string NextStep,
+    ImmutableArray<PreflightTargetCheckViewModel> Checks,
+    int BlockerCount)
+{
+    public bool IsReady => StatusCode == "✓ PASS";
 }
 
 /// <summary>
@@ -929,6 +959,68 @@ public static class PreflightOverviewFormatter
                 targetLocked && index == boundedIndex))
             .ToImmutableArray();
     }
+
+    public static PreflightTargetDetailViewModel CreateTargetDetail(
+        PreflightOverviewViewModel overview,
+        PreflightHomeViewModel home)
+    {
+        ArgumentNullException.ThrowIfNull(overview);
+        ArgumentNullException.ThrowIfNull(home);
+
+        var selected = home.Targets.FirstOrDefault(row => row.IsSelected)
+            ?? home.Targets.FirstOrDefault();
+        var checks = home.Details
+            .Select(detail => new PreflightTargetCheckViewModel(
+                FormatTargetCheckLabel(detail.Title),
+                detail.Detail,
+                detail.Status))
+            .ToImmutableArray();
+        var blockerCount = checks.Count(check =>
+            check.Status is PreflightGateStatus.Attention or PreflightGateStatus.Failed);
+        var isReady = overview.Status == AutomaticPreflightStatus.Ready && blockerCount == 0;
+
+        return new PreflightTargetDetailViewModel(
+            selected?.DistroName ?? overview.DistroName,
+            selected?.CurrentSize ?? overview.Evidence.FileSize,
+            selected?.VhdxPath ?? FormatVhdxPath(overview.Evidence.FilePath),
+            selected is null ? "待检查" : FormatDetailTargetStatus(selected.Status),
+            isReady
+                ? "✓ PASS"
+                : overview.Status == AutomaticPreflightStatus.Failed
+                    ? "× FAIL"
+                    : overview.Status == AutomaticPreflightStatus.Checking
+                        ? "◌ CHECK"
+                        : "! BLOCKED",
+            isReady
+                ? "5 项已通过，未发现阻断项"
+                : blockerCount > 0
+                    ? $"{blockerCount} 项检查需要处理"
+                    : "预检尚未完成",
+            isReady
+                ? "所有执行前检查已通过，可以进入压缩影响预览。"
+                : "完成当前检查后再进入压缩预览。",
+            isReady
+                ? "下一步：[Enter] 预览压缩"
+                : "下一步：处理检查项后按 R 重扫",
+            checks,
+            blockerCount);
+    }
+
+    private static string FormatTargetCheckLabel(string title) => title switch
+    {
+        "发行版映射" => "发行版映射匹配",
+        "执行前最终校验" => "无进程独占锁定",
+        _ => title
+    };
+
+    public static string FormatDetailTargetStatus(PreflightTargetRowStatus status) => status switch
+    {
+        PreflightTargetRowStatus.Ready => "Ready ✓",
+        PreflightTargetRowStatus.Running => "Running ⚠",
+        PreflightTargetRowStatus.Attention => "Blocked !",
+        PreflightTargetRowStatus.Failed => "Failed ×",
+        _ => "Checking …"
+    };
 
     private static PreflightTargetRowViewModel CreateTargetRow(
         PreflightOverviewViewModel overview,

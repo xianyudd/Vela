@@ -363,6 +363,64 @@ public sealed class PreflightOverviewViewModelTests
     }
 
     [Fact]
+    public void Target_detail_projection_uses_selected_instance_and_fixed_execution_checks()
+    {
+        var profile = CreateProfile();
+        var dashboard = DashboardViewModel.CreateInitial(profile) with
+        {
+            MappingState = TargetMappingState.Matched,
+            InspectionState = TargetInspectionState.Available,
+            VhdxEvidence = new VhdxEvidenceViewModel(
+                1_610_612_736,
+                DateTimeOffset.UtcNow,
+                true,
+                2L * PreflightOverviewFormatter.Tebibyte,
+                512L * PreflightOverviewFormatter.Gibibyte),
+            InstalledDistros = ImmutableArray.Create(
+                new Vela.Core.Contracts.WslDistribution(
+                    "Ubuntu-24.04",
+                    Vela.Core.Contracts.WslDistributionState.Stopped,
+                    2,
+                    true,
+                    VhdxPath: @"D:\WSL\Ubuntu-24.04\ext4.vhdx",
+                    VhdxSizeBytes: 124L * PreflightOverviewFormatter.Gibibyte),
+                new Vela.Core.Contracts.WslDistribution(
+                    "docker-desktop",
+                    Vela.Core.Contracts.WslDistributionState.Running,
+                    2,
+                    false,
+                    VhdxPath: @"D:\Docker\wsl\data\ext4.vhdx",
+                    VhdxSizeBytes: 65L * PreflightOverviewFormatter.Gibibyte)),
+            RunningInventoryState = PreflightDataState.Available,
+            LogAvailabilityState = PreflightDataState.Available,
+            LogsAvailable = true
+        };
+        var state = new AutomaticPreflightState(
+            profile.Id,
+            1,
+            1,
+            AutomaticPreflightStatus.Ready,
+            dashboard,
+            "预检已完成。");
+        var overview = PreflightOverviewViewModel.Create(dashboard, state);
+        var home = PreflightHomeViewModel.Create(overview, selectedTargetIndex: 1, targetLocked: true);
+
+        var detail = PreflightOverviewFormatter.CreateTargetDetail(overview, home);
+
+        Assert.Equal("docker-desktop", detail.DistroName);
+        Assert.Equal("65.00 GiB", detail.CurrentSize);
+        Assert.Contains(@"D:\Docker\wsl\data\ext4.vhdx", detail.VhdxPath, StringComparison.Ordinal);
+        Assert.Equal("Running ⚠", detail.FinalStatus);
+        Assert.Equal("✓ PASS", detail.StatusCode);
+        Assert.Equal("5 项已通过，未发现阻断项", detail.StatusTitle);
+        Assert.Equal(
+            ["目标档案已读取", "VHDX 已配置", "快照与日志可用", "发行版映射匹配", "无进程独占锁定"],
+            detail.Checks.Select(check => check.Label));
+        Assert.All(detail.Checks, check => Assert.Equal("PASS", check.StatusText));
+        Assert.Equal(0, detail.BlockerCount);
+    }
+
+    [Fact]
     public void Home_projection_keeps_missing_target_out_of_instance_count()
     {
         var profile = CreateProfile();

@@ -517,6 +517,36 @@ public sealed class VelaTerminalShellTests
     }
 
     [Fact]
+    public void Menu_one_detail_accepts_lowercase_and_shifted_uppercase_r_for_refresh()
+    {
+        var profile = CreateProfile();
+        var dashboard = CreateReadyDashboard(profile);
+        using var shell = new VelaTerminalShell(new MainMenu().ViewModel, dashboard);
+        var actions = new List<MainMenuAction>();
+        shell.ActionRequested += actions.Add;
+        shell.SetCurrentProfile(profile);
+        shell.ApplyPreflight(new AutomaticPreflightState(
+            profile.Id,
+            1,
+            1,
+            AutomaticPreflightStatus.Ready,
+            dashboard,
+            "预检已完成。"));
+        shell.ShowOverview();
+        shell.NewKeyDownEvent(Key.Enter);
+
+        Assert.Equal(VelaWorkspacePage.TargetDetail, shell.CurrentPage);
+        shell.NewKeyDownEvent(new Key('r'));
+        Assert.Equal(VelaWorkspacePage.Overview, shell.CurrentPage);
+        shell.NewKeyDownEvent(Key.Enter);
+        shell.NewKeyDownEvent(Key.R.WithShift);
+
+        Assert.Equal([MainMenuAction.Preflight, MainMenuAction.Preflight], actions);
+        Assert.Equal(VelaWorkspacePage.Overview, shell.CurrentPage);
+        Assert.Contains("切换实例", shell.StatusText, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Menu_one_accepts_shifted_uppercase_r_from_terminal_input()
     {
         using var shell = new VelaTerminalShell(
@@ -563,7 +593,7 @@ public sealed class VelaTerminalShellTests
     }
 
     [Fact]
-    public void Menu_one_selects_and_locks_an_instance_without_dispatching_compaction()
+    public void Menu_one_opens_selected_instance_detail_and_enters_compaction_preview()
     {
         var profile = CreateProfile();
         var dashboard = DashboardViewModel.CreateInitial(profile) with
@@ -621,12 +651,75 @@ public sealed class VelaTerminalShellTests
 
             Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.Enter));
             Assert.Equal("docker-desktop", shell.LockedTargetName);
-            Assert.Equal(VelaWorkspacePage.Overview, shell.CurrentPage);
+            Assert.Equal(VelaWorkspacePage.TargetDetail, shell.CurrentPage);
+            Assert.Contains("目标预检详情", shell.ContentTitle, StringComparison.Ordinal);
+            app.LayoutAndDraw(forceRedraw: true);
+            var rendered = app.Driver.ToString();
+            Assert.Contains("PASS", rendered, StringComparison.Ordinal);
+            Assert.Contains("目标信息", rendered, StringComparison.Ordinal);
+            Assert.Contains("检查明细（5/5）", rendered, StringComparison.Ordinal);
             Assert.Empty(actions);
 
+            Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.Enter));
+            Assert.Equal(VelaWorkspacePage.ActionPreview, shell.CurrentPage);
+            Assert.Contains("影响预览", shell.ContentTitle, StringComparison.Ordinal);
+            Assert.Empty(actions);
+
+            Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.Esc));
+            Assert.Equal(VelaWorkspacePage.Overview, shell.CurrentPage);
             Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.Tab));
             Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.CursorDown));
             Assert.Equal(1, shell.SelectedMenuIndex);
+        }
+        finally
+        {
+            app.End(session!);
+        }
+    }
+
+    [Theory]
+    [InlineData(160, 45)]
+    [InlineData(120, 35)]
+    [InlineData(100, 30)]
+    [InlineData(80, 24)]
+    [InlineData(60, 16)]
+    public void Target_detail_keeps_status_and_keyboard_bar_visible_across_reference_sizes(
+        int width,
+        int height)
+    {
+        var profile = CreateProfile();
+        var dashboard = CreateReadyDashboard(profile);
+        using var app = Application.Create(new VirtualTimeProvider());
+        app.Init(DriverRegistry.Names.ANSI);
+        VelaTerminalTheme.Register();
+        using var shell = new VelaTerminalShell(new MainMenu().ViewModel, dashboard);
+        app.Driver!.SetScreenSize(width, height);
+        using var host = new TerminalGuiShellHost(app, shell);
+        var session = app.Begin(shell);
+
+        try
+        {
+            shell.SetCurrentProfile(profile);
+            shell.ApplyPreflight(new AutomaticPreflightState(
+                profile.Id,
+                1,
+                1,
+                AutomaticPreflightStatus.Ready,
+                dashboard,
+                "预检已完成。"));
+            shell.ShowOverview();
+            Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.Enter));
+            app.LayoutAndDraw(forceRedraw: true);
+
+            var rendered = app.Driver.ToString();
+            Assert.Equal(VelaWorkspacePage.TargetDetail, shell.CurrentPage);
+            Assert.Contains("目标预检详情", rendered, StringComparison.Ordinal);
+            if (width >= 80)
+            {
+                Assert.Contains("状态总览", rendered, StringComparison.Ordinal);
+            }
+            Assert.Contains("PASS", rendered, StringComparison.Ordinal);
+            Assert.Contains("导航 / 操作", rendered, StringComparison.Ordinal);
         }
         finally
         {
@@ -883,4 +976,32 @@ public sealed class VelaTerminalShellTests
         "D:\\Vela\\ext4.vhdx",
         ShutdownMode.Global,
         TimeSpan.FromSeconds(45));
+
+    private static DashboardViewModel CreateReadyDashboard(Profile profile) => new(
+        MainMenu.ApplicationTitle,
+        $"档案：{profile.DisplayName}",
+        profile.DistroName,
+        TargetConfigured: true,
+        TargetMappingState.Matched,
+        TargetInspectionState.Available,
+        new VhdxEvidenceViewModel(
+            124L * PreflightOverviewFormatter.Gibibyte,
+            DateTimeOffset.UtcNow,
+            true,
+            551L * PreflightOverviewFormatter.Gibibyte,
+            59L * PreflightOverviewFormatter.Gibibyte),
+        ImmutableArray<string>.Empty,
+        ImmutableArray<string>.Empty,
+        ErrorMessage: null,
+        LogsAvailable: true,
+        RunningInventoryState: PreflightDataState.Available,
+        LogAvailabilityState: PreflightDataState.Available,
+        InstalledDistros: ImmutableArray.Create(
+            new Vela.Core.Contracts.WslDistribution(
+                profile.DistroName,
+                Vela.Core.Contracts.WslDistributionState.Stopped,
+                2,
+                true,
+                VhdxPath: profile.VhdxPath,
+                VhdxSizeBytes: 124L * PreflightOverviewFormatter.Gibibyte)));
 }
