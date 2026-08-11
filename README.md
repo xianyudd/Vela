@@ -1,100 +1,255 @@
+<div align="center">
+
 # Vela
 
-Vela 是面向 Windows 11 的键盘优先终端工具，用于盘点 WSL 发行版与 VHDX 状态、执行只读预检，并在明确影响范围和确认后协调 VHDX 压缩流程。
+### WSL VHDX 压缩前，先把目标、影响和结果讲清楚。
 
-## 文档阅读顺序
+Windows 11 · WSL2 · Keyboard-first TUI
 
-实施、排障和验收前按以下顺序阅读：
+[![Platform](https://img.shields.io/badge/platform-Windows%2011-0d1117?style=flat-square&logo=windows&logoColor=58a6ff)](https://learn.microsoft.com/windows/wsl/)
+[![.NET](https://img.shields.io/badge/.NET-10-512bd4?style=flat-square&logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
+[![Stage](https://img.shields.io/badge/stage-private%20preview-d29922?style=flat-square)](https://github.com/xianyudd/Vela)
 
-1. [docs/agent-handoff.md](docs/agent-handoff.md)
-2. [docs/development-environment.md](docs/development-environment.md)
-3. [docs/architecture.md](docs/architecture.md)
-4. [docs/implementation-plan.md](docs/implementation-plan.md)
-5. [docs/testing-and-release.md](docs/testing-and-release.md)
+[快速开始](#快速开始) · [产品流程](#一条可审阅的运行链) · [交互说明](#键盘交互) · [工程文档](#工程文档)
 
-## 开发工作目录
+</div>
 
-在 **Developer PowerShell for VS 2022** 中进入项目根：
+> Vela 是一个面向 Windows 11 的键盘优先终端工具：它盘点 WSL 发行版和 VHDX 状态，执行只读预检，计算预计可回收空间，锁定单一目标，并在影响范围明确、用户两次确认后执行压缩。
 
-~~~powershell
-Set-Location "D:\Jason\Documents\Workspace\vs2022\repo\Vela"
-~~~
+## 先看结果
 
-首版使用 .NET SDK 9.0.305。框架划分为 **Vela.Core**（net9.0）以及 **Vela.Windows**、**Vela.Tui**、**Vela.Tests**（均为 net9.0-windows）。
+Vela 解决的不是“如何输入一条 compact 命令”，而是压缩前最容易出错的几件事：
 
-## 日常发布入口
-
-Task 13 经用户确认后会将单文件发布物安装为：
+- **目标是谁**：从已发现的 WSL 实例中选择，并将本次操作锁定到该发行版。
+- **现在是什么状态**：注册表 / Lxss 映射、VHDX 快照、运行实例和日志是否可用。
+- **大概能回收多少**：根据当前 VHDX 体积和访客文件系统已用空间，给出预计可回收空间。
+- **会影响什么**：展示 Global 或 Distro 停止范围，以及当前正在运行的发行版。
+- **结果是否可追溯**：运行过程实时写入结构化日志，并在 TUI 内查看最近运行记录。
 
 ~~~text
-D:\DevTools\Vela\Vela.exe
+┌─ Vela ───────────────────────────────────────────────────────┐
+│ ✓ 预检通过                         Ubuntu-24.04              │
+│                                                               │
+│ 目标档案 ...................... Ubuntu 24.04 on D             │
+│ VHDX 当前体积 ................. 124.5 GB                     │
+│ 预计可回收空间 ................ 82.4 GB                      │
+│ 停止范围 ...................... 目标发行版                   │
+│                                                               │
+│ [Y] 进入确认        [Esc] 返回        日志：TUI 内可查看       │
+└───────────────────────────────────────────────────────────────┘
 ~~~
 
-发布配置位于 src\Vela.Tui\Properties\PublishProfiles\win-x64-singlefile.pubxml，固定为 win-x64、自包含、单文件且不裁剪。纯命令发布与验证只写入项目内 artifacts\publish\win-x64\；确认交付目录前不会写入 D:\DevTools\Vela\。
-
-开发期不向该项目外目录写入；发布前先完成项目内 artifacts\publish\win-x64\Vela.exe 的验证。
-
-## TUI 交互与运行日志
-
-`TuiApplication` 是唯一输入所有者：每次串行读取一个键，将其交给当前 typed page controller，再执行显式异步 effect；Profile、Recent、Confirmation 等次级页面不拥有独立读键循环，也不会启动后台 `ReadKey`。只有 frame 状态变化时才重绘。键位固定为：
-
-- ↑ / ↓：移动当前菜单或次级列表选择；
-- Enter：执行菜单项、切换 Profile 或打开最近运行详情；
-- Esc：返回次级页面/取消确认，在主菜单退出；
-- 首启和涉及执行目标的 Profile 编辑/删除确认：逐字符输入，必须精确输入大写 `YES` 后按 Enter；执行压缩在影响预览中按 `Y` 进入二次确认，再按 `Y` 执行；
-- Profile 管理：`N` 新建、`E` 编辑、`D` 删除；最近运行详情：`Esc` 返回列表，日志在 TUI 的“日志归档”中查看。
-
-`FrameRenderer` 为交互输出与重定向输出复用同一 composition：宽度 `<80` 时只保留目标、状态、当前焦点和上下文帮助，`80–119` 时纵向堆叠导航与证据，`>=120` 时使用左右工作区；低于 22 行时限制列表行数。重定向模式只输出一个确定性 frame，不清屏、不读取输入。
-
-renderer-facing state 只包含本地化标签、configured/resolved/mapped 状态、数值证据和受控错误。TUI 不接收或显示原始 VHDX/注册表/运行目录/日志路径、RunId、原始异常、native command output 或 raw enum name。Profile 的 VHDX 字段采用 write-only 编辑：旧路径永不回显，新输入仅显示字符数。`Succeeded` 显示为“成功”，`CompletedWithNoReclaim` 显示为“完成但未回收空间”。
-
-首次启动在创建数据根前只展示受控初始化摘要，不泄露原始文件系统路径，只有精确 `YES` 才继续。Profile 管理支持选择、新建、编辑、删除（至少保留一个，当前 Profile 不能直接删除）和持久化当前选择。最近运行内部最多读取 20 个可信 RunId 目录，列表和详情只显示安全投影；损坏或缺失 `summary.json` 的记录显示为“损坏”。详情页可显示结果、时间、耗时、回收字节和日志是否可用；日志归档在 TUI 内加载最新记录与选定记录的只读摘要，不启动外部目录查看器。
-
-发布版的每次运行使用：
+上面的数值是产品流程示意。预计值采用：
 
 ~~~text
-%LocalAppData%\Vela\logs\<RunId>\
+预计可回收空间 = max(VHDX 当前体积 - 访客文件系统已用空间, 0)
 ~~~
 
-目录包含 events.ndjson、run.log 和 summary.json。开发与测试注入项目内的 `artifacts\test-data\`，避免项目外写入。
+它是执行前估算，不是承诺值；最终释放量以压缩完成后的 VHDX 快照差值为准。
 
-父 TUI 轮询 worker journal，使用 sequence 游标；轮询支持取消、默认五分钟 timeout，以及连续读取失败达到阈值后的 `ReadFailed`。取消或 timeout 只改变父界面状态，不伪造 worker 终态。Compact 启动前使用项目数据根下的 `compact.lock` 做 single-worker gate；检测到可信活动 RunId 时返回 `AlreadyRunning`，UAC 取消、启动失败和创建失败路径写入确定终态。
+## 产品能力
 
-## 预检与执行
+| 能力 | Vela 做什么 | 用户得到什么 |
+| --- | --- | --- |
+| **只读预检** | 读取发行版清单、Lxss 映射、VHDX 快照、稀疏状态、宿主盘容量、运行实例和日志可用性 | 先看清状态，再决定是否继续 |
+| **多实例选择** | 在 TUI 中浏览实例，显示发行版、当前体积、VHDX 路径摘要和状态 | 不会把压缩动作落到错误实例 |
+| **目标锁定** | Enter 锁定当前选中的发行版，后续影响评估和执行只围绕这个目标 | “选中的哪一个，就压缩哪一个” |
+| **影响评估** | 估算当前体积、访客已用空间和预计可回收空间；展示 Global / Distro 影响范围 | 执行前知道可能停止哪些 WSL 实例 |
+| **双重确认** | 影响预览按 Y 进入确认页，再按一次 Y 启动提升权限 worker | 把误触变成两步明确决策 |
+| **提升权限执行** | 由 UAC worker 重新解析目标映射、复跑关键预检，再调用 WSL 与 DiskPart | 父 TUI 与实际目标之间有二次校验 |
+| **TUI 日志归档** | 在 Vela 内查看实时事件、运行日志和历史摘要 | 不需要打开日志目录或切换窗口 |
+| **档案与历史** | 管理多个目标档案，查看最近运行的结果、耗时、回收空间和日志状态 | 日常使用有固定入口，运行结果可回看 |
 
-**预检**仅采集发行版、Lxss 映射、VHDX 和宿主盘快照；它使用只读适配器，不触发 WSL 停止、发行版终止或 DiskPart compact。
+## 一条可审阅的运行链
 
-**执行压缩**先展示档案身份、VHDX 已配置状态、Global 或 Distro 影响范围及运行中发行版，不在 frame 中显示原始目标路径。影响预览按 `Y` 进入二次确认，再按 `Y` 后父 TUI 创建 RunId 日志，提升权限 worker 以 Distro 重新解析 Lxss 映射并严格核对 VHDX 路径。真实停止和 DiskPart compact 属于最终人工验收，由用户在影响面板确认后发起。
+~~~text
+发现 WSL 实例
+      │
+      ▼
+只读预检 ──► 目标选择 ──► 目标锁定
+                              │
+                              ▼
+                      影响评估 / 预计可回收空间
+                              │
+                         Y → Y 确认
+                              │
+                              ▼
+                 UAC worker + 目标二次校验
+                              │
+                              ▼
+                    WSL 停止 → DiskPart compact
+                              │
+                              ▼
+                VHDX 复测 → TUI 日志 → 历史结果
+~~~
 
-## 基线命令
+### 预检门禁
+
+预检按固定顺序建立证据：
+
+1. 注册表 / Lxss 映射
+2. VHDX 快照
+3. 运行实例
+4. 日志可用性
+5. 通知与阻断项
+
+只有预检状态允许继续时，执行压缩入口才会解锁。预检本身不触发 WSL 停止、发行版终止或 DiskPart compact。
+
+### 预计可回收空间
+
+Vela 优先离线读取目标 VHDX 的 ext4 使用量；目标已在运行且离线证据不可用时，才按目标发行版执行只读 df 采集。目标未运行时不会为了估算而启动在线采集。
+
+## 执行护栏
+
+Vela 将“看状态”和“做改变”分成两条清晰边界：
+
+- **预检是只读的**：只采集证据，不停止 WSL，不终止发行版，不调用 DiskPart。
+- **一个操作只对应一个目标**：锁定发行版后，影响评估、确认和执行都使用同一个目标档案。
+- **worker 不信任旧快照**：提升权限后按发行版重新读取 HKCU Lxss 映射，并将解析出的 VHDX 路径与请求路径严格比对。
+- **单 worker gate**：同一数据根内同时只允许一个 Compact worker 进入执行链。
+- **路径与参数有边界**：原生工具使用固定绝对路径和 ArgumentList，DiskPart 脚本只来自通过校验的目标路径。
+- **原始证据留在日志**：TUI 对路径做清洗和长度限制，列表与影响面板只展示必要摘要；RunId、异常堆栈和 native output 留在日志中。
+
+## 键盘交互
+
+Vela 的输入由单一 TUI 入口串行处理，页面之间不启动嵌套读键循环。
+
+| 按键 | 作用 |
+| --- | --- |
+| ↑ / ↓ | 移动菜单、实例或列表选择 |
+| ← / → | 在支持横向工作流的页面切换视图 |
+| Enter | 执行当前菜单项、锁定目标、打开详情或进入下一步 |
+| R / r | 重新运行只读预检 |
+| Esc | 返回上一层、取消确认；主菜单退出 |
+| Y → Y | 影响预览进入确认，再启动压缩 worker |
+| N / E / D | 新建、编辑、删除目标档案 |
+
+首启和会改变执行目标的档案编辑 / 删除确认使用精确的大写 YES 加 Enter。压缩流程只使用两次 Y，不要求输入 YES。
+
+## 快速开始
+
+### 环境要求
+
+| 项目 | 要求 |
+| --- | --- |
+| 操作系统 | Windows 11 |
+| 目标环境 | 已安装并可正常运行的 WSL 发行版 |
+| SDK | .NET SDK 10.0.302，允许最新补丁版本 |
+| 终端 | Windows Terminal 或 Developer PowerShell for VS 2022 |
+| 执行权限 | 预检可使用普通权限；真正压缩阶段由 UAC worker 提升权限 |
+
+### 从源码运行
 
 ~~~powershell
+git clone https://github.com/xianyudd/Vela.git
+Set-Location .\Vela
 dotnet restore .\Vela.sln -r win-x64 --locked-mode --ignore-failed-sources -p:EnableRuntimePackDownload=false -p:DisableTransitiveFrameworkReferenceDownloads=true
-dotnet build .\Vela.sln -c Debug
-dotnet test .\Vela.sln -c Debug
+dotnet run --project .\src\Vela.Tui\Vela.Tui.csproj --no-restore
 ~~~
 
-发布、coverage gate 和人工验收命令以 [docs/testing-and-release.md](docs/testing-and-release.md) 为准。
+首次启动会先展示本地数据目录初始化摘要。输入精确的 YES 后，Vela 才会创建配置、pending 请求目录和日志目录。默认档案是 Ubuntu-24.04，首次使用前请在“管理目标档案”中核对发行版和 VHDX 配置。
 
-## 质量门禁
+### 构建单文件发布物
 
-提交前使用锁定依赖执行 Release 验证；构建与测试输出统一写入 `artifacts\`：
+发布 profile 已固定为 win-x64、自包含、单文件、包含原生库且不裁剪：
+
+~~~powershell
+dotnet build .\Vela.sln -c Release --no-restore
+dotnet test .\Vela.sln -c Release --no-build
+dotnet publish .\src\Vela.Tui\Vela.Tui.csproj -c Release --no-restore -p:PublishProfile=win-x64-singlefile -o .\artifacts\publish\win-x64
+~~~
+
+发布结果：
+
+~~~text
+artifacts\publish\win-x64\Vela.exe
+~~~
+
+开发、测试和发布输出统一留在项目内 artifacts\，不会直接写入日常安装目录。
+
+## 运行记录
+
+发布版默认使用 %LocalAppData%\Vela：
+
+~~~text
+%LocalAppData%\Vela\
+├─ config.json
+├─ pending\<RunId>.json
+└─ logs\<RunId>\
+   ├─ events.ndjson   # 实时事件流
+   ├─ run.log         # 人类可读日志
+   └─ summary.json    # 历史结果摘要
+~~~
+
+运行中的事件由父 TUI 轮询同一份 journal，并在“运行进度”和“日志归档”中呈现。影响预览展示预计可回收空间；最近运行详情记录结果、开始 / 完成时间、耗时、实际回收空间以及日志可用状态。
+
+## 结果语义
+
+| 结果 | 含义 |
+| --- | --- |
+| Succeeded | 压缩完成并产生可回收空间 |
+| CompletedWithNoReclaim | 流程完成，但 VHDX 长度未减少 |
+| ValidationFailed | 目标、映射、快照或请求校验未通过 |
+| ShutdownTimedOut | 运行中的 WSL 未在配置时间内停止 |
+| DiskPartPreflightFailed | DiskPart 预检阶段失败，未进入 compact |
+| DiskPartCompactFailed | DiskPart compact 阶段失败 |
+| CancelledBeforeElevation | 用户取消 UAC 或提升权限启动 |
+| WorkerInterrupted | worker 未能正常完成运行链 |
+
+## 项目结构
+
+~~~text
+Vela/
+├─ src/
+│  ├─ Vela.Core/        # 不依赖 Windows API 的模型、验证与工作流
+│  ├─ Vela.Windows/     # WSL、注册表、VHDX、DiskPart、UAC 与日志适配器
+│  └─ Vela.Tui/         # Terminal.Gui 外壳、页面、状态投影与渲染
+├─ tests/
+│  └─ Vela.Tests/       # Core、Windows adapter 与 TUI 测试
+├─ docs/                # 架构、环境、测试与发布手册
+├─ scripts/             # 覆盖率与只读 TUI 验收脚本
+├─ Directory.Build.props
+├─ Directory.Packages.props
+└─ Vela.sln
+~~~
+
+依赖方向保持单向：
+
+~~~text
+Vela.Tui ─────► Vela.Core
+    │
+    └──────────► Vela.Windows ─────► Vela.Core
+~~~
+
+## 开发与质量门禁
 
 ~~~powershell
 dotnet restore .\Vela.sln -r win-x64 --locked-mode --ignore-failed-sources -p:EnableRuntimePackDownload=false -p:DisableTransitiveFrameworkReferenceDownloads=true
 dotnet build .\Vela.sln -c Release --no-restore
 dotnet test .\Vela.sln -c Release --no-build
-dotnet test .\tests\Vela.Tests\Vela.Tests.csproj -c Release --no-restore `
-  -p:CollectCoverage=true `
-  -p:CoverletOutput=.\artifacts\coverage\coverage `
-  -p:CoverletOutputFormat=cobertura `
-  -p:Include='[Vela.Core]*,[Vela.Windows]*' `
-  -p:ExcludeByFile='**/Program.cs' `
-  -p:Threshold=80 -p:ThresholdType=line -p:ThresholdStat=minimum
+dotnet test .\tests\Vela.Tests\Vela.Tests.csproj -c Release --no-restore -p:CollectCoverage=true -p:CoverletOutput=.\artifacts\coverage\coverage -p:CoverletOutputFormat=cobertura -p:Include='[Vela.Core]*,[Vela.Windows]*' -p:ExcludeByFile='**/Program.cs'
+pwsh -NoProfile -File .\scripts\Verify-Coverage.ps1
 ~~~
 
-Coverage gate 要求 Vela.Core 与 Vela.Windows 的 line coverage 均不低于 80%，并保持零编译警告。测试项目的公共 using 集中在 `tests\Vela.Tests\GlobalUsings.cs`；`.editorconfig` 统一 C# 格式、命名和换行规则。
+质量基线：锁定依赖恢复成功、全量测试通过、零编译警告，且 Vela.Core 与 Vela.Windows 的 line coverage 各自不低于 80%。详细验收矩阵和真实 Win11 / WSL 验收边界见[测试与发布手册](docs/testing-and-release.md)。
 
-## 旧工具归档
+## 当前边界
 
-legacy\powershell\ 中的文件是从桌面旧工具逐字节归档的历史行为对照，不属于 Vela 运行时或开发期测试入口。开发自动化只使用项目内 fake adapter、无害 helper process、只读预检和 artifacts\ 下的测试数据；归档脚本不应作为 Vela 的日常执行路径。
+Vela 当前聚焦单机 Windows 11 工作流：档案、预检、目标锁定、影响评估、压缩执行、TUI 日志和历史记录。计划任务、云同步、远程主机管理和自动定期执行不属于当前产品范围。
+
+## 工程文档
+
+- [架构设计](docs/architecture.md)：产品边界、TUI 状态流、worker 协议、日志与 Windows 适配层。
+- [开发环境](docs/development-environment.md)：Visual Studio、Windows SDK、目录约定和开发期写入边界。
+- [测试与发布](docs/testing-and-release.md)：测试矩阵、覆盖率 gate、TUI 验收、发布 profile 和交付清单。
+- [实施计划](docs/implementation-plan.md)：从解决方案初始化到发布验收的历史实施记录。
+
+## 项目状态
+
+Vela 目前处于 private preview：核心 TUI 流程、目标锁定、只读预检、预计可回收空间、双重 Y 确认、UAC worker、TUI 日志归档和自动化测试已接入；真实 WSL / DiskPart 压缩仍应在明确影响范围后进行最终人工验收。
+
+<div align="center">
+
+**先预检，再锁定；先看影响，再执行。**
+
+</div>
