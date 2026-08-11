@@ -39,7 +39,7 @@ public sealed class MainMenu
             new MainMenuItem(MainMenuAction.ExecuteCompaction, "执行压缩"),
             new MainMenuItem(MainMenuAction.ManageProfiles, "管理目标档案"),
             new MainMenuItem(MainMenuAction.RecentRuns, "查看最近运行记录"),
-            new MainMenuItem(MainMenuAction.OpenLogs, "查看日志"),
+            new MainMenuItem(MainMenuAction.OpenLogs, "日志归档"),
             new MainMenuItem(MainMenuAction.Exit, "退出"));
 
     public MainMenu() => ViewModel = new MainMenuViewModel(ApplicationTitle, MenuItems);

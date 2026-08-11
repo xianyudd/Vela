@@ -34,8 +34,8 @@ public sealed class VelaTerminalShellTests
 
             var rendered = app.Driver.ToString();
             Assert.Contains("01  工作区", rendered, StringComparison.Ordinal);
-            Assert.Contains("02  查看日志", rendered, StringComparison.Ordinal);
-            Assert.DoesNotContain("03  查看日志", rendered, StringComparison.Ordinal);
+            Assert.Contains("02  日志归档", rendered, StringComparison.Ordinal);
+            Assert.DoesNotContain("03  日志归档", rendered, StringComparison.Ordinal);
             Assert.DoesNotContain("04  最近运行", rendered, StringComparison.Ordinal);
             Assert.DoesNotContain("05  日志分析", rendered, StringComparison.Ordinal);
         }
@@ -225,8 +225,7 @@ public sealed class VelaTerminalShellTests
         shell.SelectMenuIndex(4);
 
         Assert.Equal(VelaWorkspacePage.Logs, shell.CurrentPage);
-        Assert.Contains("日志分析", shell.ContentTitle, StringComparison.Ordinal);
-        Assert.Contains("按 Enter 读取", shell.WorkspaceText, StringComparison.Ordinal);
+        Assert.Contains("日志归档", shell.ContentTitle, StringComparison.Ordinal);
         Assert.Empty(accepted);
     }
 
@@ -833,7 +832,7 @@ public sealed class VelaTerminalShellTests
     [Theory]
     [InlineData("目标档案", "[Enter]刷新")]
     [InlineData("最近运行", "[Enter]刷新")]
-    [InlineData("运行日志", "[Enter]刷新日志")]
+    [InlineData("运行日志", "[Enter]查看日志")]
     public void Read_only_workspace_pages_expose_contextual_shortcuts(string title, string shortcut)
     {
         using var shell = new VelaTerminalShell(
@@ -911,6 +910,155 @@ public sealed class VelaTerminalShellTests
             Assert.DoesNotContain("文件管理器", rendered, StringComparison.Ordinal);
             Assert.DoesNotContain("打开日志目录", rendered, StringComparison.Ordinal);
             Assert.Contains("[Enter]刷新日志", shell.StatusText, StringComparison.Ordinal);
+        }
+        finally
+        {
+            app.End(session!);
+        }
+    }
+
+    [Fact]
+    public void Design_log_archive_renders_history_table_and_selection_affordance()
+    {
+        var started = new DateTimeOffset(2026, 8, 10, 14, 15, 4, TimeSpan.Zero);
+        var entries = new RunHistorySnapshot(
+            ImmutableArray.Create(
+                new RunHistoryEntry(
+                    Guid.NewGuid(),
+                    started,
+                    started.AddSeconds(4),
+                    "Ubuntu 24.04",
+                    OperationIntent.Compact,
+                    TerminalResult.Succeeded,
+                    82L * PreflightOverviewFormatter.Gibibyte,
+                    IsMalformed: false,
+                    ErrorMessage: null),
+                new RunHistoryEntry(
+                    Guid.NewGuid(),
+                    started.AddDays(-1),
+                    started.AddDays(-1).AddSeconds(3),
+                    "Debian",
+                    OperationIntent.Compact,
+                    TerminalResult.DiskPartCompactFailed,
+                    null,
+                    IsMalformed: false,
+                    ErrorMessage: "压缩失败")),
+            ErrorMessage: null);
+
+        using var app = Application.Create(new VirtualTimeProvider());
+        app.Init(DriverRegistry.Names.ANSI);
+        VelaTerminalTheme.Register();
+        using var shell = new VelaTerminalShell(
+            new MainMenu().ViewModel,
+            DashboardViewModel.CreateInitial(CreateProfile()));
+        var requested = new List<MainMenuAction>();
+        shell.ActionRequested += requested.Add;
+        app.Driver!.SetScreenSize(160, 45);
+        using var host = new TerminalGuiShellHost(app, shell);
+        var session = app.Begin(shell);
+
+        try
+        {
+            shell.ShowLogArchive(entries);
+            app.LayoutAndDraw(forceRedraw: true);
+
+            var rendered = app.Driver.ToString();
+            Assert.Equal(VelaWorkspacePage.Logs, shell.CurrentPage);
+            Assert.Contains("日志归档（2）", rendered, StringComparison.Ordinal);
+            Assert.Contains("执行时间 (UTC+8)", rendered, StringComparison.Ordinal);
+            Assert.Contains("Ubuntu 24.04", rendered, StringComparison.Ordinal);
+            Assert.Contains("82.00 GiB", rendered, StringComparison.Ordinal);
+            Assert.Contains("SUCCESS", rendered, StringComparison.Ordinal);
+            Assert.Contains("❯", rendered, StringComparison.Ordinal);
+            Assert.Contains("[Enter] 查看详细日志", shell.StatusText, StringComparison.Ordinal);
+            Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.Enter));
+            Assert.Equal(new[] { MainMenuAction.OpenLogs }, requested);
+        }
+        finally
+        {
+            app.End(session!);
+        }
+    }
+
+    [Fact]
+    public void Design_log_detail_renders_inline_log_viewer_and_returns_to_archive()
+    {
+        var started = new DateTimeOffset(2026, 8, 10, 14, 15, 4, TimeSpan.Zero);
+        var entry = new RunHistoryEntry(
+            Guid.Parse("e0d6d9f3-9ec2-43b5-9f90-76d949d17f08"),
+            started,
+            started.AddSeconds(4),
+            "Ubuntu 24.04",
+            OperationIntent.Compact,
+            TerminalResult.Succeeded,
+            82L * PreflightOverviewFormatter.Gibibyte,
+            IsMalformed: false,
+            ErrorMessage: null);
+
+        using var app = Application.Create(new VirtualTimeProvider());
+        app.Init(DriverRegistry.Names.ANSI);
+        VelaTerminalTheme.Register();
+        using var shell = new VelaTerminalShell(
+            new MainMenu().ViewModel,
+            DashboardViewModel.CreateInitial(CreateProfile()));
+        app.Driver!.SetScreenSize(160, 45);
+        using var host = new TerminalGuiShellHost(app, shell);
+        var session = app.Begin(shell);
+
+        try
+        {
+            shell.ShowLogDetail(
+                entry,
+                new RunLogSnapshot(
+                    ImmutableArray.Create(
+                        new RunLogLine("[1] 2026-08-10T14:15:04.102Z Information Validation RunCreated", RunEventLevel.Information),
+                        new RunLogLine("[2] 2026-08-10T14:15:04.450Z Information Snapshot VhdxSnapshot", RunEventLevel.Information)),
+                    WasTailTruncated: false,
+                    ErrorMessage: null));
+            app.LayoutAndDraw(forceRedraw: true);
+
+            var rendered = app.Driver.ToString();
+            Assert.Equal(VelaWorkspacePage.LogAnalysis, shell.CurrentPage);
+            Assert.Contains("Task ID: v-task-e0d6d9f3", rendered, StringComparison.Ordinal);
+            Assert.Contains("UTF-8 / LF", rendered, StringComparison.Ordinal);
+            Assert.Contains("Console Log · TUI", rendered, StringComparison.Ordinal);
+            Assert.Contains("2026-08-10", rendered, StringComparison.Ordinal);
+            Assert.Contains("RunCreated", rendered, StringComparison.Ordinal);
+            Assert.DoesNotContain("分析范围", rendered, StringComparison.Ordinal);
+            Assert.Contains("[Esc] 返回日志归档", shell.StatusText, StringComparison.Ordinal);
+
+            Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.Esc));
+            Assert.Equal(VelaWorkspacePage.Logs, shell.CurrentPage);
+        }
+        finally
+        {
+            app.End(session!);
+        }
+    }
+
+    [Fact]
+    public void Design_module_shortcuts_switch_between_workspace_and_log_archive()
+    {
+        using var app = Application.Create(new VirtualTimeProvider());
+        app.Init(DriverRegistry.Names.ANSI);
+        VelaTerminalTheme.Register();
+        using var shell = new VelaTerminalShell(
+            new MainMenu().ViewModel,
+            DashboardViewModel.CreateInitial(CreateProfile()));
+        app.Driver!.SetScreenSize(160, 45);
+        using var host = new TerminalGuiShellHost(app, shell);
+        var session = app.Begin(shell);
+
+        try
+        {
+            shell.ShowOverview();
+            Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.D2));
+            Assert.Equal(MainMenuAction.OpenLogs, shell.SelectedAction);
+            Assert.Equal(VelaWorkspacePage.Logs, shell.CurrentPage);
+
+            Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.D1));
+            Assert.Equal(MainMenuAction.Preflight, shell.SelectedAction);
+            Assert.Equal(VelaWorkspacePage.Overview, shell.CurrentPage);
         }
         finally
         {

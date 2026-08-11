@@ -239,6 +239,10 @@ public sealed record RunHistoryEntry(
     bool IsMalformed,
     string? ErrorMessage)
 {
+    public string? DistroName { get; init; }
+
+    public string? VhdxPath { get; init; }
+
     public TimeSpan? Elapsed =>
         StartedAtUtc is { } started && CompletedAtUtc is { } completed
             ? completed - started
@@ -365,7 +369,11 @@ public sealed class RunHistoryReader : IRunHistoryReader
                     summary.TerminalResult,
                     summary.ReclaimedBytes,
                     IsMalformed: false,
-                    ErrorMessage: null));
+                    ErrorMessage: null)
+                {
+                    DistroName = summary.Profile.DistroName,
+                    VhdxPath = summary.Profile.VhdxPath
+                });
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

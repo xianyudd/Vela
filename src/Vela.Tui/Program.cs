@@ -212,6 +212,7 @@ var menu = new MainMenu();
 var preflightSource = CreatePreflightViewModelSource();
 var impactEstimator = new WslCompactionImpactEstimator();
 var runLogReader = new RunLogReader(paths);
+var runHistoryReader = new RunHistoryReader(paths);
 var dashboardViewModel = DashboardViewModel.CreateInitial(profile);
 var progressViewModel = new RunProgressViewModel(
     RunProgressState.Idle,
@@ -374,7 +375,22 @@ using (var terminalApplication = Application.Create())
 
     async Task ShowLogsAsync(long revision)
     {
-        var snapshot = await runLogReader.ReadLatestAsync(maxLines: 20).ConfigureAwait(false);
+        if (shell.SelectedLogEntry is { } selectedEntry)
+        {
+            var detailSnapshot = await runLogReader
+                .ReadAsync(selectedEntry.RunId, maxLines: 40)
+                .ConfigureAwait(false);
+            terminalApplication.Invoke(() =>
+            {
+                if (shell.IsCurrentSelection(MainMenuAction.OpenLogs, revision))
+                {
+                    shell.ShowLogDetail(selectedEntry, detailSnapshot);
+                }
+            });
+            return;
+        }
+
+        var history = await runHistoryReader.ReadAsync().ConfigureAwait(false);
         terminalApplication.Invoke(() =>
         {
             if (!shell.IsCurrentSelection(MainMenuAction.OpenLogs, revision))
@@ -382,7 +398,7 @@ using (var terminalApplication = Application.Create())
                 return;
             }
 
-            shell.ShowLogAnalysis(snapshot);
+            shell.ShowLogArchive(history);
         });
     }
 

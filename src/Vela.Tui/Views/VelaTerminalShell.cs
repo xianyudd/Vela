@@ -32,6 +32,7 @@ public sealed class VelaTerminalShell : Window
     private readonly Label _groupCaptions;
     private readonly ListView _navigation;
     private readonly ObservableCollection<string> _navigationLabels;
+    private readonly LogArchiveView _logArchiveView;
     private readonly FrameView _logViewerPanel;
     private readonly ListView _logList;
     private readonly TextField _confirmationInput;
@@ -57,6 +58,9 @@ public sealed class VelaTerminalShell : Window
     private string? _pageTitle;
     private string[] _pageLines = [];
     private RunLogLine[] _logEntries = [];
+    private RunHistoryEntry[] _logHistoryEntries = [];
+    private int _selectedLogArchiveIndex;
+    private RunHistoryEntry? _selectedLogEntry;
     private RunLogSnapshot? _logSnapshot;
     private RunLogAnalysisViewModel? _logAnalysis;
     private string[] _logLines = [];
@@ -137,6 +141,14 @@ public sealed class VelaTerminalShell : Window
             }
         };
         _confirmationInput.Accepted += (_, _) => SubmitConfirmation(_confirmationInput.Text);
+        _logArchiveView = new LogArchiveView
+        {
+            X = 1,
+            Y = 0,
+            Width = Dim.Fill(1),
+            Height = Dim.Fill(),
+            Visible = false
+        };
         _logViewerPanel = new FrameView
         {
             Title = "Console Log · TUI",
@@ -225,7 +237,7 @@ public sealed class VelaTerminalShell : Window
         _quitHint.SchemeName = VelaTerminalTheme.ActionBar;
         _header.SchemeName = VelaTerminalTheme.Info;
         _navigationPanel.Add(_groupCaptions, _navigation);
-        _contentPanel.Add(_contentHeading, _decision, _workspace, _homeView, _targetDetailView, _impactView, _runProgressView, _evidencePanel, _logViewerPanel, _confirmationInput);
+        _contentPanel.Add(_contentHeading, _decision, _workspace, _homeView, _targetDetailView, _impactView, _runProgressView, _evidencePanel, _logArchiveView, _logViewerPanel, _confirmationInput);
         _decision.Visible = false;
         _workspace.Visible = false;
         UpdateDecision(AutomaticPreflightState.Idle);
@@ -244,6 +256,7 @@ public sealed class VelaTerminalShell : Window
     public string ContentTitle => _contentHeading.Text;
     public string WorkspaceText => _workspace.Text;
     public bool HasLogAnalysis => _logAnalysis is not null;
+    public RunHistoryEntry? SelectedLogEntry => _selectedLogEntry ?? _logArchiveView.SelectedEntry;
     public long NavigationRevision => _navigationRevision;
     public int NavigationItemCount => _menuItems.Count;
     public int SelectedMenuIndex => _legacySelectedMenuIndex ?? _navigation.SelectedItem ?? 0;
@@ -398,6 +411,10 @@ public sealed class VelaTerminalShell : Window
     {
         ArgumentNullException.ThrowIfNull(lines);
         CurrentPage = VelaWorkspacePage.Logs;
+        _logHistoryEntries = [];
+        _selectedLogArchiveIndex = -1;
+        _selectedLogEntry = null;
+        _logArchiveView.Visible = false;
         SetContentTitle("运行日志");
         SetOverviewDecisionVisible(false);
         _homeView.Visible = false;
@@ -414,10 +431,74 @@ public sealed class VelaTerminalShell : Window
         SetNeedsDraw();
     }
 
+    public void ShowLogArchive(RunHistorySnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        CurrentPage = VelaWorkspacePage.Logs;
+        _logHistoryEntries = snapshot.Entries.Take(20).ToArray();
+        _selectedLogArchiveIndex = _logHistoryEntries.Length == 0 ? -1 : 0;
+        _selectedLogEntry = null;
+        _logSnapshot = null;
+        _logAnalysis = null;
+        _logEntries = [];
+        _logLines = [];
+        _logLevels = [];
+        _evidencePanel.Visible = false;
+        HideLogViewer();
+        _logArchiveView.Visible = true;
+        _logArchiveView.Apply(snapshot, _selectedLogArchiveIndex);
+        _header.Text = BuildHeader(_applicationTitle, _dashboard, PreflightState);
+        _homeView.Visible = false;
+        _targetDetailView.Visible = false;
+        _impactView.Visible = false;
+        _contentHeading.Visible = false;
+        _workspace.Visible = false;
+        SetContentTitle("日志归档");
+        SetOverviewDecisionVisible(false);
+        SetNavigationStatus();
+        _logArchiveView.SetFocus();
+        UpdateLogViewLayout();
+        SetNeedsDraw();
+    }
+
+    public void ShowLogDetail(RunHistoryEntry entry, RunLogSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        ArgumentNullException.ThrowIfNull(snapshot);
+        CurrentPage = VelaWorkspacePage.LogAnalysis;
+        _selectedLogEntry = entry;
+        _logSnapshot = snapshot;
+        _logAnalysis = RunLogAnalyzer.Analyze(snapshot);
+        _logEntries = snapshot.ErrorMessage is null
+            ? snapshot.Lines.Take(20).ToArray()
+            : [new RunLogLine(snapshot.ErrorMessage, RunEventLevel.Error)];
+        _logLines = [];
+        _logLevels = [];
+        _evidencePanel.Visible = false;
+        _logArchiveView.Visible = false;
+        _contentHeading.Visible = false;
+        _homeView.Visible = false;
+        _targetDetailView.Visible = false;
+        _impactView.Visible = false;
+        _workspace.Visible = true;
+        _workspace.Y = 0;
+        _workspace.Text = BuildLogDetailHeader(entry);
+        _logViewerPanel.Title = "Console Log · TUI";
+        _header.Text = BuildHeader(_applicationTitle, _dashboard, PreflightState);
+        SetOverviewDecisionVisible(false);
+        UpdateLogViewLayout();
+        RefreshLogLines();
+        SetNavigationStatus();
+        _navigation.SetFocus();
+        SetNeedsDraw();
+    }
+
     public void ShowLogAnalysis(RunLogSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         CurrentPage = VelaWorkspacePage.LogAnalysis;
+        _selectedLogEntry = null;
+        _logArchiveView.Visible = false;
         _logSnapshot = snapshot;
         _logAnalysis = RunLogAnalyzer.Analyze(snapshot);
         _logEntries = BuildLogEntries(snapshot);
@@ -432,6 +513,7 @@ public sealed class VelaTerminalShell : Window
         _workspace.Y = 0;
         _workspace.Text = BuildLogAnalysis();
         _logViewerPanel.Title = "Console Log · TUI";
+        _header.Text = BuildHeader(_applicationTitle, _dashboard, PreflightState);
         UpdateLogViewLayout();
         RefreshLogLines();
         SetNavigationStatus();
@@ -970,6 +1052,112 @@ public sealed class VelaTerminalShell : Window
         return false;
     }
 
+    internal bool TryHandleLogNavigationKey(Key key)
+    {
+        if (CurrentPage == VelaWorkspacePage.Logs && _logArchiveView.Visible)
+        {
+            if (key == Key.CursorUp)
+            {
+                if (_logArchiveView.MoveSelection(-1))
+                {
+                    _selectedLogArchiveIndex = _logArchiveView.SelectedIndex;
+                    SetNeedsDraw();
+                }
+
+                return true;
+            }
+
+            if (key == Key.CursorDown)
+            {
+                if (_logArchiveView.MoveSelection(1))
+                {
+                    _selectedLogArchiveIndex = _logArchiveView.SelectedIndex;
+                    SetNeedsDraw();
+                }
+
+                return true;
+            }
+
+            if (key == Key.Enter)
+            {
+                RequestAction(MainMenuAction.OpenLogs);
+                return true;
+            }
+
+            if (key == Key.Esc)
+            {
+                ResetNavigationToOverview();
+                ShowOverview();
+                return true;
+            }
+
+            return false;
+        }
+
+        if (CurrentPage == VelaWorkspacePage.LogAnalysis && _selectedLogEntry is not null)
+        {
+            if (key == Key.Esc)
+            {
+                ReturnToLogArchive();
+                return true;
+            }
+
+            if (key == Key.Enter)
+            {
+                RequestAction(MainMenuAction.OpenLogs);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    internal bool TryHandleModuleShortcutKey(Key key)
+    {
+        if (key.IsCtrl || key.IsAlt)
+        {
+            return false;
+        }
+
+        var index = key.NoShift == Key.D1
+            ? 0
+            : key.NoShift == Key.D2
+                ? 1
+                : -1;
+        if (index < 0 || index >= _visibleMenuItems.Count)
+        {
+            return false;
+        }
+
+        _legacySelectedMenuIndex = null;
+        _lastPreviewedSelection = -1;
+        _navigation.SelectedItem = index;
+        _navigation.SetFocus();
+        PreviewSelectedMenu();
+        SetNeedsDraw();
+        return true;
+    }
+
+    private void ReturnToLogArchive()
+    {
+        CurrentPage = VelaWorkspacePage.Logs;
+        _selectedLogEntry = null;
+        _logSnapshot = null;
+        _logAnalysis = null;
+        _logEntries = [];
+        _logLines = [];
+        _logLevels = [];
+        _evidencePanel.Visible = false;
+        _contentHeading.Visible = false;
+        _workspace.Visible = false;
+        _logArchiveView.Visible = true;
+        HideLogViewer();
+        SetNavigationStatus();
+        _logArchiveView.SetFocus();
+        UpdateLogViewLayout();
+        SetNeedsDraw();
+    }
+
     internal bool TryHandleActionPreviewKey(Key key)
     {
         if (CurrentPage != VelaWorkspacePage.ActionPreview ||
@@ -1075,9 +1263,11 @@ public sealed class VelaTerminalShell : Window
         if (TryHandleRunLifecycleKey(key)) return true;
         if (TryHandleConfirmationKey(key)) return true;
         if (TryHandleQuitKey(key)) return true;
+        if (TryHandleModuleShortcutKey(key)) return true;
         if (TryHandleFocusToggleKey(key)) return true;
         if (TryHandleTargetNavigationKey(key)) return true;
         if (TryHandleTargetDetailKey(key)) return true;
+        if (TryHandleLogNavigationKey(key)) return true;
         if (TryHandleActionPreviewKey(key)) return true;
         if (TryHandleRefreshKey(key)) return true;
         if (key == Key.Esc && _confirmation is not null)
@@ -1374,6 +1564,9 @@ public sealed class VelaTerminalShell : Window
     private void ShowLogSelectionPreview()
     {
         CurrentPage = VelaWorkspacePage.Logs;
+        _logHistoryEntries = [];
+        _selectedLogArchiveIndex = -1;
+        _selectedLogEntry = null;
         _logSnapshot = null;
         _logAnalysis = null;
         _logEntries = [];
@@ -1381,19 +1574,20 @@ public sealed class VelaTerminalShell : Window
         _logLevels = [];
         _evidencePanel.Visible = false;
         HideLogViewer();
+        _logArchiveView.Visible = true;
+        _logArchiveView.Apply(RunHistorySnapshot.Empty("正在读取历史运行记录…"));
+        _header.Text = BuildHeader(_applicationTitle, _dashboard, PreflightState);
         _homeView.Visible = false;
         _targetDetailView.Visible = false;
-        _workspace.Visible = true;
+        _impactView.Visible = false;
+        _workspace.Visible = false;
         SetOverviewDecisionVisible(false);
-        SetContentTitle("日志分析");
-        _workspace.Text = string.Join(Environment.NewLine,
-            "日志分析预览",
-            "",
-            "按 Enter 读取最新日志并在当前 TUI 显示。",
-            "仅显示时间、级别、阶段和事件。"
-        );
+        SetContentTitle("日志归档");
+        _contentHeading.Visible = false;
         SetNavigationStatus();
-        _navigation.SetFocus();
+        _workspace.Visible = false;
+        _logArchiveView.SetFocus();
+        UpdateLogViewLayout();
         SetNeedsDraw();
     }
 
@@ -1403,7 +1597,7 @@ public sealed class VelaTerminalShell : Window
         {
             MainMenuAction.Preflight => "01  工作区",
             MainMenuAction.ExecuteCompaction => "02  执行压缩",
-            MainMenuAction.OpenLogs => "02  查看日志",
+            MainMenuAction.OpenLogs => "02  日志归档",
             MainMenuAction.ManageProfiles => "03  目标档案",
             MainMenuAction.RecentRuns => "04  最近运行",
             MainMenuAction.Exit => "06  退出 Vela",
@@ -1680,7 +1874,9 @@ public sealed class VelaTerminalShell : Window
             VelaWorkspacePage.TargetDetail when compact => "[Esc]重新选择 [Enter]影响评估",
             VelaWorkspacePage.Profiles when compact => "[↑↓]切换 [Enter]刷新 [Esc]返回",
             VelaWorkspacePage.RecentRuns when compact => "[↑↓]切换 [Enter]刷新 [Esc]返回",
-            VelaWorkspacePage.Logs or VelaWorkspacePage.LogAnalysis when compact => "[↑↓]切换 [Enter]刷新日志 [Esc]返回",
+            VelaWorkspacePage.Logs when compact => "[↑↓]浏览历史 [Enter]查看日志 [Esc]返回",
+            VelaWorkspacePage.LogAnalysis when compact && _selectedLogEntry is not null => "[Esc]返回日志归档",
+            VelaWorkspacePage.LogAnalysis when compact => "[↑↓]切换 [Enter]刷新日志 [Esc]返回",
             VelaWorkspacePage.ActionPreview when compact => "[Esc]返回预检 [Y]确认执行压缩",
             VelaWorkspacePage.Confirmation when compact && _confirmation?.AcceptsSingleKey == true => "[Y]再次确认执行 [Esc]取消",
             VelaWorkspacePage.Confirmation when compact => "[Enter]确认 YES [Esc]取消",
@@ -1691,7 +1887,9 @@ public sealed class VelaTerminalShell : Window
             VelaWorkspacePage.TargetDetail => "[Esc]  重新选择   [Enter]  进入影响评估",
             VelaWorkspacePage.Profiles => "[↑↓] 导航   [Enter] 刷新档案摘要   [Esc] 返回状态总览",
             VelaWorkspacePage.RecentRuns => "[↑↓] 导航   [Enter] 刷新运行记录   [Esc] 返回状态总览",
-            VelaWorkspacePage.Logs or VelaWorkspacePage.LogAnalysis => "[↑↓] 导航   [Enter] 刷新日志   [Esc] 返回状态总览",
+            VelaWorkspacePage.Logs => "[↑↓] 浏览历史   [Enter] 查看详细日志   [Esc] 返回工作区",
+            VelaWorkspacePage.LogAnalysis when _selectedLogEntry is not null => "[Esc] 返回日志归档",
+            VelaWorkspacePage.LogAnalysis => "[↑↓] 导航   [Enter] 刷新日志   [Esc] 返回状态总览",
             VelaWorkspacePage.ActionPreview => "[Esc]  返回预检   [Y]  确认执行压缩",
             VelaWorkspacePage.Confirmation when _confirmation?.AcceptsSingleKey == true => "[Y]  再次确认执行   [Esc] 取消",
             VelaWorkspacePage.Confirmation => "[Enter] 确认 YES   [Esc] 取消",
@@ -1755,6 +1953,31 @@ public sealed class VelaTerminalShell : Window
         return $"{sequence,-4} {timestamp:HH:mm:ss}  {level,-5} {phase,-12} {operation}";
     }
 
+    private static string FormatDetailedLogLine(string text)
+    {
+        var fields = text.Split(' ', 6, StringSplitOptions.RemoveEmptyEntries);
+        if (fields.Length < 5 || !DateTimeOffset.TryParse(
+                fields[1],
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind,
+                out var timestamp))
+        {
+            return TuiDisplayText.Sanitize(text, 160);
+        }
+
+        var level = fields[2] switch
+        {
+            "Trace" => "TRACE",
+            "Information" => "INFO",
+            "Warning" => "WARN",
+            "Error" => "ERROR",
+            _ => "INFO"
+        };
+        var phase = TuiDisplayText.SafeToken(fields[3], 20, "未知阶段");
+        var operation = TuiDisplayText.SafeToken(fields[4], 40, "未知事件");
+        return $"[{timestamp.ToLocalTime():yyyy-MM-dd HH:mm:ss.fff}] {level,-5} {phase,-20} {operation}";
+    }
+
     private string BuildLogAnalysis()
     {
         if (_logAnalysis is null)
@@ -1806,6 +2029,17 @@ public sealed class VelaTerminalShell : Window
         return string.Join(Environment.NewLine, lines.Select(line => TuiDisplayText.Sanitize(line, width)));
     }
 
+    private string BuildLogDetailHeader(RunHistoryEntry entry)
+    {
+        var taskId = entry.RunId == Guid.Empty
+            ? "v-task-unknown"
+            : $"v-task-{entry.RunId:N}"[..15];
+        var left = $"Task ID: {taskId}";
+        var right = "UTF-8 / LF";
+        var gap = Math.Max(2, _screenWidth - left.Length - right.Length - 4);
+        return $"{left}{new string(' ', gap)}{right}";
+    }
+
     private static string FormatCompactSignal(RunLogLine line)
     {
         var fields = line.Text.Split(' ', 6, StringSplitOptions.RemoveEmptyEntries);
@@ -1827,6 +2061,7 @@ public sealed class VelaTerminalShell : Window
 
     private void HideLogViewer()
     {
+        _logArchiveView.Visible = false;
         _logViewerPanel.Visible = false;
         _logList.Visible = false;
     }
@@ -1834,10 +2069,18 @@ public sealed class VelaTerminalShell : Window
     private void UpdateLogViewLayout()
     {
         var analysisPage = CurrentPage == VelaWorkspacePage.LogAnalysis;
-        var showsLogViewer = CurrentPage is VelaWorkspacePage.Logs or VelaWorkspacePage.LogAnalysis;
+        var archivePage = CurrentPage == VelaWorkspacePage.Logs && _logArchiveView.Visible;
+        var detailPage = analysisPage && _selectedLogEntry is not null;
+        var showsLogViewer = !archivePage &&
+            (analysisPage || CurrentPage == VelaWorkspacePage.Logs);
         var viewerY = analysisPage
             ? Math.Max(3, _workspace.Text.Split(Environment.NewLine, StringSplitOptions.None).Length + 1)
             : 0;
+        _logArchiveView.Visible = archivePage;
+        _logArchiveView.X = 1;
+        _logArchiveView.Y = 0;
+        _logArchiveView.Width = Dim.Fill(1);
+        _logArchiveView.Height = Dim.Fill();
         if (analysisPage)
         {
             _workspace.Y = 0;
@@ -1846,7 +2089,7 @@ public sealed class VelaTerminalShell : Window
         _logList.Visible = showsLogViewer;
         _logViewerPanel.X = 1;
         _logViewerPanel.Y = viewerY;
-        _logViewerPanel.Width = ShouldShowEvidenceRail && analysisPage
+        _logViewerPanel.Width = ShouldShowEvidenceRail && !detailPage
             ? Dim.Percent(58)
             : Dim.Fill(1);
         _logViewerPanel.Height = Dim.Fill();
@@ -1890,7 +2133,11 @@ public sealed class VelaTerminalShell : Window
     private void RefreshLogLines()
     {
         var entries = SelectLogEntries();
-        _logLines = entries.Select(line => FormatLogLine(line.Text)).ToArray();
+        _logLines = entries
+            .Select(line => _selectedLogEntry is not null && _screenWidth >= 110
+                ? FormatDetailedLogLine(line.Text)
+                : FormatLogLine(line.Text))
+            .ToArray();
         _logLevels = entries.Select(line => line.Level).ToArray();
         _logList.SetSource(new ObservableCollection<string>(_logLines));
         if (_logLines.Length > 0)
@@ -1948,6 +2195,7 @@ public sealed class VelaTerminalShell : Window
     private bool ShouldShowEvidenceRail =>
         LayoutMode == VelaShellLayout.TwoPane
         && CurrentPage == VelaWorkspacePage.LogAnalysis
+        && _selectedLogEntry is null
         && _screenWidth >= VelaLayoutMetrics.AnalysisRailWidth;
 
     private void ApplyContentRailLayout()
@@ -1979,9 +2227,9 @@ public sealed class VelaTerminalShell : Window
         {
             _contentPanel.Height = Dim.Fill(1);
         }
-        _contentPanel.BorderStyle = unifiedSurface
-            ? Terminal.Gui.Drawing.LineStyle.Single
-            : Terminal.Gui.Drawing.LineStyle.None;
+        // The HTML design uses the terminal window and individual cards as
+        // boundaries; the main content rail itself stays borderless.
+        _contentPanel.BorderStyle = Terminal.Gui.Drawing.LineStyle.None;
         _workspace.Width = showsEvidenceRail ? Dim.Percent(58) : Dim.Fill(1);
         _decision.Width = showsEvidenceRail ? Dim.Percent(58) : Dim.Fill(1);
         _homeView.X = 1;
@@ -2075,9 +2323,11 @@ public sealed class TerminalGuiShellHost : IDisposable
         if (_shell.TryHandleRunLifecycleKey(key) ||
             _shell.TryHandleConfirmationKey(key) ||
             _shell.TryHandleQuitKey(key) ||
+            _shell.TryHandleModuleShortcutKey(key) ||
             _shell.TryHandleFocusToggleKey(key) ||
             _shell.TryHandleTargetNavigationKey(key) ||
             _shell.TryHandleTargetDetailKey(key) ||
+            _shell.TryHandleLogNavigationKey(key) ||
             _shell.TryHandleActionPreviewKey(key) ||
             _shell.TryHandleRefreshKey(key))
         {

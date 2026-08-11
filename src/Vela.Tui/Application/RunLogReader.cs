@@ -69,6 +69,56 @@ public sealed class RunLogReader : IRunLogReader
         }
     }
 
+    public async Task<RunLogSnapshot> ReadAsync(
+        Guid runId,
+        int maxLines = 40,
+        CancellationToken cancellationToken = default)
+    {
+        if (runId == Guid.Empty)
+        {
+            return Empty("运行记录标识无效。");
+        }
+
+        if (maxLines is < 1 or > 200)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxLines));
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!_paths.IsTrustedRootDirectory() || !_paths.IsTrustedLogsDirectory())
+        {
+            return Empty("日志目录不受信任。");
+        }
+
+        var runDirectory = _paths.GetRunDirectory(runId);
+        if (!_paths.IsExpectedRunDirectory(runId, runDirectory) ||
+            !_paths.IsTrustedRunDirectory(runId) ||
+            !Directory.Exists(runDirectory))
+        {
+            return Empty("运行记录不可用。");
+        }
+
+        var logPath = _paths.GetRunLogFilePath(runId);
+        if (!_paths.IsTrustedPath(logPath) || !File.Exists(logPath))
+        {
+            return Empty("该运行没有可读取的日志。");
+        }
+
+        try
+        {
+            return await ReadTailAsync(logPath, maxLines, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return Empty("运行日志读取失败。");
+        }
+    }
+
     private LogCandidate? TryCreateCandidate(string directory)
     {
         var name = Path.GetFileName(directory);
@@ -130,8 +180,8 @@ public sealed class RunLogReader : IRunLogReader
 
     /// <summary>
     /// Journal output may contain native command output and local paths. The TUI only needs
-    /// sequence, timestamp, severity, phase and event name; the raw file remains available
-    /// through the explicit open-log action.
+    /// sequence, timestamp, severity, phase and event name; the detail view keeps that
+    /// projection inside the terminal.
     /// </summary>
     internal static RunLogLine ProjectSafeLine(string line)
     {

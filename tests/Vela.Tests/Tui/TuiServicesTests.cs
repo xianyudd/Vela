@@ -98,6 +98,29 @@ public sealed class TuiServicesTests
     }
 
     [Fact]
+    public async Task RunLogReader_reads_the_selected_run_for_the_inline_detail_view()
+    {
+        using var root = TestRoot.Create();
+        var paths = new AppPaths(root.Path);
+        var selectedRun = Guid.NewGuid();
+        var otherRun = Guid.NewGuid();
+        Directory.CreateDirectory(paths.GetRunDirectory(selectedRun));
+        Directory.CreateDirectory(paths.GetRunDirectory(otherRun));
+        await File.WriteAllTextAsync(
+            paths.GetRunLogFilePath(selectedRun),
+            "[1] 2026-08-10T14:15:04.102Z Information Validation SelectedRun");
+        await File.WriteAllTextAsync(
+            paths.GetRunLogFilePath(otherRun),
+            "[1] 2026-08-10T14:15:04.102Z Information Validation OtherRun");
+
+        var result = await new RunLogReader(paths).ReadAsync(selectedRun);
+
+        var line = Assert.Single(result.Lines);
+        Assert.Contains("SelectedRun", line.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("OtherRun", line.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ProfileService_SelectAsync_PersistsLastProfileIdAndCurrentProfile()
     {
         using var root = TestRoot.Create();
@@ -162,7 +185,12 @@ public sealed class TuiServicesTests
         var result = await new RunHistoryReader(paths).ReadAsync();
 
         Assert.Equal(2, result.Entries.Length);
-        Assert.Contains(result.Entries, entry => entry.RunId == validRunId && !entry.IsMalformed);
+        Assert.Contains(
+            result.Entries,
+            entry => entry.RunId == validRunId &&
+                     !entry.IsMalformed &&
+                     entry.DistroName == profile.DistroName &&
+                     entry.VhdxPath == profile.VhdxPath);
         var invalid = Assert.Single(result.Entries, entry => entry.RunId == invalidRunId);
         Assert.True(invalid.IsMalformed);
         Assert.DoesNotContain(result.Entries, entry => entry.ProfileDisplayName == "not-a-run");

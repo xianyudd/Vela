@@ -70,7 +70,7 @@ public sealed class MainMenuTests
                 "执行压缩",
                 "管理目标档案",
                 "查看最近运行记录",
-                "查看日志",
+                "日志归档",
                 "退出"
             },
             menu.ViewModel.Items.Select(static item => item.Label));
@@ -89,7 +89,7 @@ public sealed class MainMenuTests
                 "执行压缩",
                 "管理目标档案",
                 "查看最近运行记录",
-                "查看日志",
+                "日志归档",
                 "退出"
             },
             menu.ViewModel.Items.Select(static item => item.Label));

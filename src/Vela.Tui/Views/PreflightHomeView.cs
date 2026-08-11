@@ -84,7 +84,11 @@ public sealed class PreflightHomeView : View
             AutomaticPreflightStatus.Failed => VelaTerminalTheme.Error,
             _ => VelaTerminalTheme.Info
         };
-        _infoPanel.SchemeName = VelaTerminalTheme.Panel;
+        _infoPanel.SchemeName = home.TargetLocked
+            ? VelaTerminalTheme.SuccessPanel
+            : infoScheme == VelaTerminalTheme.Info
+                ? VelaTerminalTheme.InfoPanel
+                : VelaTerminalTheme.Panel;
         _infoPrefix.SchemeName = infoScheme;
         _infoPrefix.Text = home.TargetLocked ? "●  LOCKED" : "ⓘ  INFO";
         _infoTitle.Text = BuildInfoTitle(home);
