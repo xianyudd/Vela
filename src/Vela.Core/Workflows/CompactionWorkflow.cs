@@ -88,6 +88,7 @@ public sealed class CompactionWorkflow
                     diagnostics,
                     TerminalResult.ValidationFailed,
                     journalOpened,
+                    journalAccessMode,
                     runDirectory,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -102,6 +103,7 @@ public sealed class CompactionWorkflow
                     diagnostics,
                     TerminalResult.ValidationFailed,
                     journalOpened,
+                    journalAccessMode,
                     runDirectory,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -154,6 +156,7 @@ public sealed class CompactionWorkflow
                     diagnostics,
                     TerminalResult.ValidationFailed,
                     journalOpened,
+                    journalAccessMode,
                     runDirectory,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -193,6 +196,7 @@ public sealed class CompactionWorkflow
                     diagnostics,
                     TerminalResult.ValidationFailed,
                     journalOpened,
+                    journalAccessMode,
                     runDirectory,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -258,6 +262,7 @@ public sealed class CompactionWorkflow
                     diagnostics,
                     TerminalResult.ValidationFailed,
                     journalOpened,
+                    journalAccessMode,
                     runDirectory,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -282,6 +287,7 @@ public sealed class CompactionWorkflow
                     diagnostics,
                     TerminalResult.ValidationFailed,
                     journalOpened,
+                    journalAccessMode,
                     runDirectory,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -318,6 +324,7 @@ public sealed class CompactionWorkflow
                     diagnostics,
                     TerminalResult.ValidationFailed,
                     journalOpened,
+                    journalAccessMode,
                     runDirectory,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -391,6 +398,7 @@ public sealed class CompactionWorkflow
                     diagnostics,
                     TerminalResult.ShutdownTimedOut,
                     journalOpened,
+                    journalAccessMode,
                     runDirectory,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -432,6 +440,7 @@ public sealed class CompactionWorkflow
                     diagnostics,
                     TerminalResult.ShutdownTimedOut,
                     journalOpened,
+                    journalAccessMode,
                     runDirectory,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -477,6 +486,7 @@ public sealed class CompactionWorkflow
                     diagnostics,
                     TerminalResult.DiskPartPreflightFailed,
                     journalOpened,
+                    journalAccessMode,
                     runDirectory,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -520,6 +530,7 @@ public sealed class CompactionWorkflow
                     diagnostics,
                     TerminalResult.DiskPartCompactFailed,
                     journalOpened,
+                    journalAccessMode,
                     runDirectory,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -549,13 +560,16 @@ public sealed class CompactionWorkflow
                     diagnostics,
                     TerminalResult.DiskPartCompactFailed,
                     journalOpened,
+                    journalAccessMode,
                     runDirectory,
                     cancellationToken)
                 .ConfigureAwait(false);
         }
 
         var finalReport = report with { VhdxInspection = beforeInspection };
-        var reclaimedBytes = beforeInspection.Snapshot.FileLengthBytes - afterInspection.Snapshot.FileLengthBytes;
+        var reclaimedBytes = Math.Max(
+            0,
+            beforeInspection.Snapshot.FileLengthBytes - afterInspection.Snapshot.FileLengthBytes);
         var terminalResult = reclaimedBytes == 0
             ? TerminalResult.CompletedWithNoReclaim
             : TerminalResult.Succeeded;
@@ -584,6 +598,7 @@ public sealed class CompactionWorkflow
                 diagnostics,
                 terminalResult,
                 journalOpened,
+                journalAccessMode,
                 runDirectory,
                 cancellationToken,
                 afterInspection.Snapshot)
@@ -597,6 +612,7 @@ public sealed class CompactionWorkflow
         ImmutableArray<WorkflowDiagnostic> diagnostics,
         TerminalResult terminalResult,
         bool journalOpened,
+        RunJournalAccessMode journalAccessMode,
         string? runDirectory,
         CancellationToken cancellationToken,
         VhdxSnapshot? afterSnapshot = null)
@@ -611,7 +627,7 @@ public sealed class CompactionWorkflow
             afterSnapshot,
             terminalResult);
 
-        if (journalOpened)
+        if (journalOpened && journalAccessMode == RunJournalAccessMode.Create)
         {
             try
             {

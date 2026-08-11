@@ -290,13 +290,33 @@ using (var terminalApplication = Application.Create())
         }
     };
 
+    shell.TargetPreflightRequested += () =>
+    {
+        var targetProfile = shell.CreateLockedTargetProfile(profileService.CurrentProfile);
+        if (targetProfile is null)
+        {
+            shell.ShowStatus("当前锁定实例缺少可用 VHDX 路径，请返回 01 重新选择");
+            return;
+        }
+
+        _ = terminalHost.Start(targetProfile, preserveTargetSelection: true);
+    };
+
     shell.ActionRequested += action =>
     {
         switch (action)
         {
             case MainMenuAction.Preflight:
-                shell.ShowOverview();
-                _ = terminalHost.Start(profileService.CurrentProfile);
+                var targetProfile = shell.CreateLockedTargetProfile(profileService.CurrentProfile);
+                var preserveTargetSelection = shell.LockedTarget is not null && targetProfile is not null;
+                if (!preserveTargetSelection)
+                {
+                    shell.ShowOverview();
+                }
+
+                _ = terminalHost.Start(
+                    targetProfile ?? profileService.CurrentProfile,
+                    preserveTargetSelection);
                 break;
             case MainMenuAction.Exit:
                 terminalApplication.RequestStop();
@@ -418,6 +438,7 @@ using (var terminalApplication = Application.Create())
                     target.Name,
                     targetPath ?? string.Empty,
                     sizeBytes,
+                    target.State == WslDistributionState.Running,
                     executionCancellation.Token)
                 .ConfigureAwait(false)
             : new CompactionImpactEstimate(

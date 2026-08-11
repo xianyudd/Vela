@@ -123,6 +123,27 @@ public sealed class UacWorkerLauncherTests
     }
 
     [Fact]
+    public async Task StartAsync_releases_gate_when_cancelled_after_gate_acquisition()
+    {
+        using var root = TestRoot.Create();
+        var paths = new Vela.Windows.Diagnostics.AppPaths(root.Path);
+        var request = CreateRequest();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var coordinator = new ElevatedOperationCoordinator(
+            new FakeRunJournal(),
+            new RecordingRequestStore([], OperationRequestWriteResult.Success(paths.GetPendingRequestFilePath(request.RunId))),
+            new RecordingLauncher([], ElevatedWorkerLaunchStatus.Started),
+            new FixedClock(),
+            new CompactRunGate(paths));
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            coordinator.StartAsync(request, cancellation.Token));
+
+        Assert.False(File.Exists(paths.CompactGateFilePath));
+    }
+
+    [Fact]
     public async Task StartAsync_WhenUacIsCancelled_WritesCancelledSummaryThenConsumesPendingRequest()
     {
         var request = CreateRequest();
@@ -140,6 +161,9 @@ public sealed class UacWorkerLauncherTests
         Assert.Equal(TerminalResult.CancelledBeforeElevation, result.TerminalResult);
         Assert.Contains(journal.Events, static @event => @event.OperationName == "UacCancelled" && @event.Phase == RunPhase.Elevation);
         Assert.Equal(TerminalResult.CancelledBeforeElevation, Assert.Single(journal.Summaries).TerminalResult);
+        Assert.Equal(
+            new[] { "append:UacCancelled", "summary" },
+            journal.Operations.TakeLast(2));
         Assert.Equal(1, store.ConsumeCalls);
     }
 
@@ -161,6 +185,32 @@ public sealed class UacWorkerLauncherTests
         Assert.Equal(TerminalResult.WorkerInterrupted, result.TerminalResult);
         Assert.Contains(journal.Events, static @event => @event.OperationName == "UacLaunchFailed" && @event.Level == RunEventLevel.Error);
         Assert.Equal(TerminalResult.WorkerInterrupted, Assert.Single(journal.Summaries).TerminalResult);
+        Assert.Equal(
+            new[] { "append:UacLaunchFailed", "summary" },
+            journal.Operations.TakeLast(2));
+        Assert.Equal(1, store.ConsumeCalls);
+    }
+
+    [Fact]
+    public async Task StartAsync_keeps_cancelled_status_when_summary_persistence_fails()
+    {
+        var request = CreateRequest();
+        var journal = new FakeRunJournal
+        {
+            ThrowOnWriteSummary = true
+        };
+        var store = new RecordingRequestStore([], OperationRequestWriteResult.Success(@"D:\Vela\pending\request.json"));
+        var coordinator = new ElevatedOperationCoordinator(
+            journal,
+            store,
+            new RecordingLauncher([], ElevatedWorkerLaunchStatus.Cancelled),
+            new FixedClock());
+
+        var result = await coordinator.StartAsync(request, CancellationToken.None);
+
+        Assert.Equal(ElevatedOperationStartStatus.Cancelled, result.Status);
+        Assert.Equal(TerminalResult.CancelledBeforeElevation, result.TerminalResult);
+        Assert.Contains(journal.Events, static @event => @event.OperationName == "UacCancelled");
         Assert.Equal(1, store.ConsumeCalls);
     }
 

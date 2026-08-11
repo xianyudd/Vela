@@ -160,6 +160,49 @@ public sealed class CompactionWorkflowTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_WhenAfterLengthGrows_DoesNotReportNegativeReclaim()
+    {
+        var wsl = ReadyWsl();
+        var journal = new FakeRunJournal();
+        var workflow = CreateWorkflow(
+            wsl,
+            new FakeLxssProfileResolver(MatchedResolution()),
+            new ScriptedInspector(SucceededInspection(10_000), SucceededInspection(12_000)),
+            new RecordingDiskPartClient(),
+            journal);
+
+        var result = await workflow.ExecuteAsync(Request(ShutdownMode.Global));
+
+        Assert.Equal(TerminalResult.CompletedWithNoReclaim, result.Summary.TerminalResult);
+        Assert.Equal(0, result.Summary.ReclaimedBytes);
+        Assert.Contains(
+            journal.Events,
+            @event => @event.OperationName == "Compaction completed" &&
+                @event.Arguments.SequenceEqual(["0"]));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenOpeningAnExistingRun_DefersSummaryPublicationToTheWorker()
+    {
+        var wsl = ReadyWsl();
+        var journal = new FakeRunJournal();
+        var workflow = CreateWorkflow(
+            wsl,
+            new FakeLxssProfileResolver(MatchedResolution()),
+            new ScriptedInspector(SucceededInspection(10_000), SucceededInspection(9_000)),
+            new RecordingDiskPartClient(),
+            journal);
+
+        var result = await workflow.ExecuteAsync(
+            Request(ShutdownMode.Global),
+            RunJournalAccessMode.OpenExisting,
+            CancellationToken.None);
+
+        Assert.Equal(TerminalResult.Succeeded, result.Summary.TerminalResult);
+        Assert.Empty(journal.Summaries);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_WhenLxssMappingChanges_SkipsAllActions()
     {
         var wsl = ReadyWsl();

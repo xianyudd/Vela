@@ -1,4 +1,6 @@
+using System.Collections.Immutable;
 using Vela.Core.Models;
+using Vela.Core.Contracts;
 using Vela.Tui.Application;
 using Vela.Tui.Menu;
 using Vela.Tui.Views;
@@ -89,6 +91,87 @@ public sealed class VelaTerminalHostTests
         dispatcher.RunAll();
 
         Assert.Equal(AutomaticPreflightStatus.Idle, shell.PreflightState.Status);
+    }
+
+    [Fact]
+    public async Task Start_preserving_target_selection_keeps_the_locked_row_through_target_preflight()
+    {
+        var baseProfile = CreateProfile();
+        var targetProfile = baseProfile with
+        {
+            DisplayName = "docker-desktop",
+            DistroName = "docker-desktop",
+            VhdxPath = @"D:\Docker\wsl\data\ext4.vhdx"
+        };
+        var baseDashboard = DashboardViewModel.CreateInitial(baseProfile) with
+        {
+            MappingState = TargetMappingState.Matched,
+            InspectionState = TargetInspectionState.Available,
+            VhdxEvidence = new VhdxEvidenceViewModel(
+                10L * PreflightOverviewFormatter.Gibibyte,
+                DateTimeOffset.UtcNow,
+                true,
+                2L * PreflightOverviewFormatter.Tebibyte,
+                512L * PreflightOverviewFormatter.Gibibyte),
+            InstalledDistros = ImmutableArray.Create(
+                new WslDistribution(
+                    "docker-desktop",
+                    WslDistributionState.Stopped,
+                    2,
+                    false,
+                    targetProfile.VhdxPath,
+                    10L * PreflightOverviewFormatter.Gibibyte)),
+            RunningInventoryState = PreflightDataState.Available,
+            LogAvailabilityState = PreflightDataState.Available,
+            LogsAvailable = true
+        };
+        var targetDashboard = DashboardViewModel.CreateInitial(targetProfile) with
+        {
+            MappingState = TargetMappingState.Matched,
+            InspectionState = TargetInspectionState.Available,
+            VhdxEvidence = baseDashboard.VhdxEvidence,
+            InstalledDistros = baseDashboard.InstalledDistros,
+            RunningInventoryState = PreflightDataState.Available,
+            LogAvailabilityState = PreflightDataState.Available,
+            LogsAvailable = true
+        };
+        var completion = new TaskCompletionSource<DashboardViewModel>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var coordinator = new AutomaticPreflightCoordinator(
+            (requested, _) =>
+            {
+                Assert.Equal(targetProfile.DistroName, requested.DistroName);
+                return completion.Task;
+            });
+        var dispatcher = new QueuedDispatcher();
+        using var shell = new VelaTerminalShell(new MainMenu().ViewModel, baseDashboard);
+        using var host = new VelaTerminalHost(shell, coordinator, dispatcher);
+
+        shell.SetCurrentProfile(baseProfile);
+        shell.ApplyPreflight(new AutomaticPreflightState(
+            baseProfile.Id,
+            1,
+            1,
+            AutomaticPreflightStatus.Ready,
+            baseDashboard,
+            "预检已完成。"));
+        shell.ShowOverview();
+        shell.NewKeyDownEvent(Terminal.Gui.Input.Key.Enter);
+
+        var running = host.Start(targetProfile, preserveTargetSelection: true);
+        dispatcher.RunAll();
+
+        Assert.Equal("docker-desktop", shell.LockedTargetName);
+        Assert.Equal(VelaWorkspacePage.TargetDetail, shell.CurrentPage);
+        Assert.Equal(AutomaticPreflightStatus.Checking, shell.PreflightState.Status);
+
+        completion.SetResult(targetDashboard);
+        await running;
+        dispatcher.RunAll();
+
+        Assert.Equal("docker-desktop", shell.LockedTargetName);
+        Assert.Equal("docker-desktop", shell.Overview.DistroName);
+        Assert.Equal(AutomaticPreflightStatus.Ready, shell.PreflightState.Status);
     }
 
     private static Profile CreateProfile(string name = "Ubuntu 24.04") => new(

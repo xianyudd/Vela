@@ -12,7 +12,7 @@ public sealed record RunSummary(
 {
     public long? ReclaimedBytes => BeforeSnapshot is null || AfterSnapshot is null
         ? null
-        : BeforeSnapshot.FileLengthBytes - AfterSnapshot.FileLengthBytes;
+        : Math.Max(0, BeforeSnapshot.FileLengthBytes - AfterSnapshot.FileLengthBytes);
 }
 
 public enum TerminalResult

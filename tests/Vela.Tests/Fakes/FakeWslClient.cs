@@ -169,6 +169,7 @@ public sealed class FakeRunJournal : IRunJournal
     private readonly Action<string>? _onInvoked;
     private readonly List<Guid> _createdRunIds = new();
     private readonly List<RunEvent> _events = new();
+    private readonly List<string> _operations = new();
     private RunSummary? _summary;
     private long _nextSequence;
 
@@ -197,9 +198,12 @@ public sealed class FakeRunJournal : IRunJournal
         ? ImmutableArray<RunSummary>.Empty
         : ImmutableArray.Create(_summary);
 
+    public ImmutableArray<string> Operations => _operations.ToImmutableArray();
+
     public Task<JournalOperationResult> CreateRunAsync(Guid runId, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        _operations.Add("create");
         _onInvoked?.Invoke("journal.create");
 
         if (ThrowOnCreate)
@@ -215,6 +219,7 @@ public sealed class FakeRunJournal : IRunJournal
     {
         cancellationToken.ThrowIfCancellationRequested();
         OpenExistingRunCalls++;
+        _operations.Add("open-existing");
         _onInvoked?.Invoke("journal.open-existing");
         return Task.FromResult(JournalOperationResult.Success(null));
     }
@@ -223,6 +228,7 @@ public sealed class FakeRunJournal : IRunJournal
     {
         cancellationToken.ThrowIfCancellationRequested();
         AppendCalls++;
+        _operations.Add($"append:{eventDraft.OperationName}");
         _onInvoked?.Invoke("journal.append");
 
         if (ThrowOnAppend)
@@ -250,6 +256,7 @@ public sealed class FakeRunJournal : IRunJournal
     {
         cancellationToken.ThrowIfCancellationRequested();
         SummaryWriteCalls++;
+        _operations.Add("summary");
         _onInvoked?.Invoke("journal.summary");
 
         if (ThrowOnWriteSummary)

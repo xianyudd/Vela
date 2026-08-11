@@ -21,10 +21,18 @@ public sealed class VelaTerminalHost : IDisposable
         _preflight.StateChanged += OnPreflightStateChanged;
     }
 
-    public Task Start(Profile profile)
+    public Task Start(Profile profile, bool preserveTargetSelection = false)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
-        _shell.SetCurrentProfile(profile);
+        if (preserveTargetSelection)
+        {
+            _shell.PrepareTargetPreflight(profile);
+        }
+        else
+        {
+            _shell.SetCurrentProfile(profile);
+        }
+
         return _preflight.Start(profile);
     }
 

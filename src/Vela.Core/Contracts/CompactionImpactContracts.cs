@@ -6,6 +6,7 @@ public interface ICompactionImpactEstimator
         string distroName,
         string vhdxPath,
         long currentVhdxSizeBytes,
+        bool targetIsRunning,
         CancellationToken cancellationToken);
 }
 

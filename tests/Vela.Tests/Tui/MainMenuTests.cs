@@ -370,7 +370,7 @@ public sealed class MainMenuTests
         Assert.DoesNotContain(runId.ToString(), recentMarkup, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("VHDX 已配置", profileMarkup, StringComparison.Ordinal);
         Assert.Contains("日志", recentMarkup, StringComparison.Ordinal);
-        Assert.Contains("可打开", recentMarkup, StringComparison.Ordinal);
+        Assert.Contains("可在 TUI 查看", recentMarkup, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -532,7 +532,7 @@ public sealed class MainMenuTests
 
         Assert.Contains("运行证据", markup, StringComparison.Ordinal);
         Assert.Contains($"[bold {color}]{label}[/]", markup, StringComparison.Ordinal);
-        Assert.Contains("O 打开可信日志目录", markup, StringComparison.Ordinal);
+        Assert.Contains("日志归档查看", markup, StringComparison.Ordinal);
     }
 
     [Fact]

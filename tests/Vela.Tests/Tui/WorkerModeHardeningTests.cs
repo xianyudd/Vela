@@ -116,6 +116,9 @@ public sealed class WorkerModeHardeningTests
         Assert.Contains(journal.Events, item => item.OperationName == "WorkerRequestConsumeFailed");
         Assert.Equal(TerminalResult.ValidationFailed, Assert.Single(journal.Summaries).TerminalResult);
         Assert.Equal(runId, Assert.Single(store.ConsumedRunIds));
+        Assert.Equal(
+            new[] { "append:WorkerFailed", "summary", "append:WorkerRequestConsumeFailed" },
+            journal.Operations);
     }
     private static OperationRequest CreateRequest(Guid runId) =>
         new(
@@ -153,6 +156,7 @@ public sealed class WorkerModeHardeningTests
     {
         public List<RunEvent> Events { get; } = new();
         public List<RunSummary> Summaries { get; } = new();
+        public List<string> Operations { get; } = new();
         private long _sequence;
 
         public Task<JournalOperationResult> CreateRunAsync(Guid runId, CancellationToken cancellationToken) =>
@@ -163,6 +167,7 @@ public sealed class WorkerModeHardeningTests
 
         public Task<JournalAppendResult> AppendAsync(RunEventDraft eventDraft, CancellationToken cancellationToken)
         {
+            Operations.Add($"append:{eventDraft.OperationName}");
             var @event = new RunEvent(
                 ++_sequence,
                 eventDraft.OccurredAtUtc,
@@ -181,6 +186,7 @@ public sealed class WorkerModeHardeningTests
 
         public Task<JournalOperationResult> WriteSummaryAsync(RunSummary summary, CancellationToken cancellationToken)
         {
+            Operations.Add("summary");
             Summaries.Add(summary);
             return Task.FromResult(JournalOperationResult.Success(null));
         }

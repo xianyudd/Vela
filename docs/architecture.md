@@ -39,19 +39,19 @@ TUI 采用克制、工业化的中文运维控制台。`TuiApplication` 是唯�
     执行压缩
     管理目标档案
     查看最近运行记录
-    打开日志目录
+    日志归档
     退出
 ~~~
 
 - ↑、↓ 移动选择；Enter 执行动作；Esc 从次级页面返回，主菜单 Esc 退出。
-- 首启确认、执行压缩确认以及会改变执行目标的 Profile 编辑/删除确认逐字符读取，只有精确大写 `YES` 加 Enter 才接受；Esc 取消；输入最多 16 个字符。
+- 首启确认和会改变执行目标的 Profile 编辑/删除确认逐字符读取，只有精确大写 `YES` 加 Enter 才接受；执行压缩使用两次 `Y`；Esc 取消；输入最多 16 个字符。
 - Profile 管理使用 `N` 新建、`E` 编辑、`D` 删除，Enter 切换当前 Profile；删除至少保留一个且不能直接删除当前 Profile。
 - Profile 的 VHDX 字段为 write-only edit：旧路径永不回显，新输入只显示字符数；Shutdown mode 使用 typed 选项，timeout 只接受 invariant `5–300` 整数秒。
-- 最近运行使用 ↑、↓、Enter、Esc；详情页 `O` 通过内部可信 RunId capability 打开日志目录，但 renderer-facing state 不携带 RunId 或路径。
+- 最近运行使用 ↑、↓、Enter、Esc；详情页回到日志归档查看只读日志摘要，renderer-facing state 不携带 RunId 或路径。
 - `FrameRenderer` 对 `<80`、`80–119`、`>=120` 三档宽度分别采用最小、纵向、左右布局；低于 22 行时限制列表证据行，上下文 footer 只显示当前页面有效键位。
 - 交互与 redirected 输出共享同一 composition；redirected 模式只写一个确定性 frame，不清屏、不读键。
 - 预检结果只呈现 mapped/configured/resolved 状态、文件与宿主盘数值证据、运行中的发行版和受控提示。
-- “执行压缩”先显示档案身份、VHDX 已配置状态与影响摘要，再要求精确输入 `YES`。
+- “执行压缩”先显示档案身份、VHDX 已配置状态与影响摘要，第一次 `Y` 进入确认页，第二次 `Y` 执行。
 - 普通权限 TUI 保持打开并轮询确定的运行目录；提升权限 worker 只追加该目录的事件流。
 - 结束时显示安全结果投影；`Succeeded` 与 `CompletedWithNoReclaim` 分别显示为“成功”和“完成但未回收空间”。
 

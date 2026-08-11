@@ -31,7 +31,7 @@ Manual acceptance  真实 Win11 / WSL 环境下的只读预检与用户确认后
 | WorkerMode | 管理员身份、额外参数、RunId、映射二次校验、非交互分支 | 失败时动作调用数为 0。 |
 | TUI application | `TuiApplication` 单一串行读键所有权、typed page controller、状态变化才重绘、↑↓/Enter/Esc、confirmation Backspace/16 字符上限、exact `YES`、取消前/读键期间 cancellation | 任意时刻最多一个同步 read；无关键 no-op；取消不 dispatch key、不泄漏异常。 |
 | FrameRenderer / display boundary | `<80`、`80–119`、`>=120` 宽度边界，低高度预算，interactive/redirected 同一 composition，CJK/combining/markup/CSI/OSC/control hostile text | 单帧 redirected 不清屏；任何 frame 均不含 raw path、RunId、raw exception、native output 或 raw enum name。 |
-| ProfileService / secondary TUI | Profile 选择、新建、编辑、删除约束；write-only VHDX 编辑；typed ShutdownMode；invariant `5–300` timeout；RecentRuns 最多 20 条、损坏 summary、详情和可信日志打开；OpenLogs | CRUD 持久化且通过 `ProfileValidator`；执行目标变化必须 exact `YES`；路径不越出 AppPaths 根且不进入 frame。 |
+| ProfileService / secondary TUI | Profile 选择、新建、编辑、删除约束；write-only VHDX 编辑；typed ShutdownMode；invariant `5–300` timeout；RecentRuns 最多 20 条、损坏 summary、详情和 TUI 内日志查看；OpenLogs | CRUD 持久化且通过 `ProfileValidator`；执行目标变化必须 exact `YES`；路径不越出 AppPaths 根且不进入 frame。 |
 | RunJournalPoller | sequence cursor、foreign RunId、gap/duplicate/nonmonotonic、invalid terminal、取消、timeout、连续读取失败及复位、callback exactly-once/order/exception/cancellation | 不排序修复损坏 journal；取消/超时不伪造 worker 终态；ReadFailed 在阈值后确定返回。 |
 | CompactRunGate / coordinator | 同时 Compact、可信活动 RunId、失效 gate、UAC 取消/启动失败 | single-worker gate 阻止第二个 worker；失败路径释放或保留可诊断状态。 |
 
@@ -83,7 +83,7 @@ locked restore 成功
 | 响应式布局 | `<80` 只保留目标/状态/焦点/帮助；`80–119` 纵向堆叠；`>=120` 左导航右工作区；低高度列表有界。 |
 | 输入所有权 | 主菜单、Profile、Recent 和 confirmation 共用一个串行读键入口；快速按键、Esc、Ctrl+C 后无重复消费或 orphan read。 |
 | Profile 编辑 | 旧 VHDX 路径不回显，新路径只显示字符数；ShutdownMode 用方向键选择；timeout 只接受 5–300 整数。 |
-| 确认 | 只有精确大写 `YES` 接受；`yes`、`YES `、Esc 均拒绝或取消。 |
+| 确认 | 首启/档案确认只接受精确大写 `YES`；压缩流程使用两次 `Y`；Esc 均取消。 |
 | 安全投影 | frame 不显示 raw VHDX/registry/run/log path、RunId、raw exception、native output 或 raw enum name。 |
 | 终态标签 | “成功”与“完成但未回收空间”保持不同显示。 |
 | redirected | 只输出一个确定性 frame，不清屏、不读输入。 |
@@ -113,7 +113,7 @@ pwsh -ExecutionPolicy Bypass -File .\legacy\powershell\wsl.ps1 -WhatIf
 
 1. 在 TUI 中选择“执行压缩”。
 2. 核对 Profile 身份、VHDX 已配置状态、Global / Distro 范围、正在运行的发行版与影响提示；原始目标路径只在可信配置/日志中核对，不要求 UI 回显。
-3. 输入精确大写 `YES`，确认 UAC worker 启动。
+3. 在影响预览按 `Y` 进入确认页，再按 `Y` 确认 UAC worker 启动。
 4. 观察父 TUI 轮询的 logs\<RunId>\events.ndjson 持续增加。
 5. 检查 worker 分支跳过主菜单和确认提示，只向同一 journal 追加事件与退出码。
 6. 检查 worker 再次写入管理员身份、映射验证和压缩前快照。

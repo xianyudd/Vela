@@ -386,27 +386,6 @@ public sealed class WorkerMode
             ? RunEventLevel.Information
             : RunEventLevel.Error;
 
-        JournalOperationResult summaryWritten;
-        try
-        {
-            summaryWritten = await _journal
-                .WriteSummaryAsync(durableSummary, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception)
-        {
-            return CreateResult(TerminalResult.WorkerInterrupted);
-        }
-
-        if (!summaryWritten.Succeeded)
-        {
-            return CreateResult(TerminalResult.WorkerInterrupted);
-        }
-
         JournalAppendResult appended;
         try
         {
@@ -437,6 +416,34 @@ public sealed class WorkerMode
         if (!appended.Succeeded)
         {
             return CreateResult(TerminalResult.WorkerInterrupted);
+        }
+
+        JournalOperationResult summaryWritten;
+        try
+        {
+            summaryWritten = await _journal
+                .WriteSummaryAsync(durableSummary, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            summaryWritten = JournalOperationResult.Failure();
+        }
+
+        if (!summaryWritten.Succeeded)
+        {
+            // The terminal event is the authoritative lifecycle marker. A
+            // summary is a history projection; its write failure must not
+            // rewrite a completed operation as interrupted.
+            return await ConsumeAndCreateResultAsync(
+                    runId,
+                    durableSummary.TerminalResult,
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
 
         return await ConsumeAndCreateResultAsync(
@@ -558,35 +565,6 @@ public sealed class WorkerMode
             }
         }
 
-        var summary = new RunSummary(
-            runId,
-            profile,
-            intent,
-            occurredAtUtc,
-            _clock.UtcNow,
-            BeforeSnapshot: null,
-            AfterSnapshot: null,
-            terminalResult);
-
-        JournalOperationResult summaryWritten;
-        try
-        {
-            summaryWritten = await _journal.WriteSummaryAsync(summary, cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception)
-        {
-            return CreateResult(TerminalResult.WorkerInterrupted);
-        }
-
-        if (!summaryWritten.Succeeded)
-        {
-            return CreateResult(TerminalResult.WorkerInterrupted);
-        }
-
         JournalAppendResult appended;
         try
         {
@@ -617,6 +595,39 @@ public sealed class WorkerMode
         if (!appended.Succeeded)
         {
             return CreateResult(TerminalResult.WorkerInterrupted);
+        }
+
+        var summary = new RunSummary(
+            runId,
+            profile,
+            intent,
+            occurredAtUtc,
+            _clock.UtcNow,
+            BeforeSnapshot: null,
+            AfterSnapshot: null,
+            terminalResult);
+
+        JournalOperationResult summaryWritten;
+        try
+        {
+            summaryWritten = await _journal.WriteSummaryAsync(summary, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            summaryWritten = JournalOperationResult.Failure();
+        }
+
+        if (!summaryWritten.Succeeded)
+        {
+            return await ConsumeAndCreateResultAsync(
+                    runId,
+                    terminalResult,
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
 
         return await ConsumeAndCreateResultAsync(runId, terminalResult, cancellationToken).ConfigureAwait(false);

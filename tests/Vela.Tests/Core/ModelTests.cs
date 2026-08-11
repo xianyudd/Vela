@@ -151,7 +151,7 @@ public sealed class ModelTests
     }
 
     [Fact]
-    public void RunSummary_ReclaimedBytesPreservesANegativeDeltaWhenVhdxGrows()
+    public void RunSummary_ReclaimedBytesClampsToZeroWhenVhdxGrows()
     {
         var summary = new RunSummary(
             Guid.Parse("f8e2a2ec-441d-4f71-80a4-a8334e8dbdb6"),
@@ -163,7 +163,7 @@ public sealed class ModelTests
             CreateSnapshot(fileLengthBytes: 10_000L),
             TerminalResult.Succeeded);
 
-        Assert.Equal(-2_500L, summary.ReclaimedBytes);
+        Assert.Equal(0L, summary.ReclaimedBytes);
     }
 
     [Theory]

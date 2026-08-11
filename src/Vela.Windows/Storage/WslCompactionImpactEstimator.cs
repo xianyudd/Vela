@@ -9,8 +9,9 @@ namespace Vela.Windows.Storage;
 
 /// <summary>
 /// Estimates reclaimable VHDX bytes from the selected distro's current guest
-/// usage. The estimate is read-only: it runs df inside the target and never
-/// invokes WSL shutdown, terminate, trim, or DiskPart.
+/// usage. The estimate is read-only: it reads the VHDX offline first and only
+/// runs df when the target is already running. It never invokes WSL shutdown,
+/// terminate, trim, or DiskPart.
 /// </summary>
 public sealed class WslCompactionImpactEstimator : ICompactionImpactEstimator
 {
@@ -50,6 +51,7 @@ public sealed class WslCompactionImpactEstimator : ICompactionImpactEstimator
         string distroName,
         string vhdxPath,
         long currentVhdxSizeBytes,
+        bool targetIsRunning,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -64,6 +66,11 @@ public sealed class WslCompactionImpactEstimator : ICompactionImpactEstimator
         if (_vhdxUsageReader.TryReadUsedBytes(vhdxPath, out var offlineUsedBytes))
         {
             return CreateEstimate(currentVhdxSizeBytes, offlineUsedBytes);
+        }
+
+        if (!targetIsRunning)
+        {
+            return Unavailable(currentVhdxSizeBytes, "目标存储使用量暂不可用。目标未运行，未启动在线采集。");
         }
 
         ProcessExecutionResult result;

@@ -437,7 +437,7 @@ public sealed class FrameRenderer
             BuildLabelValueRow(
                 "回收",
                 $"{viewModel.ReclaimedBytes?.ToString("N0") ?? "未知"} 字节"),
-            BuildLabelValueRow("日志", viewModel.LogsAvailable ? "可打开" : "不可用"),
+            BuildLabelValueRow("日志", viewModel.LogsAvailable ? "可在 TUI 查看" : "不可用"),
             BuildLabelValueRow("错误", Safe(viewModel.ErrorMessage ?? "无", 96)));
 
     private static string BuildConfirmation(ConfirmationPageViewModel viewModel) =>
@@ -456,7 +456,7 @@ public sealed class FrameRenderer
             TuiScreen.ProfileList => "↑↓ 选择 · Enter 切换 · N 新建 · E 编辑 · D 删除 · Esc 返回",
             TuiScreen.ProfileEdit => "输入 / Backspace 编辑 · 方向键选择 · Enter 下一步 · Esc 取消",
             TuiScreen.RecentRuns => "↑↓ 选择 · Enter 详情 · Esc 返回",
-            TuiScreen.RecentRunDetail => "O 打开可信日志目录 · Esc 返回列表",
+            TuiScreen.RecentRunDetail => "日志归档查看 · Esc 返回列表",
             TuiScreen.Confirmation => "输入精确 YES · Backspace 删除 · Enter 提交 · Esc 取消",
             TuiScreen.Running => "运行中 · 等待可信终态",
             _ => "↑↓ 选择 · Enter 执行 · Esc 退出"

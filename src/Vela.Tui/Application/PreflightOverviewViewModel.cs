@@ -1057,23 +1057,25 @@ public static class PreflightOverviewFormatter
                 ? PreflightGateStatus.NotChecked
                 : isConfiguredTarget
                     ? vhdx.Status
-                    : PreflightGateStatus.Matched;
+                    : PreflightGateStatus.NotChecked;
         var storageStatus = !hasVhdxPath
             ? PreflightGateStatus.Attention
             : isChecking
                 ? PreflightGateStatus.NotChecked
-                : logs.Status == PreflightGateStatus.Failed
-                    ? PreflightGateStatus.Failed
-                    : logs.Status == PreflightGateStatus.NotChecked
-                        ? PreflightGateStatus.NotChecked
-                        : PreflightGateStatus.Matched;
+                : !isConfiguredTarget
+                    ? PreflightGateStatus.NotChecked
+                    : logs.Status == PreflightGateStatus.Failed
+                        ? PreflightGateStatus.Failed
+                        : logs.Status == PreflightGateStatus.NotChecked
+                            ? PreflightGateStatus.NotChecked
+                            : PreflightGateStatus.Matched;
         var mappingStatus = selected is null
             ? PreflightGateStatus.Attention
             : isChecking
                 ? PreflightGateStatus.NotChecked
                 : isConfiguredTarget
                     ? mapping.Status
-                    : PreflightGateStatus.Matched;
+                    : PreflightGateStatus.NotChecked;
         var finalStatus = selected is null
             ? PreflightGateStatus.Attention
             : isChecking
@@ -1082,7 +1084,9 @@ public static class PreflightOverviewFormatter
                     ? PreflightGateStatus.Failed
                     : isRunning
                         ? PreflightGateStatus.Attention
-                        : PreflightGateStatus.Matched;
+                        : !isConfiguredTarget
+                            ? PreflightGateStatus.NotChecked
+                            : PreflightGateStatus.Matched;
 
         yield return new PreflightTargetCheckViewModel(
             FormatTargetCheckLabel("目标档案已读取"),
@@ -1098,11 +1102,15 @@ public static class PreflightOverviewFormatter
                 ? selectedDistribution?.VhdxSizeBytes is not null
                     ? "VHDX 路径和日志均可用。"
                     : "VHDX 路径和日志均可用，体积待采集。"
-                : logs.Detail,
+                : !isConfiguredTarget && !isChecking
+                    ? "当前锁定实例尚未完成快照与日志预检。"
+                    : logs.Detail,
             storageStatus);
         yield return new PreflightTargetCheckViewModel(
             FormatTargetCheckLabel("发行版映射"),
-            isConfiguredTarget ? mapping.Detail : "已从实例清单锁定目标。",
+            isConfiguredTarget
+                ? mapping.Detail
+                : "当前锁定实例尚未完成发行版映射预检。",
             mappingStatus);
         yield return new PreflightTargetCheckViewModel(
             FormatTargetCheckLabel("执行前最终校验"),
@@ -1110,7 +1118,9 @@ public static class PreflightOverviewFormatter
                 ? "目标已锁定，可进入影响评估。"
                 : isRunning
                     ? "实例正在运行，请先停止目标。"
-                : "完成阻断项后重新检查。",
+                    : !isConfiguredTarget && !isChecking
+                        ? "锁定目标后将运行该实例的完整预检。"
+                        : "完成阻断项后重新检查。",
             finalStatus);
     }
 
@@ -1195,7 +1205,7 @@ public static class PreflightOverviewFormatter
         if (!isTarget)
         {
             return hasVhdxPath
-                ? PreflightTargetRowStatus.Ready
+                ? PreflightTargetRowStatus.Pending
                 : PreflightTargetRowStatus.Attention;
         }
 

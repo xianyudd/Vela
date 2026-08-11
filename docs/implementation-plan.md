@@ -435,7 +435,7 @@ git commit -m "feat: persist profiles and run diagnostics"
 
 - [ ] **Step 3：实现菜单与预检展示**
 
-提供 Preflight、Execute compaction、Manage profiles、Recent runs、Open logs、Exit。预检表格展示 profile、registry mapping、VHDX snapshot、drive snapshot、sparse、running distros、提示和日志目录。
+提供 Preflight、Execute compaction、Manage profiles、Recent runs、日志归档、Exit。预检表格展示 profile、registry mapping、VHDX snapshot、drive snapshot、sparse、running distros、提示和日志可用性。
 
 - [ ] **Step 4：用 fake services 检查 TUI 并提交**
 
@@ -479,7 +479,7 @@ git commit -m "feat: add Vela terminal interface"
 
 - [ ] **Step 4：实现 WorkerMode 与确认屏幕**
 
-WorkerMode 验证管理员身份、request、RunId、AppPaths 包含关系、Lxss 映射和共同预检。它跳过主菜单、ReadLine 与确认提示，只运行 workflow、追加 journal，并映射终态为退出码：0（Succeeded 或 CompletedWithNoReclaim）、2（ValidationFailed）、3（ShutdownTimedOut）、4（DiskPartPreflightFailed）、5（DiskPartCompactFailed）、10（未处理 worker 异常）。确认屏幕显示 mode、全部运行中发行版、VHDX 路径与影响提示，并要求精确 YES 后才调用 launcher。普通权限 TUI 持续轮询同一 journal。
+WorkerMode 验证管理员身份、request、RunId、AppPaths 包含关系、Lxss 映射和共同预检。它跳过主菜单、ReadLine 与确认提示，只运行 workflow、追加 journal，并映射终态为退出码：0（Succeeded 或 CompletedWithNoReclaim）、2（ValidationFailed）、3（ShutdownTimedOut）、4（DiskPartPreflightFailed）、5（DiskPartCompactFailed）、10（未处理 worker 异常）。确认屏幕显示 mode、全部运行中发行版、VHDX 路径与影响提示，压缩流程在影响预览完成两次 Y 确认后才调用 launcher。普通权限 TUI 持续轮询同一 journal。
 
 - [ ] **Step 5：运行与提交**
 

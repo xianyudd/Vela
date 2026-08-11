@@ -98,6 +98,18 @@ public sealed class TuiServicesTests
     }
 
     [Fact]
+    public async Task WindowsLogDirectoryOpener_routes_log_access_to_the_tui_archive()
+    {
+        using var root = TestRoot.Create();
+        var rootFile = System.IO.Path.Combine(root.Path, "not-a-directory");
+        await File.WriteAllTextAsync(rootFile, string.Empty);
+        var result = await new WindowsLogDirectoryOpener(new AppPaths(rootFile)).OpenAsync();
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("请在 Vela TUI 的“日志归档”中查看运行日志。", result.Message);
+    }
+
+    [Fact]
     public async Task RunLogReader_reads_the_selected_run_for_the_inline_detail_view()
     {
         using var root = TestRoot.Create();

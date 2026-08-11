@@ -213,6 +213,7 @@ public sealed class ElevatedOperationCoordinator
 
         var gateLease = gate?.Lease;
         string? runDirectory = null;
+        var gateLeaseTransferred = false;
 
         try
         {
@@ -233,41 +234,36 @@ public sealed class ElevatedOperationCoordinator
                 return await CompleteParentFailureAsync(
                         request,
                         runDirectory,
-                        TerminalResult.ValidationFailed,
-                        "PendingRequestWriteFailed",
-                        consumeRequest: false,
-                        gateLease: gateLease,
-                        cancellationToken: cancellationToken)
+                    TerminalResult.ValidationFailed,
+                    "PendingRequestWriteFailed",
+                    consumeRequest: false,
+                    cancellationToken: cancellationToken)
                     .ConfigureAwait(false);
             }
 
             var launched = await _launcher.LaunchAsync(request.RunId, cancellationToken).ConfigureAwait(false);
-            return launched.Status switch
+            if (launched.Status == ElevatedWorkerLaunchStatus.Started)
             {
-                ElevatedWorkerLaunchStatus.Started => new ElevatedOperationStartResult(
+                gateLeaseTransferred = true;
+                return new ElevatedOperationStartResult(
                     ElevatedOperationStartStatus.Started,
                     TerminalResult: null,
                     runDirectory,
-                    GateLease: gateLease),
-                ElevatedWorkerLaunchStatus.Cancelled => await CompleteParentFailureAsync(
-                        request,
-                        runDirectory,
-                        TerminalResult.CancelledBeforeElevation,
-                        "UacCancelled",
-                        consumeRequest: true,
-                        gateLease: gateLease,
-                        cancellationToken: cancellationToken)
-                    .ConfigureAwait(false),
-                _ => await CompleteParentFailureAsync(
-                        request,
-                        runDirectory,
-                        TerminalResult.WorkerInterrupted,
-                        "UacLaunchFailed",
-                        consumeRequest: true,
-                        gateLease: gateLease,
-                        cancellationToken: cancellationToken)
-                    .ConfigureAwait(false)
-            };
+                    GateLease: gateLease);
+            }
+
+            return await CompleteParentFailureAsync(
+                    request,
+                    runDirectory,
+                    launched.Status == ElevatedWorkerLaunchStatus.Cancelled
+                        ? TerminalResult.CancelledBeforeElevation
+                        : TerminalResult.WorkerInterrupted,
+                    launched.Status == ElevatedWorkerLaunchStatus.Cancelled
+                        ? "UacCancelled"
+                        : "UacLaunchFailed",
+                    consumeRequest: true,
+                    cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -278,8 +274,14 @@ public sealed class ElevatedOperationCoordinator
             return new ElevatedOperationStartResult(
                 ElevatedOperationStartStatus.Failed,
                 TerminalResult.WorkerInterrupted,
-                runDirectory,
-                GateLease: gateLease);
+                runDirectory);
+        }
+        finally
+        {
+            if (!gateLeaseTransferred)
+            {
+                gateLease?.Dispose();
+            }
         }
     }
 
@@ -289,60 +291,97 @@ public sealed class ElevatedOperationCoordinator
         TerminalResult terminalResult,
         string operationName,
         bool consumeRequest,
-        CompactRunGateLease? gateLease,
         CancellationToken cancellationToken)
     {
         var occurredAtUtc = _clock.UtcNow;
-        var summaryWritten = await _journal.WriteSummaryAsync(
-                new RunSummary(
-                    request.RunId,
-                    request.Profile,
-                    request.Intent,
-                    occurredAtUtc,
-                    _clock.UtcNow,
-                    BeforeSnapshot: null,
-                    AfterSnapshot: null,
-                    terminalResult),
-                cancellationToken)
-            .ConfigureAwait(false);
-
-        if (!summaryWritten.Succeeded)
+        JournalAppendResult appended;
+        try
+        {
+            appended = await _journal.AppendAsync(
+                    new RunEventDraft(
+                        _clock.UtcNow,
+                        request.RunId,
+                        RunPhase.Elevation,
+                        RunEventLevel.Error,
+                        operationName,
+                        ImmutableArray<string>.Empty,
+                        ExitCode: TerminalResultSemantics.ToExitCode(terminalResult),
+                        Duration: null,
+                        Output: null,
+                        TerminalResult: terminalResult),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
         {
             return new ElevatedOperationStartResult(
                 ElevatedOperationStartStatus.Failed,
                 terminalResult,
-                runDirectory,
-                GateLease: gateLease);
+                runDirectory);
         }
-
-        var appended = await _journal.AppendAsync(
-                new RunEventDraft(
-                    _clock.UtcNow,
-                    request.RunId,
-                    RunPhase.Elevation,
-                    RunEventLevel.Error,
-                    operationName,
-                    ImmutableArray<string>.Empty,
-                    ExitCode: TerminalResultSemantics.ToExitCode(terminalResult),
-                    Duration: null,
-                    Output: null,
-                    TerminalResult: terminalResult),
-                cancellationToken)
-            .ConfigureAwait(false);
 
         if (!appended.Succeeded)
         {
             return new ElevatedOperationStartResult(
                 ElevatedOperationStartStatus.Failed,
                 terminalResult,
-                runDirectory,
-                GateLease: gateLease);
+                runDirectory);
+        }
+
+        JournalOperationResult summaryWritten;
+        try
+        {
+            summaryWritten = await _journal.WriteSummaryAsync(
+                    new RunSummary(
+                        request.RunId,
+                        request.Profile,
+                        request.Intent,
+                        occurredAtUtc,
+                        _clock.UtcNow,
+                        BeforeSnapshot: null,
+                        AfterSnapshot: null,
+                        terminalResult),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            summaryWritten = JournalOperationResult.Failure();
+        }
+
+        if (!summaryWritten.Succeeded)
+        {
+            await TryConsumeRequestAsync(request.RunId, consumeRequest, cancellationToken).ConfigureAwait(false);
+            return CreateParentFailureResult(terminalResult, runDirectory);
         }
 
         if (consumeRequest)
         {
-            var consumed = await _requestStore.ConsumeAsync(request.RunId, cancellationToken).ConfigureAwait(false);
-            if (!consumed.Succeeded)
+            try
+            {
+                var consumed = await _requestStore.ConsumeAsync(request.RunId, cancellationToken).ConfigureAwait(false);
+                if (!consumed.Succeeded)
+                {
+                    _runGate?.Release(request.RunId);
+                    return new ElevatedOperationStartResult(
+                        ElevatedOperationStartStatus.Failed,
+                        terminalResult,
+                        runDirectory);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception)
             {
                 _runGate?.Release(request.RunId);
                 return new ElevatedOperationStartResult(
@@ -364,6 +403,43 @@ public sealed class ElevatedOperationCoordinator
             runDirectory);
 
     }
+
+    private async Task TryConsumeRequestAsync(
+        Guid runId,
+        bool consumeRequest,
+        CancellationToken cancellationToken)
+    {
+        if (!consumeRequest)
+        {
+            return;
+        }
+
+        try
+        {
+            _ = await _requestStore.ConsumeAsync(runId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // The canonical terminal event remains authoritative; cleanup is
+            // best effort after summary persistence has already failed.
+        }
+    }
+
+    private static ElevatedOperationStartResult CreateParentFailureResult(
+        TerminalResult terminalResult,
+        string runDirectory) =>
+        new(
+            terminalResult == TerminalResult.CancelledBeforeElevation
+                ? ElevatedOperationStartStatus.Cancelled
+                : terminalResult == TerminalResult.ValidationFailed
+                    ? ElevatedOperationStartStatus.ValidationFailed
+                    : ElevatedOperationStartStatus.Failed,
+            terminalResult,
+            runDirectory);
 
     private static bool IsValidCompactRequest(OperationRequest? request) =>
         request is not null &&

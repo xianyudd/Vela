@@ -284,15 +284,14 @@ public sealed class VelaTerminalShell : Window
         get
         {
             var target = LockedTarget;
-            if (!string.IsNullOrWhiteSpace(target?.VhdxPath))
+            if (IsDashboardTarget(target))
             {
-                return target.VhdxPath;
+                return _dashboard.VhdxEvidence?.FilePath
+                    ?? target?.VhdxPath
+                    ?? _dashboard.ConfiguredVhdxPath;
             }
 
-            return target is not null &&
-                string.Equals(target.Name, _dashboard.DistroName, StringComparison.OrdinalIgnoreCase)
-                ? _dashboard.VhdxEvidence?.FilePath ?? _dashboard.ConfiguredVhdxPath
-                : null;
+            return target?.VhdxPath;
         }
     }
     public long? LockedTargetVhdxSizeBytes
@@ -300,16 +299,12 @@ public sealed class VelaTerminalShell : Window
         get
         {
             var target = LockedTarget;
-            if (target?.VhdxSizeBytes is { } sizeBytes)
+            if (IsDashboardTarget(target) && _dashboard.VhdxEvidence is { } evidence)
             {
-                return sizeBytes;
+                return evidence.FileLengthBytes;
             }
 
-            return target is not null &&
-                string.Equals(target.Name, _dashboard.DistroName, StringComparison.OrdinalIgnoreCase) &&
-                _dashboard.VhdxEvidence is { } evidence
-                ? evidence.FileLengthBytes
-                : null;
+            return target?.VhdxSizeBytes;
         }
     }
     public MainMenuAction SelectedAction => _legacySelectedMenuIndex is { } legacyIndex
@@ -322,6 +317,7 @@ public sealed class VelaTerminalShell : Window
     public event Action<MainMenuAction>? ActionRequested;
     public event Action<MainMenuAction, long>? SelectionPreviewRequested;
     public event Action<ConfirmationInputResult>? ConfirmationSubmitted;
+    public event Action? TargetPreflightRequested;
 
     public Profile? CreateLockedTargetProfile(Profile baseProfile) =>
         CompactionTargetProfileFactory.Create(baseProfile, LockedTarget);
@@ -765,28 +761,61 @@ public sealed class VelaTerminalShell : Window
         ConfirmationSubmitted?.Invoke(new ConfirmationInputResult(ConfirmationInputStatus.Cancelled, string.Empty));
     }
 
-    public void SetCurrentProfile(Vela.Core.Models.Profile profile)
+    public void SetCurrentProfile(Vela.Core.Models.Profile profile) =>
+        SetCurrentProfile(profile, resetTargetSelection: true);
+
+    internal void PrepareTargetPreflight(Vela.Core.Models.Profile profile) =>
+        SetCurrentProfile(profile, resetTargetSelection: false);
+
+    private void SetCurrentProfile(
+        Vela.Core.Models.Profile profile,
+        bool resetTargetSelection)
     {
         ArgumentNullException.ThrowIfNull(profile);
+        var previousDashboard = _dashboard;
         CurrentProfileId = profile.Id;
         _dashboard = DashboardViewModel.CreateInitial(profile);
+        if (!resetTargetSelection)
+        {
+            _dashboard = _dashboard with
+            {
+                InstalledDistros = previousDashboard.InstalledDistros,
+                RunningDistros = previousDashboard.RunningDistros,
+                RunningInventoryState = previousDashboard.RunningInventoryState,
+                LogAvailabilityState = previousDashboard.LogAvailabilityState,
+                LogsAvailable = previousDashboard.LogsAvailable
+            };
+        }
+
         PreflightState = AutomaticPreflightState.Idle;
-        CurrentPage = VelaWorkspacePage.Overview;
-        ResetNavigationToOverview();
-        _selectedTargetIndex = 0;
-        _targetLocked = false;
-        _lockedTargetName = null;
+        if (resetTargetSelection)
+        {
+            CurrentPage = VelaWorkspacePage.Overview;
+            ResetNavigationToOverview();
+            _selectedTargetIndex = 0;
+            _targetLocked = false;
+            _lockedTargetName = null;
+        }
+
         _compactionEstimate = null;
         UpdateEvidence();
         HideLogViewer();
         _targetDetailView.Visible = false;
-        SetOverviewDecisionVisible(false);
         UpdateDecision(PreflightState);
-        SetContentTitle("执行目标选择");
-        _header.Text = BuildHeader(_applicationTitle, _dashboard, PreflightState);
-        _workspace.Text = BuildOverview(_dashboard, PreflightState);
-        ApplyOverviewSurface();
-        _homeView.SetFocus();
+        if (resetTargetSelection)
+        {
+            SetOverviewDecisionVisible(false);
+            SetContentTitle("执行目标选择");
+            _header.Text = BuildHeader(_applicationTitle, _dashboard, PreflightState);
+            _workspace.Text = BuildOverview(_dashboard, PreflightState);
+            ApplyOverviewSurface();
+            _homeView.SetFocus();
+        }
+        else
+        {
+            ApplyTargetDetailSurface();
+        }
+
         SetNavigationStatus();
         SetNeedsDraw();
     }
@@ -1313,6 +1342,20 @@ public sealed class VelaTerminalShell : Window
         _compactionEstimate = null;
         _header.Text = BuildHeader(_applicationTitle, _dashboard, PreflightState);
         ApplyTargetDetailSurface();
+        if (RequiresTargetSpecificPreflight())
+        {
+            TargetPreflightRequested?.Invoke();
+        }
+    }
+
+    private bool RequiresTargetSpecificPreflight()
+    {
+        var target = LockedTarget;
+        return target is not null &&
+            !string.Equals(
+                target.Name,
+                _dashboard.DistroName,
+                StringComparison.OrdinalIgnoreCase);
     }
 
     private void OpenCompactionImpactFromDetail()
@@ -1488,16 +1531,10 @@ public sealed class VelaTerminalShell : Window
             ];
         }
 
-        var overview = Overview;
-        var targetPath = string.IsNullOrWhiteSpace(target.VhdxPath) &&
-            string.Equals(target.Name, overview.DistroName, StringComparison.OrdinalIgnoreCase)
-                ? overview.Evidence.FilePath
-                : target.VhdxPath;
-        var targetSize = target.VhdxSizeBytes is { } sizeBytes
+        var targetPath = LockedTargetVhdxPath;
+        var targetSize = LockedTargetVhdxSizeBytes is { } sizeBytes
             ? PreflightOverviewFormatter.FormatCapacity(sizeBytes)
-            : string.Equals(target.Name, overview.DistroName, StringComparison.OrdinalIgnoreCase)
-                ? overview.Evidence.FileSize
-                : "尚未采集";
+            : "尚未采集";
         var formattedPath = PreflightOverviewFormatter.FormatVhdxPath(targetPath, 96);
 
         return
@@ -1510,10 +1547,14 @@ public sealed class VelaTerminalShell : Window
             "估算口径   当前 VHDX 体积 − 根文件系统已用空间",
             $"VHDX       {(string.IsNullOrWhiteSpace(formattedPath) ? "未读取" : formattedPath)}",
             "",
-            "[Y] 开始执行 · [Enter] 进入 YES 确认",
+            "[Y] 进入二次确认 · 再次按 [Y] 执行",
             "当前页面只读取锁定目标，不切换发行版。"
         ];
     }
+
+    private bool IsDashboardTarget(WslDistribution? target) =>
+        target is not null &&
+        string.Equals(target.Name, _dashboard.DistroName, StringComparison.OrdinalIgnoreCase);
 
     private string FormatCompactionEstimate() => _compactionEstimate?.Status switch
     {

@@ -21,11 +21,12 @@ VHDX 原始路径不进入首页投影，只展示「已配置 / 未读取」状
 
 验证记录：
 
-- `dotnet test Vela.sln -c Debug --no-restore --nologo`：386/386 通过。
-- `dotnet test tests/Vela.Tests/Vela.Tests.csproj --no-restore --filter FullyQualifiedName~WslCompactionImpactEstimatorTests`：3/3 通过。
-- `dotnet test tests/Vela.Tests/Vela.Tests.csproj --no-restore --nologo`：391/391 通过。
-- `dotnet build Vela.sln -c Release --no-restore --nologo`：0 警告、0 错误。
-- `dotnet test Vela.sln -c Release --no-restore --nologo`：386/386 通过。
-- Release Cobertura：`Vela.Core` 80.37%、`Vela.Windows` 82.15%；`scripts/Verify-Coverage.ps1` 通过。
+- `dotnet test Vela.sln --no-restore --nologo`：429/429 通过。
+- `dotnet test tests/Vela.Tests/Vela.Tests.csproj --no-restore --filter FullyQualifiedName~WslCompactionImpactEstimatorTests`：4/4 通过。
+- `dotnet.exe test tests/Vela.Tests/Vela.Tests.csproj -c Release --no-restore --nologo -p:CollectCoverage=true -p:CoverletOutput=./artifacts/coverage/coverage -p:CoverletOutputFormat=cobertura`：429/429 通过。
+- `dotnet restore Vela.sln --locked-mode --nologo`：所有项目均是最新的。
+- Release Cobertura：`Vela.Core` 80.31%、`Vela.Windows` 82.05%；`scripts/Verify-Coverage.ps1` 通过。
 
-菜单 01 的 R/r 仍只触发只读预检；菜单 02 的影响预览从已锁定实例创建 `OperationRequest`，只有用户在 YES 确认页提交后才交给 `ElevatedOperationCoordinator`。父 TUI 轮询同一 RunId 的 worker journal，运行页只展示真实事件，完成页从可信 summary 显示耗时与实际回收空间；存储档案只保留显示名和停止范围等配置。
+核心流程审查追加保证：锁定目标的预检快照优先于清单旧体积；停止目标缺少离线 ext4 用量时不启动 WSL；worker/UAC 先发布 canonical terminal event，再写 summary；summary 持久化异常不会重写已发布终态；日志入口保留在 TUI 的“日志归档”，不启动外部目录查看器。
+
+菜单 01 的 R/r 仍只触发只读预检；菜单 02 的影响预览从已锁定实例创建 `OperationRequest`，只有用户完成两次 Y 确认后才交给 `ElevatedOperationCoordinator`。父 TUI 轮询同一 RunId 的 worker journal，运行页只展示真实事件，完成页从可信 summary 显示耗时与实际回收空间；存储档案只保留显示名和停止范围等配置。

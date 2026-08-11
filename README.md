@@ -41,14 +41,14 @@ D:\DevTools\Vela\Vela.exe
 - ↑ / ↓：移动当前菜单或次级列表选择；
 - Enter：执行菜单项、切换 Profile 或打开最近运行详情；
 - Esc：返回次级页面/取消确认，在主菜单退出；
-- 首启、执行压缩和涉及执行目标的 Profile 编辑/删除确认：逐字符输入，必须精确输入大写 `YES` 后按 Enter；
-- Profile 管理：`N` 新建、`E` 编辑、`D` 删除；最近运行详情：`O` 打开当前可信日志目录。
+- 首启和涉及执行目标的 Profile 编辑/删除确认：逐字符输入，必须精确输入大写 `YES` 后按 Enter；执行压缩在影响预览中按 `Y` 进入二次确认，再按 `Y` 执行；
+- Profile 管理：`N` 新建、`E` 编辑、`D` 删除；最近运行详情：`Esc` 返回列表，日志在 TUI 的“日志归档”中查看。
 
 `FrameRenderer` 为交互输出与重定向输出复用同一 composition：宽度 `<80` 时只保留目标、状态、当前焦点和上下文帮助，`80–119` 时纵向堆叠导航与证据，`>=120` 时使用左右工作区；低于 22 行时限制列表行数。重定向模式只输出一个确定性 frame，不清屏、不读取输入。
 
 renderer-facing state 只包含本地化标签、configured/resolved/mapped 状态、数值证据和受控错误。TUI 不接收或显示原始 VHDX/注册表/运行目录/日志路径、RunId、原始异常、native command output 或 raw enum name。Profile 的 VHDX 字段采用 write-only 编辑：旧路径永不回显，新输入仅显示字符数。`Succeeded` 显示为“成功”，`CompletedWithNoReclaim` 显示为“完成但未回收空间”。
 
-首次启动在创建数据根前只展示受控初始化摘要，不泄露原始文件系统路径，只有精确 `YES` 才继续。Profile 管理支持选择、新建、编辑、删除（至少保留一个，当前 Profile 不能直接删除）和持久化当前选择。最近运行内部最多读取 20 个可信 RunId 目录，列表和详情只显示安全投影；损坏或缺失 `summary.json` 的记录显示为“损坏”。详情页可显示结果、时间、耗时、回收字节和日志是否可用，`O` 通过内部可信 RunId capability 打开对应日志目录，但 frame 不携带该 RunId 或路径。主菜单 `OpenLogs` 只打开受信任的数据根日志目录。
+首次启动在创建数据根前只展示受控初始化摘要，不泄露原始文件系统路径，只有精确 `YES` 才继续。Profile 管理支持选择、新建、编辑、删除（至少保留一个，当前 Profile 不能直接删除）和持久化当前选择。最近运行内部最多读取 20 个可信 RunId 目录，列表和详情只显示安全投影；损坏或缺失 `summary.json` 的记录显示为“损坏”。详情页可显示结果、时间、耗时、回收字节和日志是否可用；日志归档在 TUI 内加载最新记录与选定记录的只读摘要，不启动外部目录查看器。
 
 发布版的每次运行使用：
 
@@ -64,7 +64,7 @@ renderer-facing state 只包含本地化标签、configured/resolved/mapped 状�
 
 **预检**仅采集发行版、Lxss 映射、VHDX 和宿主盘快照；它使用只读适配器，不触发 WSL 停止、发行版终止或 DiskPart compact。
 
-**执行压缩**先展示档案身份、VHDX 已配置状态、Global 或 Distro 影响范围及运行中发行版，不在 frame 中显示原始目标路径。输入精确大写 **YES** 后，父 TUI 创建 RunId 日志，提升权限 worker 以 Distro 重新解析 Lxss 映射并严格核对 VHDX 路径。真实停止和 DiskPart compact 属于最终人工验收，由用户在影响面板确认后发起。
+**执行压缩**先展示档案身份、VHDX 已配置状态、Global 或 Distro 影响范围及运行中发行版，不在 frame 中显示原始目标路径。影响预览按 `Y` 进入二次确认，再按 `Y` 后父 TUI 创建 RunId 日志，提升权限 worker 以 Distro 重新解析 Lxss 映射并严格核对 VHDX 路径。真实停止和 DiskPart compact 属于最终人工验收，由用户在影响面板确认后发起。
 
 ## 基线命令
 

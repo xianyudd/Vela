@@ -482,12 +482,9 @@ public sealed record LogDirectoryOpenResult(bool Succeeded, string Message);
 
 public sealed class WindowsLogDirectoryOpener : ILogDirectoryOpener
 {
-    private readonly AppPaths _paths;
-
     public WindowsLogDirectoryOpener(AppPaths paths)
     {
         ArgumentNullException.ThrowIfNull(paths);
-        _paths = paths;
     }
 
     public Task<LogDirectoryOpenResult> OpenAsync(
@@ -495,63 +492,19 @@ public sealed class WindowsLogDirectoryOpener : ILogDirectoryOpener
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (runId == Guid.Empty ||
-            !_paths.IsTrustedRootDirectory() ||
-            !_paths.IsTrustedLogsDirectory() ||
-            !_paths.IsTrustedRunDirectory(runId))
-        {
-            return Task.FromResult(
-                new LogDirectoryOpenResult(false, "运行日志目录不受信任。"));
-        }
-
-        try
-        {
-            var runDirectory = _paths.GetRunDirectory(runId);
-            Directory.CreateDirectory(runDirectory);
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = runDirectory,
-                UseShellExecute = true,
-                Verb = "open"
-            });
-            return Task.FromResult(
-                new LogDirectoryOpenResult(true, "已打开当前运行的可信日志目录。"));
-        }
-        catch (Exception)
-        {
-            return Task.FromResult(
-                new LogDirectoryOpenResult(false, "当前运行日志目录无法打开。"));
-        }
+        _ = runId;
+        return Task.FromResult(CreateTuiOnlyResult());
     }
 
     public Task<LogDirectoryOpenResult> OpenAsync(
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (!_paths.IsTrustedRootDirectory() || !_paths.IsTrustedLogsDirectory())
-        {
-            return Task.FromResult(
-                new LogDirectoryOpenResult(false, "日志目录不受信任。"));
-        }
-
-        try
-        {
-            Directory.CreateDirectory(_paths.LogsDirectoryPath);
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = _paths.LogsDirectoryPath,
-                UseShellExecute = true,
-                Verb = "open"
-            });
-            return Task.FromResult(
-                new LogDirectoryOpenResult(true, "已打开可信日志目录。"));
-        }
-        catch (Exception)
-        {
-            return Task.FromResult(
-                new LogDirectoryOpenResult(false, "日志目录无法打开。"));
-        }
+        return Task.FromResult(CreateTuiOnlyResult());
     }
+
+    private static LogDirectoryOpenResult CreateTuiOnlyResult() =>
+        new(false, "请在 Vela TUI 的“日志归档”中查看运行日志。");
 }
 
 public sealed class TuiSecondaryActionHandler
@@ -1163,7 +1116,7 @@ public sealed class TuiSecondaryActionHandler
                 _showDetail = true;
                 await RenderDetailAsync(
                         context,
-                        "只读详情：Esc 返回列表，O 打开可信日志目录。")
+                        "只读详情：Esc 返回列表；日志在日志归档中查看。")
                     .ConfigureAwait(false);
                 return;
             }

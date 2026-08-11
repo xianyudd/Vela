@@ -131,6 +131,7 @@ public sealed class VelaTerminalShellTests
             Assert.Contains("预计可回收空间", rendered, StringComparison.Ordinal);
             Assert.Contains("6.00 GiB", rendered, StringComparison.Ordinal);
             Assert.Contains("[Y]  确认执行", rendered, StringComparison.Ordinal);
+            Assert.DoesNotContain("进入 YES", shell.WorkspaceText, StringComparison.Ordinal);
         }
         finally
         {
@@ -417,6 +418,31 @@ public sealed class VelaTerminalShellTests
                     10L * PreflightOverviewFormatter.Gibibyte))
         };
         using var shell = new VelaTerminalShell(new MainMenu().ViewModel, dashboard);
+        var targetDashboard = dashboard with
+        {
+            ProfileTitle = "档案：docker-desktop",
+            DistroName = "docker-desktop",
+            TargetConfigured = true,
+            MappingState = TargetMappingState.Matched,
+            InspectionState = TargetInspectionState.Available,
+            VhdxEvidence = new VhdxEvidenceViewModel(
+                10L * PreflightOverviewFormatter.Gibibyte,
+                DateTimeOffset.UtcNow,
+                true,
+                2L * PreflightOverviewFormatter.Tebibyte,
+                512L * PreflightOverviewFormatter.Gibibyte,
+                dockerPath),
+            Notices = ImmutableArray<string>.Empty,
+            ErrorMessage = null,
+            ConfiguredVhdxPath = dockerPath
+        };
+        shell.TargetPreflightRequested += () => shell.ApplyPreflight(new AutomaticPreflightState(
+            profile.Id,
+            2,
+            2,
+            AutomaticPreflightStatus.Ready,
+            targetDashboard,
+            "目标预检已完成。"));
         var actions = new List<MainMenuAction>();
         shell.ActionRequested += actions.Add;
         shell.SetCurrentProfile(profile);
@@ -540,6 +566,50 @@ public sealed class VelaTerminalShellTests
     }
 
     [Fact]
+    public void Locking_a_nonconfigured_target_requests_a_target_specific_preflight()
+    {
+        var profile = CreateProfile();
+        var dashboard = CreateReadyDashboard(profile) with
+        {
+            InstalledDistros = ImmutableArray.Create(
+                new Vela.Core.Contracts.WslDistribution(
+                    profile.DistroName,
+                    Vela.Core.Contracts.WslDistributionState.Stopped,
+                    2,
+                    true,
+                    profile.VhdxPath,
+                    124L * PreflightOverviewFormatter.Gibibyte),
+                new Vela.Core.Contracts.WslDistribution(
+                    "docker-desktop",
+                    Vela.Core.Contracts.WslDistributionState.Stopped,
+                    2,
+                    false,
+                    @"D:\Docker\wsl\data\ext4.vhdx",
+                    65L * PreflightOverviewFormatter.Gibibyte))
+        };
+        using var shell = new VelaTerminalShell(new MainMenu().ViewModel, dashboard);
+        var requested = 0;
+        shell.TargetPreflightRequested += () => requested++;
+        shell.SetCurrentProfile(profile);
+        shell.ApplyPreflight(new AutomaticPreflightState(
+            profile.Id,
+            1,
+            1,
+            AutomaticPreflightStatus.Ready,
+            dashboard,
+            "预检已完成。"));
+        shell.ShowOverview();
+
+        shell.NewKeyDownEvent(Key.CursorDown);
+        shell.NewKeyDownEvent(Key.Enter);
+
+        Assert.Equal("docker-desktop", shell.LockedTargetName);
+        Assert.Equal(1, requested);
+        Assert.Equal(VelaWorkspacePage.TargetDetail, shell.CurrentPage);
+        Assert.Contains("目标预检详情", shell.ContentTitle, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Compaction_preview_renders_the_estimated_reclaimable_space_for_the_locked_target()
     {
         var profile = CreateProfile();
@@ -581,6 +651,49 @@ public sealed class VelaTerminalShellTests
 
         Assert.True(applied);
         Assert.Contains("预计可回收空间  6.00 GiB", shell.WorkspaceText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Locked_target_uses_target_preflight_evidence_for_current_vhdx_size()
+    {
+        var profile = CreateProfile();
+        var inventorySize = 124L * PreflightOverviewFormatter.Gibibyte;
+        var targetSnapshotSize = 126L * PreflightOverviewFormatter.Gibibyte;
+        var dashboard = CreateReadyDashboard(profile) with
+        {
+            VhdxEvidence = new VhdxEvidenceViewModel(
+                targetSnapshotSize,
+                DateTimeOffset.UtcNow,
+                true,
+                551L * PreflightOverviewFormatter.Gibibyte,
+                59L * PreflightOverviewFormatter.Gibibyte,
+                profile.VhdxPath),
+            InstalledDistros = ImmutableArray.Create(
+                new Vela.Core.Contracts.WslDistribution(
+                    profile.DistroName,
+                    Vela.Core.Contracts.WslDistributionState.Stopped,
+                    2,
+                    true,
+                    profile.VhdxPath,
+                    inventorySize))
+        };
+        using var shell = new VelaTerminalShell(new MainMenu().ViewModel, dashboard);
+        shell.SetCurrentProfile(profile);
+        shell.ApplyPreflight(new AutomaticPreflightState(
+            profile.Id,
+            1,
+            1,
+            AutomaticPreflightStatus.Ready,
+            dashboard,
+            "预检已完成。"));
+        shell.ShowOverview();
+
+        shell.NewKeyDownEvent(Key.Enter);
+
+        Assert.Equal(profile.DistroName, shell.LockedTargetName);
+        Assert.Equal(targetSnapshotSize, shell.LockedTargetVhdxSizeBytes);
+        shell.SelectMenuIndex(1);
+        Assert.Contains("当前体积   126.00 GiB", shell.WorkspaceText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1410,6 +1523,31 @@ public sealed class VelaTerminalShellTests
         app.Init(DriverRegistry.Names.ANSI);
         VelaTerminalTheme.Register();
         using var shell = new VelaTerminalShell(new MainMenu().ViewModel, dashboard);
+        var targetDashboard = dashboard with
+        {
+            ProfileTitle = "档案：docker-desktop",
+            DistroName = "docker-desktop",
+            TargetConfigured = true,
+            MappingState = TargetMappingState.Matched,
+            InspectionState = TargetInspectionState.Available,
+            VhdxEvidence = new VhdxEvidenceViewModel(
+                65L * PreflightOverviewFormatter.Gibibyte,
+                DateTimeOffset.UtcNow,
+                true,
+                2L * PreflightOverviewFormatter.Tebibyte,
+                512L * PreflightOverviewFormatter.Gibibyte,
+                @"D:\Docker\wsl\data\ext4.vhdx"),
+            Notices = ImmutableArray<string>.Empty,
+            ErrorMessage = null,
+            ConfiguredVhdxPath = @"D:\Docker\wsl\data\ext4.vhdx"
+        };
+        shell.TargetPreflightRequested += () => shell.ApplyPreflight(new AutomaticPreflightState(
+            profile.Id,
+            2,
+            2,
+            AutomaticPreflightStatus.Ready,
+            targetDashboard,
+            "目标预检已完成。"));
         app.Driver!.SetScreenSize(160, 45);
         using var host = new TerminalGuiShellHost(app, shell);
         var session = app.Begin(shell);

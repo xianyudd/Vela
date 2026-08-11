@@ -23,6 +23,7 @@ public sealed class WslCompactionImpactEstimatorTests
             "docker-desktop",
             vhdxPath: @"C:\Vela\fixtures\ext4.vhdx",
             currentVhdxSizeBytes: 10L * 1024 * 1024 * 1024,
+            targetIsRunning: true,
             cancellationToken: CancellationToken.None);
 
         Assert.Equal(CompactionImpactStatus.Estimated, result.Status);
@@ -47,6 +48,7 @@ public sealed class WslCompactionImpactEstimatorTests
             "Ubuntu-24.04",
             vhdxPath: @"C:\Vela\fixtures\ext4.vhdx",
             currentVhdxSizeBytes: 10L * 1024 * 1024 * 1024,
+            targetIsRunning: true,
             cancellationToken: CancellationToken.None);
 
         Assert.Equal(CompactionImpactStatus.Unavailable, result.Status);
@@ -78,11 +80,37 @@ public sealed class WslCompactionImpactEstimatorTests
             "Ubuntu-24.04",
             fixture.Path,
             currentVhdxSizeBytes,
+            targetIsRunning: false,
             CancellationToken.None);
 
         Assert.Equal(CompactionImpactStatus.Estimated, result.Status);
         Assert.Equal(expectedUsedBytes, result.UsedBytes);
         Assert.Equal(currentVhdxSizeBytes - expectedUsedBytes, result.ReclaimableBytes);
+        Assert.Equal(0, runner.InvocationCount);
+    }
+
+    [Fact]
+    public async Task EstimateAsync_does_not_start_a_stopped_target_when_offline_usage_is_unavailable()
+    {
+        var runner = new Fakes.FakeProcessRunner
+        {
+            ThrowOnInvocation = false,
+            Result = CreateResult(
+                "Filesystem  1B-blocks  Used  Available  Use% Mounted on",
+                "/dev/sdc    10737418240 4294967296 6442450944 40% /")
+        };
+        var estimator = new WslCompactionImpactEstimator(runner, new NativeToolPaths());
+
+        var result = await estimator.EstimateAsync(
+            "docker-desktop",
+            vhdxPath: @"C:\Vela\fixtures\missing-ext4.vhdx",
+            currentVhdxSizeBytes: 10L * 1024 * 1024 * 1024,
+            targetIsRunning: false,
+            cancellationToken: CancellationToken.None);
+
+        Assert.Equal(CompactionImpactStatus.Unavailable, result.Status);
+        Assert.Null(result.UsedBytes);
+        Assert.Null(result.ReclaimableBytes);
         Assert.Equal(0, runner.InvocationCount);
     }
 

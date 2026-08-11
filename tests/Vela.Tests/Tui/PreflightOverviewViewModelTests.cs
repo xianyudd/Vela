@@ -363,6 +363,45 @@ public sealed class PreflightOverviewViewModelTests
     }
 
     [Fact]
+    public void Home_projection_marks_an_unchecked_stopped_nonconfigured_target_as_pending()
+    {
+        var profile = CreateProfile();
+        var dashboard = DashboardViewModel.CreateInitial(profile) with
+        {
+            InstalledDistros = ImmutableArray.Create(
+                new Vela.Core.Contracts.WslDistribution(
+                    profile.DistroName,
+                    Vela.Core.Contracts.WslDistributionState.Stopped,
+                    2,
+                    true,
+                    profile.VhdxPath,
+                    124L * PreflightOverviewFormatter.Gibibyte),
+                new Vela.Core.Contracts.WslDistribution(
+                    "docker-desktop",
+                    Vela.Core.Contracts.WslDistributionState.Stopped,
+                    2,
+                    false,
+                    @"D:\Docker\wsl\data\ext4.vhdx",
+                    65L * PreflightOverviewFormatter.Gibibyte))
+        };
+        var state = new AutomaticPreflightState(
+            profile.Id,
+            1,
+            1,
+            AutomaticPreflightStatus.Ready,
+            dashboard,
+            "预检已完成。");
+
+        var home = PreflightHomeViewModel.Create(
+            PreflightOverviewViewModel.Create(dashboard, state),
+            selectedTargetIndex: 1);
+        var row = Assert.Single(home.Targets.Where(target => target.DistroName == "docker-desktop"));
+
+        Assert.Equal(PreflightTargetRowStatus.Pending, row.Status);
+        Assert.Equal("CHECKING …", row.StatusText);
+    }
+
+    [Fact]
     public void Target_detail_projection_uses_selected_instance_and_fixed_execution_checks()
     {
         var profile = CreateProfile();
@@ -412,12 +451,66 @@ public sealed class PreflightOverviewViewModelTests
         Assert.Contains(@"D:\Docker\wsl\data\ext4.vhdx", detail.VhdxPath, StringComparison.Ordinal);
         Assert.Equal("Running ⚠", detail.FinalStatus);
         Assert.Equal("! BLOCKED", detail.StatusCode);
-        Assert.Equal("1 项检查需要处理", detail.StatusTitle);
+        Assert.Equal("4 项检查需要处理", detail.StatusTitle);
         Assert.Equal(
             ["目标档案已读取", "VHDX 已配置", "快照与日志可用", "发行版映射匹配", "无进程独占锁定"],
             detail.Checks.Select(check => check.Label));
         Assert.Equal("处理", detail.Checks[^1].StatusText);
-        Assert.Equal(1, detail.BlockerCount);
+        Assert.Equal(4, detail.BlockerCount);
+    }
+
+    [Fact]
+    public void Target_detail_does_not_reuse_configured_target_evidence_for_another_stopped_instance()
+    {
+        var profile = CreateProfile();
+        var dashboard = DashboardViewModel.CreateInitial(profile) with
+        {
+            MappingState = TargetMappingState.Matched,
+            InspectionState = TargetInspectionState.Available,
+            VhdxEvidence = new VhdxEvidenceViewModel(
+                1_610_612_736,
+                DateTimeOffset.UtcNow,
+                true,
+                2L * PreflightOverviewFormatter.Tebibyte,
+                512L * PreflightOverviewFormatter.Gibibyte),
+            InstalledDistros = ImmutableArray.Create(
+                new Vela.Core.Contracts.WslDistribution(
+                    "Ubuntu-24.04",
+                    Vela.Core.Contracts.WslDistributionState.Stopped,
+                    2,
+                    true,
+                    VhdxPath: profile.VhdxPath,
+                    VhdxSizeBytes: 124L * PreflightOverviewFormatter.Gibibyte),
+                new Vela.Core.Contracts.WslDistribution(
+                    "docker-desktop",
+                    Vela.Core.Contracts.WslDistributionState.Stopped,
+                    2,
+                    false,
+                    VhdxPath: @"D:\Docker\wsl\data\ext4.vhdx",
+                    VhdxSizeBytes: 65L * PreflightOverviewFormatter.Gibibyte)),
+            RunningInventoryState = PreflightDataState.Available,
+            LogAvailabilityState = PreflightDataState.Available,
+            LogsAvailable = true
+        };
+        var state = new AutomaticPreflightState(
+            profile.Id,
+            1,
+            1,
+            AutomaticPreflightStatus.Ready,
+            dashboard,
+            "预检已完成。");
+        var overview = PreflightOverviewViewModel.Create(dashboard, state);
+        var home = PreflightHomeViewModel.Create(overview, selectedTargetIndex: 1, targetLocked: true);
+
+        var detail = PreflightOverviewFormatter.CreateTargetDetail(overview, home);
+
+        Assert.False(detail.IsReady);
+        Assert.Equal("! BLOCKED", detail.StatusCode);
+        Assert.Equal(4, detail.BlockerCount);
+        Assert.DoesNotContain(
+            detail.Checks,
+            check => check.Status == PreflightGateStatus.Matched &&
+                check.Label is "VHDX 已配置" or "快照与日志可用" or "发行版映射匹配");
     }
 
     [Fact]

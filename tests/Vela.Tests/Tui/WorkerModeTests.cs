@@ -144,6 +144,63 @@ public sealed class WorkerModeTests
     }
 
     [Fact]
+    public async Task RunAsync_publishes_the_terminal_event_before_writing_the_final_summary()
+    {
+        using var root = TestRoot.Create();
+        var paths = new AppPaths(root.RootDirectory);
+        var request = CreateRequest();
+        var store = new FixedRequestStore(OperationRequestReadResult.Success(
+            request,
+            paths.GetPendingRequestFilePath(request.RunId)));
+        var journal = new FakeRunJournal();
+        var mode = CreateMode(
+            paths,
+            store,
+            administrator: true,
+            CreateMatchedResolver(),
+            new RecordingWorkerExecutor(CreateSuccessfulWorkflowResult(request)),
+            journal);
+
+        var result = await mode.RunAsync(WorkerArguments(request.RunId), CancellationToken.None);
+
+        Assert.Equal(TerminalResult.Succeeded, result.TerminalResult);
+        Assert.Equal(
+            new[] { "append:WorkerCompleted", "summary" },
+            journal.Operations.TakeLast(2));
+    }
+
+    [Fact]
+    public async Task RunAsync_keeps_the_published_terminal_result_when_summary_persistence_fails()
+    {
+        using var root = TestRoot.Create();
+        var paths = new AppPaths(root.RootDirectory);
+        var request = CreateRequest();
+        var store = new FixedRequestStore(OperationRequestReadResult.Success(
+            request,
+            paths.GetPendingRequestFilePath(request.RunId)));
+        var journal = new FakeRunJournal
+        {
+            ThrowOnWriteSummary = true
+        };
+        var mode = CreateMode(
+            paths,
+            store,
+            administrator: true,
+            CreateMatchedResolver(),
+            new RecordingWorkerExecutor(CreateSuccessfulWorkflowResult(request)),
+            journal);
+
+        var result = await mode.RunAsync(WorkerArguments(request.RunId), CancellationToken.None);
+
+        Assert.Equal(TerminalResult.Succeeded, result.TerminalResult);
+        Assert.Contains(
+            journal.Events,
+            static @event => @event.OperationName == "WorkerCompleted" &&
+                             @event.TerminalResult == TerminalResult.Succeeded);
+        Assert.Equal(1, store.ConsumeCalls);
+    }
+
+    [Fact]
     public async Task RunAsync_WhenSecondLxssResolutionMismatches_LeavesWslAndDiskPartActionsAtZero()
     {
         using var root = TestRoot.Create();
@@ -254,6 +311,40 @@ public sealed class WorkerModeTests
                 RunningInventory: null),
             ImmutableArray<WorkflowDiagnostic>.Empty,
             RunDirectory: null);
+
+    private static WorkflowResult CreateSuccessfulWorkflowResult(OperationRequest request)
+    {
+        var before = new VhdxSnapshot(
+            DateTimeOffset.UnixEpoch,
+            request.Profile.VhdxPath,
+            200,
+            DateTimeOffset.UnixEpoch,
+            false,
+            new DriveSnapshot("D:\\", 1_000, 500));
+        var after = before with
+        {
+            CapturedAtUtc = DateTimeOffset.UnixEpoch.AddSeconds(1),
+            FileLengthBytes = 100
+        };
+        return new WorkflowResult(
+            new RunSummary(
+                request.RunId,
+                request.Profile,
+                request.Intent,
+                DateTimeOffset.UnixEpoch,
+                DateTimeOffset.UnixEpoch.AddSeconds(1),
+                before,
+                after,
+                TerminalResult.Succeeded),
+            new PreflightReport(
+                Vela.Core.Validation.ValidationResult.Valid,
+                InstalledInventory: null,
+                LxssResolution: null,
+                VhdxInspection: null,
+                RunningInventory: null),
+            ImmutableArray<WorkflowDiagnostic>.Empty,
+            RunDirectory: null);
+    }
 
     private sealed class FixedAdministratorProbe : IAdministratorProbe
     {

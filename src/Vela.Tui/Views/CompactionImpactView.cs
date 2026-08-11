@@ -120,7 +120,7 @@ public sealed class CompactionImpactView : View
                 ? "目标使用量读取失败，暂未得到数值"
             : "等待目标使用量采集完成";
         _releaseValue.Text = _reclaimableSize;
-        _prompt.Text = "按  [Y]  确认执行物理压缩    按  [Esc]  返回预检结果";
+        _prompt.Text = "按  [Y]  进入二次确认；再次按  [Y]  执行    按  [Esc]  返回预检结果";
         SetNeedsLayout();
         SetNeedsDraw();
     }
