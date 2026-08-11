@@ -2,7 +2,7 @@
 
 # Vela
 
-### 把 WSL VHDX 压缩变成一条可审阅、可回溯的运行链。
+**WSL VHDX 压缩的可审阅、可回溯 TUI 工作流。**
 
 Windows 11 · WSL2 · Keyboard-first TUI
 
@@ -10,12 +10,12 @@ Windows 11 · WSL2 · Keyboard-first TUI
 [![.NET](https://img.shields.io/badge/.NET-10-512bd4?style=flat-square&logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![Stage](https://img.shields.io/badge/stage-private%20preview-d29922?style=flat-square)](https://github.com/xianyudd/Vela)
 
-[快速开始](#快速开始) · [真实运行画面](#真实运行画面) · [产品流程](#一条可审阅的运行链) · [键盘交互](#键盘交互) · [工程文档](#工程文档)
+[快速开始](#快速开始) · [Product Tour](#product-tour) · [键盘交互](#键盘交互) · [工程文档](#工程文档)
 
 <p>
-  <img src="docs/assets/tui/runtime-storyboard.png" alt="Vela 当前 Release TUI 的真实运行画面：实例选择、目标预检和 TUI 内日志" width="1000">
+  <img src="docs/assets/tui/runtime-readonly-demo.gif" alt="Vela 真实 Release TUI 只读演示：实例选择、目标预检和 TUI 内日志" width="1100">
 </p>
-<sub>真实 Release TUI · 只读预检链路 · 目标锁定后才进入后续步骤</sub>
+<sub>真实 Release TUI · 只读演示 · 发现实例 → 目标预检 → TUI 内查看日志</sub>
 
 </div>
 
@@ -41,41 +41,94 @@ Vela 解决的不是“如何输入一条 compact 命令”，而是压缩前的
 
 这是执行前估算；最终释放量以压缩完成后的 VHDX 快照差值为准。
 
-## 真实 TUI 画面
+## 产品流程
 
-下面的素材直接来自当前 Release 构建在 tmux 中的运行画面，不是 UI 原型图。采集覆盖只读路径；没有启动 WSL 停止或 VHDX 压缩。
+<table>
+  <tr>
+    <td width="33%" valign="top">
+      <strong>01 / 发现并选择</strong><br>
+      读取本机 WSL 实例，显示发行版、体积、VHDX 路径与运行状态。
+    </td>
+    <td width="33%" valign="top">
+      <strong>02 / 锁定并预检</strong><br>
+      Enter 锁定唯一目标，复跑映射、快照、运行状态与日志门禁。
+    </td>
+    <td width="33%" valign="top">
+      <strong>03 / 评估再执行</strong><br>
+      先看影响范围与预计可回收空间，再用两次 Y 确认进入压缩。
+    </td>
+  </tr>
+</table>
 
-### 01 / 选择唯一目标
+~~~text
+发现 WSL 实例 → 只读预检 → 锁定目标 → 影响评估
+                                      │
+                                  Y → Y 确认
+                                      │
+                       UAC worker + 目标二次校验
+                                      │
+                   WSL 停止 → DiskPart compact → VHDX 复测
+                                      │
+                              TUI 日志 / 历史结果
+~~~
 
-<p align="center">
-  <img src="docs/assets/tui/runtime-preflight-list-focus.png" alt="Vela 真实运行中的多实例选择列表" width="1000">
-</p>
+### 预检门禁
 
-屏幕先回答“**这次准备处理哪一个实例**”：当前环境发现 `Ubuntu-24.04` 与 `docker-desktop`，表格同时给出当前体积、VHDX 路径摘要和运行状态。蓝色箭头只指向当前选中目标。
+预检按固定顺序建立证据：
 
-### 02 / 锁定并预检
+1. 注册表 / Lxss 映射
+2. VHDX 快照
+3. 运行实例
+4. 日志可用性
+5. 通知与阻断项
 
-<p align="center">
-  <img src="docs/assets/tui/runtime-preflight-detail-focus.png" alt="Vela 真实运行中的目标预检详情" width="1000">
-</p>
+预检本身只采集数据；执行入口只有在目标、映射和影响范围都明确后才会解锁。
 
-锁定后，目标信息和检查明细收拢到同一页：`Ubuntu-24.04`、`170.08 GiB`、绝对 VHDX 路径、4 项 `PASS` 与 1 项阻断项一一对应。这里的 `BLOCKED` 是当前机器的真实状态，不用模拟成功结果掩盖风险。
+### 预计可回收空间
 
-### 03 / 日志留在 TUI 内
+Vela 优先读取目标 VHDX 的 ext4 使用量，并按下式给出执行前估算：
 
-<p align="center">
-  <img src="docs/assets/tui/runtime-log-detail-focus.png" alt="Vela 真实运行中的 TUI Console Log 详情" width="1000">
-</p>
+~~~text
+预计可回收空间 = max(VHDX 当前体积 - 访客文件系统已用空间, 0)
+~~~
 
-历史运行记录进入 TUI 内置的 `Console Log` 视图，包含 `Task ID`、时间戳、事件类别和阶段名称。查看日志不需要打开日志目录，也不需要切换到另一个窗口。
+目标已在运行且离线证据不可用时，才按目标发行版执行只读 `df` 采集；目标未运行时不会为了估算而启动在线采集。
+
+## Product Tour
+
+下面的图片全部来自当前 Release 构建在 tmux 中的真实运行画面，不是 UI 原型图。每张图片都保持独立文件，方便单独替换和维护。
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/assets/tui/runtime-preflight-list-focus.png" alt="Vela 真实运行中的多实例选择列表" width="100%">
+      <br><br>
+      <sub><b>01 · 选择唯一目标</b><br>从实例列表锁定本次唯一处理对象；体积、VHDX 路径和运行状态在同一行完成核对。</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/assets/tui/runtime-preflight-detail-focus.png" alt="Vela 真实运行中的目标预检详情" width="100%">
+      <br><br>
+      <sub><b>02 · 锁定并预检</b><br>目标信息与检查明细集中展示；当前机器的真实阻断项直接标记为 <code>BLOCKED</code>。</sub>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" valign="top">
+      <img src="docs/assets/tui/runtime-log-detail-focus.png" alt="Vela 真实运行中的 TUI Console Log 详情" width="100%">
+      <br><br>
+      <sub><b>03 · Console Log / Audit</b><br>在 TUI 内查看 <code>Task ID</code>、时间戳、事件类别和阶段名称；无需打开日志目录或切换窗口。</sub>
+    </td>
+  </tr>
+</table>
 
 <details>
-<summary>截图采集说明</summary>
+<summary>素材与采集说明</summary>
 
 - Release 构建：`Vela.Tui.dll`
 - 终端画布：`178 × 42`
 - 采集路径：实例选择 → 目标预检 → 日志归档 → Console Log
 - 采集范围：只读数据读取与界面浏览
+- Hero GIF 使用上面三张真实全画布截图按实际流程顺序播放；没有叠加假 UI 或产品说明卡片。
+- `*-focus.png` 是 README 展示用裁切图；同目录的同名无 `-focus` 文件保留完整终端画布。
 
 </details>
 
@@ -91,45 +144,6 @@ Vela 解决的不是“如何输入一条 compact 命令”，而是压缩前的
 | **提升权限执行** | 由 UAC worker 重新解析目标映射、复跑关键预检，再调用 WSL 与 DiskPart | 父 TUI 与实际目标之间有二次校验 |
 | **TUI 日志归档** | 在 Vela 内查看实时事件、运行日志和历史摘要 | 不需要打开日志目录或切换窗口 |
 | **档案与历史** | 管理多个目标档案，查看最近运行的结果、耗时、回收空间和日志状态 | 日常使用有固定入口，运行结果可回看 |
-
-## 一条可审阅的运行链
-
-~~~text
-发现 WSL 实例
-      │
-      ▼
-只读预检 ──► 目标选择 ──► 目标锁定
-                              │
-                              ▼
-                      影响评估 / 预计可回收空间
-                              │
-                         Y → Y 确认
-                              │
-                              ▼
-                 UAC worker + 目标二次校验
-                              │
-                              ▼
-                    WSL 停止 → DiskPart compact
-                              │
-                              ▼
-                VHDX 复测 → TUI 日志 → 历史结果
-~~~
-
-### 预检门禁
-
-预检按固定顺序建立证据：
-
-1. 注册表 / Lxss 映射
-2. VHDX 快照
-3. 运行实例
-4. 日志可用性
-5. 通知与阻断项
-
-只有预检状态允许继续时，执行压缩入口才会解锁。预检本身不触发 WSL 停止、发行版终止或 DiskPart compact。
-
-### 预计可回收空间
-
-Vela 优先离线读取目标 VHDX 的 ext4 使用量；目标已在运行且离线证据不可用时，才按目标发行版执行只读 df 采集。目标未运行时不会为了估算而启动在线采集。
 
 ## 执行护栏
 
