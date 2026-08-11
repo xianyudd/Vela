@@ -1457,6 +1457,52 @@ public sealed class VelaTerminalShellTests
         }
     }
 
+    [Fact]
+    public void Horizontal_arrows_move_through_workspace_steps_without_starting_compaction()
+    {
+        var profile = CreateProfile();
+        var dashboard = CreateReadyDashboard(profile);
+        using var app = Application.Create(new VirtualTimeProvider());
+        app.Init(DriverRegistry.Names.ANSI);
+        VelaTerminalTheme.Register();
+        using var shell = new VelaTerminalShell(new MainMenu().ViewModel, dashboard);
+        app.Driver!.SetScreenSize(160, 45);
+        using var host = new TerminalGuiShellHost(app, shell);
+        var session = app.Begin(shell);
+        var actions = new List<MainMenuAction>();
+        shell.ActionRequested += actions.Add;
+
+        try
+        {
+            shell.SetCurrentProfile(profile);
+            shell.ApplyPreflight(new AutomaticPreflightState(
+                profile.Id,
+                1,
+                1,
+                AutomaticPreflightStatus.Ready,
+                dashboard,
+                "预检已完成。"));
+            shell.ShowOverview();
+
+            Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.CursorRight));
+            Assert.Equal(VelaWorkspacePage.TargetDetail, shell.CurrentPage);
+            Assert.Contains("[←→]", shell.StatusText, StringComparison.Ordinal);
+
+            Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.CursorRight));
+            Assert.Equal(VelaWorkspacePage.ActionPreview, shell.CurrentPage);
+            Assert.Empty(actions);
+
+            Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.CursorLeft));
+            Assert.Equal(VelaWorkspacePage.TargetDetail, shell.CurrentPage);
+            Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.CursorLeft));
+            Assert.Equal(VelaWorkspacePage.Overview, shell.CurrentPage);
+        }
+        finally
+        {
+            app.End(session!);
+        }
+    }
+
     [Theory]
     [InlineData(160, 45)]
     [InlineData(120, 35)]
