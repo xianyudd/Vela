@@ -989,6 +989,63 @@ public sealed class VelaTerminalShell : Window
         return false;
     }
 
+    internal bool TryHandleWorkflowStepKey(Key key)
+    {
+        if (key != Key.CursorLeft && key != Key.CursorRight)
+        {
+            return false;
+        }
+
+        if (CurrentPage == VelaWorkspacePage.Overview &&
+            SelectedAction == MainMenuAction.Preflight &&
+            _homeView.HasFocus &&
+            key == Key.CursorRight)
+        {
+            var home = PreflightHomeViewModel.Create(Overview, _selectedTargetIndex, _targetLocked);
+            if (home.Targets.Length == 0)
+            {
+                return false;
+            }
+
+            OpenSelectedTargetDetail(home);
+            return true;
+        }
+
+        if (CurrentPage == VelaWorkspacePage.TargetDetail && _targetDetailView.HasFocus)
+        {
+            if (key == Key.CursorLeft)
+            {
+                _targetLocked = false;
+                _lockedTargetName = null;
+                _compactionEstimate = null;
+                ResetNavigationToOverview();
+                ShowOverview();
+                return true;
+            }
+
+            if (!CanExecuteLockedTarget)
+            {
+                ShowStatus("当前锁定目标的预检尚未通过，先处理检查项或按 R 重扫");
+                return true;
+            }
+
+            OpenCompactionImpactFromDetail();
+            return true;
+        }
+
+        if (CurrentPage == VelaWorkspacePage.ActionPreview &&
+            SelectedAction == MainMenuAction.ExecuteCompaction &&
+            key == Key.CursorLeft)
+        {
+            _compactionEstimate = null;
+            ResetNavigationToOverview();
+            ApplyTargetDetailSurface();
+            return true;
+        }
+
+        return false;
+    }
+
     internal bool TryHandleConfirmationKey(Key key)
     {
         if (CurrentPage != VelaWorkspacePage.Confirmation ||
@@ -1279,6 +1336,7 @@ public sealed class VelaTerminalShell : Window
         if (TryHandleQuitKey(key)) return true;
         if (TryHandleModuleShortcutKey(key)) return true;
         if (TryHandleFocusToggleKey(key)) return true;
+        if (TryHandleWorkflowStepKey(key)) return true;
         if (TryHandleTargetNavigationKey(key)) return true;
         if (TryHandleTargetDetailKey(key)) return true;
         if (TryHandleLogNavigationKey(key)) return true;
@@ -1742,7 +1800,7 @@ public sealed class VelaTerminalShell : Window
                 AutomaticPreflightStatus.Failed => "扫描失败 · 按 R 重试",
                 _ => $"扫描完成，发现 {home.Targets.Length} 个 WSL 实例。"
             },
-            "使用上下方向键选择目标，按 Enter 查看明细并锁定目标。",
+            "使用 ↑↓ 选择目标，←→ 切换步骤，按 Enter 锁定并查看预检明细。",
             "",
             $"实例列表（{home.Targets.Length}）"
         };
@@ -1883,28 +1941,28 @@ public sealed class VelaTerminalShell : Window
         var compact = _screenWidth < 110;
         var hint = CurrentPage switch
         {
-            VelaWorkspacePage.Overview when compact && _screenWidth < 72 => "[↑↓]实例 [R]重扫 [Esc]退出",
-            VelaWorkspacePage.Overview when compact => "[↑↓]实例 [Enter]锁定并预检 [R]重扫 [Esc]退出",
-            VelaWorkspacePage.TargetDetail when compact => "[Esc]重新选择 [Enter]影响评估",
+            VelaWorkspacePage.Overview when compact && _screenWidth < 72 => "[↑↓]实例 [→]下一步 [R]重扫 [Esc]退出",
+            VelaWorkspacePage.Overview when compact => "[↑↓]实例 [←→]步骤 [Enter]锁定并预检 [R]重扫 [Esc]退出",
+            VelaWorkspacePage.TargetDetail when compact => "[←→]步骤 [Esc]重新选择 [Enter]影响评估",
             VelaWorkspacePage.Profiles when compact => "[↑↓]切换 [Enter]刷新 [Esc]返回",
             VelaWorkspacePage.RecentRuns when compact => "[↑↓]切换 [Enter]刷新 [Esc]返回",
             VelaWorkspacePage.Logs when compact => "[↑↓]浏览历史 [Enter]查看日志 [Esc]返回",
             VelaWorkspacePage.LogAnalysis when compact && _selectedLogEntry is not null => "[Esc]返回日志归档",
             VelaWorkspacePage.LogAnalysis when compact => "[↑↓]切换 [Enter]刷新日志 [Esc]返回",
-            VelaWorkspacePage.ActionPreview when compact => "[Esc]返回预检 [Y]确认执行压缩",
+            VelaWorkspacePage.ActionPreview when compact => "[←]返回预检 [Y]确认执行压缩",
             VelaWorkspacePage.Confirmation when compact && _confirmation?.AcceptsSingleKey == true => "[Y]再次确认执行 [Esc]取消",
             VelaWorkspacePage.Confirmation when compact => "[Enter]确认 YES [Esc]取消",
             VelaWorkspacePage.Running when compact => "[执行中]journal 实时更新",
             VelaWorkspacePage.Result when compact => "[Enter/Esc]返回实例",
             VelaWorkspacePage.Overview when _navigation.HasFocus => "[↑↓]  导航菜单   [Enter]  执行当前项   [Tab]  选择实例   [Esc]  退出",
-            VelaWorkspacePage.Overview => "[↑↓]  切换目标   [Enter]  锁定并预检   [R]  重新扫描   [Esc] 退出",
-            VelaWorkspacePage.TargetDetail => "[Esc]  重新选择   [Enter]  进入影响评估",
+            VelaWorkspacePage.Overview => "[↑↓]  切换目标   [←→]  切换步骤   [Enter]  锁定并预检   [R]  重新扫描   [Esc] 退出",
+            VelaWorkspacePage.TargetDetail => "[←→]  切换步骤   [Esc]  重新选择   [Enter]  进入影响评估",
             VelaWorkspacePage.Profiles => "[↑↓] 导航   [Enter] 刷新档案摘要   [Esc] 返回状态总览",
             VelaWorkspacePage.RecentRuns => "[↑↓] 导航   [Enter] 刷新运行记录   [Esc] 返回状态总览",
             VelaWorkspacePage.Logs => "[↑↓] 浏览历史   [Enter] 查看详细日志   [Esc] 返回工作区",
             VelaWorkspacePage.LogAnalysis when _selectedLogEntry is not null => "[Esc] 返回日志归档",
             VelaWorkspacePage.LogAnalysis => "[↑↓] 导航   [Enter] 刷新日志   [Esc] 返回状态总览",
-            VelaWorkspacePage.ActionPreview => "[Esc]  返回预检   [Y]  确认执行压缩",
+            VelaWorkspacePage.ActionPreview => "[←]  返回预检   [Y]  确认执行压缩",
             VelaWorkspacePage.Confirmation when _confirmation?.AcceptsSingleKey == true => "[Y]  再次确认执行   [Esc] 取消",
             VelaWorkspacePage.Confirmation => "[Enter] 确认 YES   [Esc] 取消",
             VelaWorkspacePage.Running => "[执行中] journal 实时更新   键盘输入已锁定",
@@ -2342,6 +2400,7 @@ public sealed class TerminalGuiShellHost : IDisposable
             _shell.TryHandleQuitKey(key) ||
             _shell.TryHandleModuleShortcutKey(key) ||
             _shell.TryHandleFocusToggleKey(key) ||
+            _shell.TryHandleWorkflowStepKey(key) ||
             _shell.TryHandleTargetNavigationKey(key) ||
             _shell.TryHandleTargetDetailKey(key) ||
             _shell.TryHandleLogNavigationKey(key) ||
