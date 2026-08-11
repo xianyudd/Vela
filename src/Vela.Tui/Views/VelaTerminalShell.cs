@@ -35,6 +35,7 @@ public sealed class VelaTerminalShell : Window
     private readonly LogArchiveView _logArchiveView;
     private readonly FrameView _logViewerPanel;
     private readonly ListView _logList;
+    private readonly Label _logDetailEncoding;
     private readonly TextField _confirmationInput;
     private readonly Label _workspace;
     private readonly PreflightHomeView _homeView;
@@ -181,6 +182,18 @@ public sealed class VelaTerminalShell : Window
             args.RowAttribute = VelaTerminalTheme.NormalAttribute(scheme);
         };
         _logViewerPanel.Add(_logList);
+        _logDetailEncoding = new Label
+        {
+            X = Pos.AnchorEnd(12),
+            Y = 0,
+            Width = 10,
+            Height = 1,
+            Text = "UTF-8 / LF",
+            TextAlignment = Alignment.End,
+            SchemeName = VelaTerminalTheme.Muted,
+            Visible = false,
+            CanFocus = false
+        };
         _contentHeading = new Label { X = 1, Y = 0, Width = Dim.Fill(1), Height = 1, Text = "执行目标选择", SchemeName = VelaTerminalTheme.Info };
         _decision = new Label { X = 1, Y = 2, Width = Dim.Fill(1), Height = 1 };
         _workspace = new Label { X = 1, Y = 4, Width = Dim.Fill(1), Height = Dim.Fill(), SchemeName = VelaTerminalTheme.Base, Text = BuildOverview(_dashboard, AutomaticPreflightState.Idle) };
@@ -237,7 +250,7 @@ public sealed class VelaTerminalShell : Window
         _quitHint.SchemeName = VelaTerminalTheme.ActionBar;
         _header.SchemeName = VelaTerminalTheme.Info;
         _navigationPanel.Add(_groupCaptions, _navigation);
-        _contentPanel.Add(_contentHeading, _decision, _workspace, _homeView, _targetDetailView, _impactView, _runProgressView, _evidencePanel, _logArchiveView, _logViewerPanel, _confirmationInput);
+        _contentPanel.Add(_contentHeading, _decision, _workspace, _logDetailEncoding, _homeView, _targetDetailView, _impactView, _runProgressView, _evidencePanel, _logArchiveView, _logViewerPanel, _confirmationInput);
         _decision.Visible = false;
         _workspace.Visible = false;
         UpdateDecision(AutomaticPreflightState.Idle);
@@ -484,6 +497,7 @@ public sealed class VelaTerminalShell : Window
         _workspace.Y = 0;
         _workspace.Text = BuildLogDetailHeader(entry);
         _logViewerPanel.Title = "Console Log · TUI";
+        _logDetailEncoding.Visible = true;
         _header.Text = BuildHeader(_applicationTitle, _dashboard, PreflightState);
         SetOverviewDecisionVisible(false);
         UpdateLogViewLayout();
@@ -2034,10 +2048,7 @@ public sealed class VelaTerminalShell : Window
         var taskId = entry.RunId == Guid.Empty
             ? "v-task-unknown"
             : $"v-task-{entry.RunId:N}"[..15];
-        var left = $"Task ID: {taskId}";
-        var right = "UTF-8 / LF";
-        var gap = Math.Max(2, _screenWidth - left.Length - right.Length - 4);
-        return $"{left}{new string(' ', gap)}{right}";
+        return $"Task ID: {taskId}";
     }
 
     private static string FormatCompactSignal(RunLogLine line)
@@ -2064,6 +2075,7 @@ public sealed class VelaTerminalShell : Window
         _logArchiveView.Visible = false;
         _logViewerPanel.Visible = false;
         _logList.Visible = false;
+        _logDetailEncoding.Visible = false;
     }
 
     private void UpdateLogViewLayout()
@@ -2077,6 +2089,11 @@ public sealed class VelaTerminalShell : Window
             ? Math.Max(3, _workspace.Text.Split(Environment.NewLine, StringSplitOptions.None).Length + 1)
             : 0;
         _logArchiveView.Visible = archivePage;
+        _logDetailEncoding.Visible = detailPage;
+        _logDetailEncoding.X = Pos.AnchorEnd(12);
+        _logDetailEncoding.Y = 0;
+        _logDetailEncoding.Width = 10;
+        _logDetailEncoding.Height = 1;
         _logArchiveView.X = 1;
         _logArchiveView.Y = 0;
         _logArchiveView.Width = Dim.Fill(1);
