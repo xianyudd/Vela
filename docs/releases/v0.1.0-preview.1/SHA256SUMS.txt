@@ -1,0 +1,1 @@
+84b1c3a0636061f080cbb3fa72b12b2ae6429b8e9ea2193813b7830c5c1df14e  Vela-v0.1.0-preview.1-win-x64.exe

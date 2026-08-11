@@ -1,6 +1,6 @@
 # Contributing to Vela
 
-感谢你关注 Vela。当前项目处于 private preview，贡献重点是可复现的 Windows TUI、预检证据、日志链路和测试质量。
+感谢你关注 Vela。当前项目处于 public preview，贡献重点是可复现的 Windows TUI、预检证据、日志链路和测试质量。
 
 ## 开始前
 

@@ -9,9 +9,10 @@ Windows 11 · WSL2 · Keyboard-first TUI
 [![Platform](https://img.shields.io/badge/platform-Windows%2011-0d1117?style=flat-square&logo=windows&logoColor=58a6ff)](https://learn.microsoft.com/windows/wsl/)
 [![.NET](https://img.shields.io/badge/.NET-10-512bd4?style=flat-square&logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![CI](https://github.com/xianyudd/Vela/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/xianyudd/Vela/actions/workflows/ci.yml)
-[![Stage](https://img.shields.io/badge/stage-private%20preview-d29922?style=flat-square)](https://github.com/xianyudd/Vela)
+[![License](https://img.shields.io/badge/license-Apache--2.0-58a6ff?style=flat-square)](LICENSE)
+[![Stage](https://img.shields.io/badge/stage-public%20preview-d29922?style=flat-square)](https://github.com/xianyudd/Vela)
 
-[快速开始](#快速开始) · [Product Tour](#product-tour) · [发布准备](#发布准备) · [键盘交互](#键盘交互) · [工程文档](#工程文档)
+[快速开始](#快速开始) · [Product Tour](#product-tour) · [发布准备](#发布准备) · [键盘交互](#键盘交互) · [许可证](#许可证) · [工程文档](#工程文档)
 
 <p>
   <img src="docs/assets/tui/runtime-readonly-demo.gif" alt="Vela 真实 Release TUI 只读演示：实例选择、目标预检和 TUI 内日志" width="1100">
@@ -97,7 +98,7 @@ Vela 优先读取目标 VHDX 的 ext4 使用量，并按下式给出执行前估
 
 ## Product Tour
 
-下面的图片全部来自当前 Release 构建在 tmux 中的真实运行画面，不是 UI 原型图。每张图片都保持独立文件，方便单独替换和维护。
+下面的素材来自当前 Release TUI，不是 UI 原型图。选择、预检、影响评估、确认和日志画面来自 Win11 / tmux 实机的只读采集；运行进度与完成结果使用同一 Release 渲染器导出的状态帧。每张图片都保持独立文件，方便单独替换和维护。
 
 <table>
   <tr>
@@ -107,16 +108,47 @@ Vela 优先读取目标 VHDX 的 ext4 使用量，并按下式给出执行前估
       <sub><b>01 · 选择唯一目标</b><br>从实例列表锁定本次唯一处理对象；体积、VHDX 路径和运行状态在同一行完成核对。</sub>
     </td>
     <td width="50%" valign="top">
-      <img src="docs/assets/tui/runtime-preflight-detail-focus.png" alt="Vela 真实运行中的目标预检详情" width="100%">
+      <img src="docs/assets/tui/runtime-preflight-detail-live.png" alt="Vela 真实运行中的目标预检详情" width="100%">
       <br><br>
-      <sub><b>02 · 锁定并预检</b><br>目标信息与检查明细集中展示；当前机器的真实阻断项直接标记为 <code>BLOCKED</code>。</sub>
+      <sub><b>02 · 锁定并预检</b><br>目标信息与五项检查明细集中展示；通过后才进入影响评估。</sub>
     </td>
   </tr>
   <tr>
     <td colspan="2" valign="top">
-      <img src="docs/assets/tui/runtime-log-detail-focus.png" alt="Vela 真实运行中的 TUI Console Log 详情" width="100%">
+      <img src="docs/assets/tui/runtime-impact-assessment-focus.png" alt="Vela 真实运行中的压缩影响评估与预计可回收空间" width="100%">
       <br><br>
-      <sub><b>03 · Console Log / Audit</b><br>在 TUI 内查看 <code>Task ID</code>、时间戳、事件类别和阶段名称；无需打开日志目录或切换窗口。</sub>
+      <sub><b>03 · 影响评估</b><br>执行前展示当前物理体积、预计压缩后体积和具体的“预计可回收空间”；本次实机只读样本为 <code>0.00 GiB</code>。</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/assets/tui/runtime-confirmation-y-focus.png" alt="Vela 真实运行中的第二次 Y 确认页面" width="100%">
+      <br><br>
+      <sub><b>04 · 二次确认</b><br>第二次 Y 确认页明确列出锁定目标、影响范围和当前运行实例。</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/assets/tui/runtime-running-state-focus.png" alt="Vela Release TUI 的运行进度状态帧" width="100%">
+      <br><br>
+      <sub><b>05 · 运行进度</b><br>进度、目标 VHDX 和 Console Log 在同一工作区持续更新。</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/assets/tui/runtime-result-state-focus.png" alt="Vela Release TUI 的完成结果状态帧" width="100%">
+      <br><br>
+      <sub><b>06 · 结果回执</b><br>完成状态、耗时和实际释放空间作为结果回执保留。</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/assets/tui/runtime-log-archive-live-focus.png" alt="Vela 真实运行中的日志归档列表" width="100%">
+      <br><br>
+      <sub><b>07 · 日志归档</b><br>在 TUI 内从历史任务进入日志，不打开日志目录。</sub>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" valign="top">
+      <img src="docs/assets/tui/runtime-log-detail-live.png" alt="Vela 真实运行中的 TUI Console Log 详情" width="100%">
+      <br><br>
+      <sub><b>08 · Console Log / Audit</b><br>在 TUI 内查看 <code>Task ID</code>、时间戳、事件类别和阶段名称；日志详情保持在产品工作区内。</sub>
     </td>
   </tr>
 </table>
@@ -124,13 +156,14 @@ Vela 优先读取目标 VHDX 的 ext4 使用量，并按下式给出执行前估
 <details>
 <summary>素材与采集说明</summary>
 
-- Release 构建：`Vela.Tui.dll`
+- Release 构建：`Vela.Tui.dll` / `Vela.exe`
 - 终端画布：`178 × 42`
-- 采集路径：实例选择 → 目标预检 → 日志归档 → Console Log
-- 采集范围：只读数据读取与界面浏览
-- Hero GIF 使用上面三张真实全画布截图按实际流程顺序播放；没有叠加假 UI 或产品说明卡片。
+- 采集路径：实例选择 → 目标锁定 → 预检 → 影响评估 → Y 确认 → 日志归档 → Console Log
+- 采集范围：真实 Win11 / WSL 只读数据读取与界面浏览；运行进度和结果使用当前 Release 状态帧
+- Hero GIF 使用独立真实截图按工作流顺序播放；没有叠加假 UI 或产品说明卡片。
 - `*-focus.png` 是 README 展示用裁切图；同目录的同名无 `-focus` 文件保留完整终端画布。
-- 当前 Product Tour 覆盖只读选择、预检和日志；影响评估、运行中和完成结果的真实素材列在[发布准备清单](docs/release-readiness.md)中。
+- 本次只读样本的目标为 `docker-desktop`，当前 VHDX 体积 `0.12 GiB`，预计可回收空间 `0.00 GiB`；这是数据结果，不是固定演示文案。
+- 物理压缩执行保持在产品边界之外；运行进度与完成结果素材用于展示状态机和日志布局，不代表本次采集执行了压缩。
 
 </details>
 
@@ -178,7 +211,11 @@ Vela 的输入由单一 TUI 入口串行处理，页面之间不启动嵌套读�
 
 ### 发布状态
 
-当前处于 `private preview` 阶段，README 与源码优先服务于 Win11 开发者和人工验收。首个 self-contained 二进制包、SHA256 和执行态产品截图完成后，会发布到 [GitHub Releases](https://github.com/xianyudd/Vela/releases)。
+当前版本为 `v0.1.0-preview.1`，源码与 Windows CI 已公开；self-contained 二进制、SHA256 和执行态产品截图随本版本 Release 提供。
+
+下载：[Vela v0.1.0-preview.1 · GitHub Release](https://github.com/xianyudd/Vela/releases/tag/v0.1.0-preview.1)
+
+校验：下载 Release 中的 `SHA256SUMS.txt`，对 `Vela-v0.1.0-preview.1-win-x64.exe` 执行 `Get-FileHash -Algorithm SHA256` 后比对。
 
 ### 发布准备
 
@@ -303,9 +340,13 @@ Vela 当前聚焦单机 Windows 11 工作流：档案、预检、目标锁定、
 - [贡献指南](CONTRIBUTING.md)：开发环境、TDD、TUI 验收和 Pull Request 约定。
 - [安全策略](SECURITY.md)：私下报告入口、脱敏要求和当前安全边界。
 
+## 许可证
+
+Vela 采用 [Apache License 2.0](LICENSE)。该协议允许使用、修改、分发和商业集成，并包含明确的专利授权与归因要求。
+
 ## 项目状态
 
-Vela 目前处于 private preview：核心 TUI 流程、目标锁定、只读预检、预计可回收空间、双重 Y 确认、UAC worker、TUI 日志归档和自动化测试已接入；真实 WSL / DiskPart 压缩仍应在明确影响范围后进行最终人工验收。
+Vela 目前处于 public preview：核心 TUI 流程、目标锁定、只读预检、预计可回收空间、双重 Y 确认、UAC worker、TUI 日志归档和自动化测试已接入；真实 WSL / DiskPart 压缩仍应在明确影响范围后进行最终人工验收。
 
 <div align="center">
 
