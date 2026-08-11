@@ -34,15 +34,15 @@ public sealed class LogArchiveView : View
 
         _tablePanel = new FrameView
         {
-            BorderStyle = LineStyle.Single,
+            BorderStyle = LineStyle.Rounded,
             SchemeName = VelaTerminalTheme.Panel,
             CanFocus = false
         };
-        _dateHeader = CreateLabel(VelaTerminalTheme.Info);
-        _targetHeader = CreateLabel(VelaTerminalTheme.Info);
-        _reclaimedHeader = CreateLabel(VelaTerminalTheme.Info);
-        _statusHeader = CreateLabel(VelaTerminalTheme.Info);
-        _divider = CreateLabel(VelaTerminalTheme.Panel);
+        _dateHeader = CreateLabel(VelaTerminalTheme.TableHeader);
+        _targetHeader = CreateLabel(VelaTerminalTheme.TableHeader);
+        _reclaimedHeader = CreateLabel(VelaTerminalTheme.TableHeader);
+        _statusHeader = CreateLabel(VelaTerminalTheme.TableHeader);
+        _divider = CreateLabel(VelaTerminalTheme.Divider);
         _emptyState = CreateLabel(VelaTerminalTheme.Muted);
         _rows = Enumerable.Range(0, MaxVisibleRows).Select(_ => new ArchiveRow()).ToArray();
 

@@ -43,11 +43,11 @@ public sealed class PreflightHomeView : View
         _infoPanel.Add(_infoPrefix, _infoTitle, _infoDetail);
 
         _tablePanel = CreatePanel();
-        _distroHeader = CreateLabel(VelaTerminalTheme.Info);
-        _sizeHeader = CreateLabel(VelaTerminalTheme.Info);
-        _pathHeader = CreateLabel(VelaTerminalTheme.Info);
-        _statusHeader = CreateLabel(VelaTerminalTheme.Info);
-        _tableDivider = CreateLabel(VelaTerminalTheme.Panel);
+        _distroHeader = CreateLabel(VelaTerminalTheme.TableHeader);
+        _sizeHeader = CreateLabel(VelaTerminalTheme.TableHeader);
+        _pathHeader = CreateLabel(VelaTerminalTheme.TableHeader);
+        _statusHeader = CreateLabel(VelaTerminalTheme.TableHeader);
+        _tableDivider = CreateLabel(VelaTerminalTheme.Divider);
         _compactSummary = CreateLabel(VelaTerminalTheme.Info);
         _emptyState = CreateLabel(VelaTerminalTheme.Muted);
         _rows = Enumerable.Range(0, MaxVisibleRows).Select(_ => new TargetRow()).ToArray();
@@ -86,10 +86,18 @@ public sealed class PreflightHomeView : View
         };
         _infoPanel.SchemeName = home.TargetLocked
             ? VelaTerminalTheme.SuccessPanel
-            : infoScheme == VelaTerminalTheme.Info
-                ? VelaTerminalTheme.InfoPanel
-                : VelaTerminalTheme.Panel;
-        _infoPrefix.SchemeName = infoScheme;
+            : home.Status switch
+            {
+                AutomaticPreflightStatus.Attention or AutomaticPreflightStatus.Stale => VelaTerminalTheme.AttentionPanel,
+                AutomaticPreflightStatus.Failed => VelaTerminalTheme.ErrorPanel,
+                _ => VelaTerminalTheme.InfoPanel
+            };
+        _infoPrefix.SchemeName = infoScheme switch
+        {
+            VelaTerminalTheme.Attention => VelaTerminalTheme.AttentionStrong,
+            VelaTerminalTheme.Error => VelaTerminalTheme.ErrorStrong,
+            _ => VelaTerminalTheme.InfoStrong
+        };
         _infoPrefix.Text = home.TargetLocked ? "●  LOCKED" : "ⓘ  INFO";
         _infoTitle.Text = BuildInfoTitle(home);
         _infoTitle.SchemeName = home.TargetLocked ? VelaTerminalTheme.Success : VelaTerminalTheme.Base;
@@ -275,7 +283,7 @@ public sealed class PreflightHomeView : View
 
     private static FrameView CreatePanel() => new()
     {
-        BorderStyle = LineStyle.Single,
+        BorderStyle = LineStyle.Rounded,
         SchemeName = VelaTerminalTheme.Panel,
         CanFocus = false
     };
@@ -341,10 +349,10 @@ public sealed class PreflightHomeView : View
 
         private static string SchemeFor(PreflightTargetRowStatus status) => status switch
         {
-            PreflightTargetRowStatus.Ready => VelaTerminalTheme.Success,
-            PreflightTargetRowStatus.Running => VelaTerminalTheme.Attention,
-            PreflightTargetRowStatus.Attention => VelaTerminalTheme.Attention,
-            PreflightTargetRowStatus.Failed => VelaTerminalTheme.Error,
+            PreflightTargetRowStatus.Ready => VelaTerminalTheme.SuccessStrong,
+            PreflightTargetRowStatus.Running => VelaTerminalTheme.AttentionStrong,
+            PreflightTargetRowStatus.Attention => VelaTerminalTheme.AttentionStrong,
+            PreflightTargetRowStatus.Failed => VelaTerminalTheme.ErrorStrong,
             _ => VelaTerminalTheme.Muted
         };
     }

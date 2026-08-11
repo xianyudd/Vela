@@ -38,7 +38,7 @@ public sealed class CompactionImpactView : View
         Width = Dim.Fill();
         Height = Dim.Fill();
 
-        _title = CreateLabel(VelaTerminalTheme.Surface);
+        _title = CreateLabel(VelaTerminalTheme.Heading);
         _title.TextAlignment = Alignment.Center;
         _title.Text = "影响评估（Impact Assessment）";
 
@@ -47,7 +47,7 @@ public sealed class CompactionImpactView : View
 
         _comparisonPanel = new FrameView
         {
-            BorderStyle = Terminal.Gui.Drawing.LineStyle.Single,
+            BorderStyle = Terminal.Gui.Drawing.LineStyle.Rounded,
             SchemeName = VelaTerminalTheme.SurfacePanel,
             CanFocus = false
         };
@@ -61,18 +61,18 @@ public sealed class CompactionImpactView : View
         _method.TextAlignment = Alignment.Center;
         _projectedCaption = CreateLabel(VelaTerminalTheme.Muted);
         _projectedCaption.TextAlignment = Alignment.Center;
-        _projectedValue = CreateLabel(VelaTerminalTheme.Success);
+        _projectedValue = CreateLabel(VelaTerminalTheme.SuccessStrong);
         _projectedValue.TextAlignment = Alignment.Center;
 
         _releasePanel = new FrameView
         {
-            BorderStyle = Terminal.Gui.Drawing.LineStyle.Single,
+            BorderStyle = Terminal.Gui.Drawing.LineStyle.Rounded,
             SchemeName = VelaTerminalTheme.Panel,
             CanFocus = false
         };
         _releaseTitle = CreateLabel(VelaTerminalTheme.Surface);
         _releaseSupport = CreateLabel(VelaTerminalTheme.Muted);
-        _releaseValue = CreateLabel(VelaTerminalTheme.Info);
+        _releaseValue = CreateLabel(VelaTerminalTheme.InfoStrong);
         _releaseValue.TextAlignment = Alignment.End;
         _releasePanel.Add(_releaseTitle, _releaseSupport, _releaseValue);
 

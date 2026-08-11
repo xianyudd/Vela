@@ -77,13 +77,19 @@ public sealed class PreflightTargetDetailView : View
         var ready = detail.IsReady;
         _statusPanel.SchemeName = ready
             ? VelaTerminalTheme.SuccessPanel
-            : VelaTerminalTheme.InfoPanel;
+            : detail.StatusCode.StartsWith("×", StringComparison.Ordinal)
+                ? VelaTerminalTheme.ErrorPanel
+                : detail.StatusCode.StartsWith("!", StringComparison.Ordinal)
+                    ? VelaTerminalTheme.AttentionPanel
+                    : VelaTerminalTheme.InfoPanel;
         _statusCode.Text = detail.StatusCode;
         _statusCode.SchemeName = ready
-            ? VelaTerminalTheme.Success
+            ? VelaTerminalTheme.SuccessStrong
             : detail.StatusCode.StartsWith("!", StringComparison.Ordinal)
-                ? VelaTerminalTheme.Attention
-                : VelaTerminalTheme.Info;
+                ? VelaTerminalTheme.AttentionStrong
+                : detail.StatusCode.StartsWith("×", StringComparison.Ordinal)
+                    ? VelaTerminalTheme.ErrorStrong
+                    : VelaTerminalTheme.InfoStrong;
         _statusTitle.Text = BuildStatusTitle(detail);
         _statusTitle.SchemeName = VelaTerminalTheme.Base;
         _statusSupport.Text = detail.StatusSupport;
@@ -167,7 +173,7 @@ public sealed class PreflightTargetDetailView : View
                 return;
             }
 
-            _statusPanel.BorderStyle = LineStyle.Single;
+            _statusPanel.BorderStyle = LineStyle.Rounded;
             _statusPanel.Title = string.Empty;
             _statusSupport.Visible = true;
             Place(_statusPanel, 0, 0, width, height);
@@ -177,7 +183,7 @@ public sealed class PreflightTargetDetailView : View
 
         _statusPanel.Visible = true;
         _targetPanel.Visible = true;
-        _statusPanel.BorderStyle = LineStyle.Single;
+        _statusPanel.BorderStyle = LineStyle.Rounded;
         _statusPanel.Title = string.Empty;
         _statusSupport.Visible = true;
         var compact = width < 72 || height < 22;
@@ -284,7 +290,7 @@ public sealed class PreflightTargetDetailView : View
 
     private static FrameView CreatePanel(string scheme) => new()
     {
-        BorderStyle = LineStyle.Single,
+        BorderStyle = LineStyle.Rounded,
         SchemeName = scheme,
         CanFocus = false
     };
@@ -350,17 +356,19 @@ public sealed class PreflightTargetDetailView : View
         public void Apply(PreflightTargetCheckViewModel check)
         {
             Symbol.Text = check.Symbol;
-            Symbol.SchemeName = check.Status == PreflightGateStatus.Matched
-                ? VelaTerminalTheme.Success
-                : check.Status == PreflightGateStatus.Attention
-                    ? VelaTerminalTheme.Attention
-                    : check.Status == PreflightGateStatus.Failed
-                        ? VelaTerminalTheme.Error
-                        : VelaTerminalTheme.Muted;
+            Symbol.SchemeName = SchemeFor(check.Status);
             Label.Text = FormatDisplayCheckLabel(check.Label);
             Status.Text = check.StatusText;
             Status.SchemeName = Symbol.SchemeName;
         }
+
+        private static string SchemeFor(PreflightGateStatus status) => status switch
+        {
+            PreflightGateStatus.Matched => VelaTerminalTheme.SuccessStrong,
+            PreflightGateStatus.Attention => VelaTerminalTheme.AttentionStrong,
+            PreflightGateStatus.Failed => VelaTerminalTheme.ErrorStrong,
+            _ => VelaTerminalTheme.Muted
+        };
     }
 
     private static string AlignRight(string value, int width)

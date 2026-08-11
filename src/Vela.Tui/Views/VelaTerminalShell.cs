@@ -25,10 +25,13 @@ public sealed class VelaTerminalShell : Window
 {
     private const int ConfirmationInputLimit = 16;
     private readonly Label _header;
+    private readonly Label _headerRule;
     private readonly Label _modeBadge;
     private readonly FrameView _navigationPanel;
+    private readonly Label _sidebarRule;
     private readonly FrameView _contentPanel;
     private readonly Label _contentHeading;
+    private readonly Label _contentRule;
     private readonly Label _groupCaptions;
     private readonly ListView _navigation;
     private readonly ObservableCollection<string> _navigationLabels;
@@ -46,6 +49,7 @@ public sealed class VelaTerminalShell : Window
     private readonly FrameView _evidencePanel;
     private readonly Label _evidence;
     private readonly FrameView _actionBar;
+    private readonly Label _footerRule;
     private readonly Label _status;
     private readonly Label _quitHint;
     private readonly IReadOnlyList<MainMenuItem> _menuItems;
@@ -89,16 +93,55 @@ public sealed class VelaTerminalShell : Window
         Title = "Vela";
         Width = Dim.Fill();
         Height = Dim.Fill();
-        SchemeName = VelaTerminalTheme.Base;
+        BorderStyle = Terminal.Gui.Drawing.LineStyle.Rounded;
+        SchemeName = VelaTerminalTheme.Shell;
 
         _header = new Label { X = 0, Y = 0, Width = Dim.Fill(), Text = BuildHeader(_applicationTitle, _dashboard, AutomaticPreflightState.Idle) };
-        _modeBadge = new Label { X = Pos.AnchorEnd(14), Y = 0, Width = 14, Text = "[ TUI-MODE ]", SchemeName = VelaTerminalTheme.Muted };
+        _headerRule = new Label
+        {
+            X = 0,
+            Y = 1,
+            Width = Dim.Fill(),
+            Height = 1,
+            Text = new string('─', 256),
+            SchemeName = VelaTerminalTheme.Divider,
+            CanFocus = false
+        };
+        _modeBadge = new Label
+        {
+            X = Pos.AnchorEnd(16),
+            Y = 0,
+            Width = 15,
+            Text = "[ READ-ONLY ]",
+            TextAlignment = Alignment.End,
+            SchemeName = VelaTerminalTheme.Badge,
+            CanFocus = false
+        };
         _navigationPanel = new FrameView { X = 0, Y = 2, Width = Dim.Percent(32), Height = 13, BorderStyle = Terminal.Gui.Drawing.LineStyle.None };
         _contentPanel = new FrameView { X = Pos.Right(_navigationPanel) + 2, Y = 2, Width = Dim.Fill(), Height = 13, BorderStyle = Terminal.Gui.Drawing.LineStyle.None };
         _navigationPanel.SchemeName = VelaTerminalTheme.Panel;
         _contentPanel.SchemeName = VelaTerminalTheme.Panel;
-        _groupCaptions = new Label { X = 1, Y = 0, Width = Dim.Fill(1), Height = 2, Text = "功能导航" };
-        _navigation = new ListView { X = 1, Y = 3, Width = Dim.Fill(1), Height = 6 };
+        _sidebarRule = new Label
+        {
+            X = Pos.AnchorEnd(1),
+            Y = 0,
+            Width = 1,
+            Height = Dim.Fill(),
+            Text = string.Join(Environment.NewLine, Enumerable.Repeat("│", 128)),
+            SchemeName = VelaTerminalTheme.Divider,
+            CanFocus = false
+        };
+        _groupCaptions = new Label
+        {
+            X = 1,
+            Y = 0,
+            Width = Dim.Fill(2),
+            Height = 3,
+            Text = "工作区\n检查  /  执行  /  追溯",
+            SchemeName = VelaTerminalTheme.Muted,
+            CanFocus = false
+        };
+        _navigation = new ListView { X = 1, Y = 4, Width = Dim.Fill(2), Height = 6 };
         _navigation.SchemeName = VelaTerminalTheme.Navigation;
         _navigation.KeyDown += (_, key) =>
         {
@@ -110,7 +153,6 @@ public sealed class VelaTerminalShell : Window
                 key.Handled = true;
             }
         };
-        _groupCaptions.SchemeName = VelaTerminalTheme.Muted;
         _navigationLabels = new ObservableCollection<string>(_visibleMenuItems.Select((item, index) => FormatNavigationLabel(item, index == 0)));
         _navigation.SetSource(_navigationLabels);
         _navigation.SelectedItem = 0;
@@ -153,7 +195,7 @@ public sealed class VelaTerminalShell : Window
         _logViewerPanel = new FrameView
         {
             Title = "Console Log · TUI",
-            BorderStyle = Terminal.Gui.Drawing.LineStyle.Single,
+            BorderStyle = Terminal.Gui.Drawing.LineStyle.Rounded,
             SchemeName = VelaTerminalTheme.LogPanel,
             Visible = false,
             CanFocus = false
@@ -194,7 +236,17 @@ public sealed class VelaTerminalShell : Window
             Visible = false,
             CanFocus = false
         };
-        _contentHeading = new Label { X = 1, Y = 0, Width = Dim.Fill(1), Height = 1, Text = "执行目标选择", SchemeName = VelaTerminalTheme.Info };
+        _contentHeading = new Label { X = 1, Y = 0, Width = Dim.Fill(1), Height = 1, Text = "执行目标选择", SchemeName = VelaTerminalTheme.Heading };
+        _contentRule = new Label
+        {
+            X = 1,
+            Y = 1,
+            Width = Dim.Fill(1),
+            Height = 1,
+            Text = new string('─', 256),
+            SchemeName = VelaTerminalTheme.Divider,
+            CanFocus = false
+        };
         _decision = new Label { X = 1, Y = 2, Width = Dim.Fill(1), Height = 1 };
         _workspace = new Label { X = 1, Y = 4, Width = Dim.Fill(1), Height = Dim.Fill(), SchemeName = VelaTerminalTheme.Base, Text = BuildOverview(_dashboard, AutomaticPreflightState.Idle) };
         _workspace.HotKeySpecifier = new System.Text.Rune(0xffff);
@@ -242,20 +294,30 @@ public sealed class VelaTerminalShell : Window
             Width = Dim.Fill(),
             Height = 1,
             BorderStyle = Terminal.Gui.Drawing.LineStyle.None,
-            SchemeName = VelaTerminalTheme.ActionBar
+            SchemeName = VelaTerminalTheme.Footer
         };
         _status = new Label { X = 1, Y = 0, Width = Dim.Fill(18), Text = "导航 / 操作  [↑↓] 导航   [Enter] 选择   [Esc] 退出" };
-        _status.SchemeName = VelaTerminalTheme.ActionBar;
+        _status.SchemeName = VelaTerminalTheme.Footer;
         _quitHint = new Label { X = Pos.AnchorEnd(15), Y = 0, Width = 14, Text = "[1-2] 切换模块" };
-        _quitHint.SchemeName = VelaTerminalTheme.ActionBar;
-        _header.SchemeName = VelaTerminalTheme.Info;
-        _navigationPanel.Add(_groupCaptions, _navigation);
-        _contentPanel.Add(_contentHeading, _decision, _workspace, _logDetailEncoding, _homeView, _targetDetailView, _impactView, _runProgressView, _evidencePanel, _logArchiveView, _logViewerPanel, _confirmationInput);
+        _quitHint.SchemeName = VelaTerminalTheme.Footer;
+        _header.SchemeName = VelaTerminalTheme.Header;
+        _footerRule = new Label
+        {
+            X = 0,
+            Y = Pos.AnchorEnd(2),
+            Width = Dim.Fill(),
+            Height = 1,
+            Text = new string('─', 256),
+            SchemeName = VelaTerminalTheme.Divider,
+            CanFocus = false
+        };
+        _navigationPanel.Add(_groupCaptions, _navigation, _sidebarRule);
+        _contentPanel.Add(_contentHeading, _contentRule, _decision, _workspace, _logDetailEncoding, _homeView, _targetDetailView, _impactView, _runProgressView, _evidencePanel, _logArchiveView, _logViewerPanel, _confirmationInput);
         _decision.Visible = false;
         _workspace.Visible = false;
         UpdateDecision(AutomaticPreflightState.Idle);
         _actionBar.Add(_status, _quitHint);
-        Add(_header, _modeBadge, _navigationPanel, _contentPanel, _actionBar);
+        Add(_header, _headerRule, _modeBadge, _navigationPanel, _contentPanel, _footerRule, _actionBar);
         AdaptTo(new Rectangle(0, 0, VelaLayoutMetrics.TwoPaneWidth, VelaLayoutMetrics.TwoPaneHeight));
         _navigationReady = true;
     }
@@ -865,10 +927,20 @@ public sealed class VelaTerminalShell : Window
         LayoutMode = metrics.Layout;
         _header.Text = BuildHeader(_applicationTitle, _dashboard, PreflightState);
         _header.Y = 0;
+        _headerRule.Text = new string('─', Math.Max(1, screen.Width));
+        _footerRule.Text = new string('─', Math.Max(1, screen.Width));
         _modeBadge.Visible = screen.Width >= 100;
-        _header.Width = _modeBadge.Visible ? Dim.Fill(14) : Dim.Fill();
+        _header.Width = _modeBadge.Visible ? Dim.Fill(16) : Dim.Fill();
+        _headerRule.Visible = true;
+        _headerRule.X = 0;
+        _headerRule.Y = 1;
+        _headerRule.Width = Dim.Fill();
         _actionBar.Y = Pos.AnchorEnd(1);
         _actionBar.Width = Dim.Fill();
+        _footerRule.Visible = true;
+        _footerRule.X = 0;
+        _footerRule.Y = Pos.AnchorEnd(2);
+        _footerRule.Width = Dim.Fill();
         _status.X = 1;
         _quitHint.Visible = screen.Width >= 44;
         _status.Width = _quitHint.Visible ? Dim.Fill(16) : Dim.Fill(2);
@@ -879,10 +951,12 @@ public sealed class VelaTerminalShell : Window
             _groupCaptions.Visible = true;
             _navigationPanel.X = 0; _navigationPanel.Y = 2;
             _navigationPanel.Width = showsEvidenceRail ? Dim.Percent(26) : 28;
-            _navigationPanel.Height = Dim.Fill(1);
-            _contentPanel.X = Pos.Right(_navigationPanel) + 1; _contentPanel.Y = 2; _contentPanel.Width = Dim.Fill(); _contentPanel.Height = Dim.Fill(1);
+            _navigationPanel.Height = Dim.Fill(2);
+            _contentPanel.X = Pos.Right(_navigationPanel) + 1; _contentPanel.Y = 2; _contentPanel.Width = Dim.Fill(); _contentPanel.Height = Dim.Fill(2);
             _groupCaptions.X = 1; _groupCaptions.Y = 0; _groupCaptions.Width = Dim.Fill(1);
-            _navigation.X = 1; _navigation.Y = 3; _navigation.Width = Dim.Fill(1); _navigation.Height = 3;
+            _groupCaptions.Height = 3;
+            _navigation.X = 1; _navigation.Y = 4; _navigation.Width = Dim.Fill(2); _navigation.Height = 3;
+            _sidebarRule.Visible = true;
             _workspace.X = 1; _workspace.Y = _decision.Visible ? 4 : 2;
             _workspace.Width = showsEvidenceRail ? Dim.Percent(58) : Dim.Fill(1);
             _workspace.Height = _confirmationInput.Visible ? Dim.Fill(2) : Dim.Fill();
@@ -902,9 +976,10 @@ public sealed class VelaTerminalShell : Window
         else
         {
             _groupCaptions.Visible = false;
+            _sidebarRule.Visible = false;
             var navigationHeight = metrics.NavigationHeight;
-            _navigationPanel.X = 0; _navigationPanel.Y = 1; _navigationPanel.Width = Dim.Fill(); _navigationPanel.Height = navigationHeight;
-            _contentPanel.X = 0; _contentPanel.Y = Pos.Bottom(_navigationPanel); _contentPanel.Width = Dim.Fill(); _contentPanel.Height = Dim.Fill(1);
+            _navigationPanel.X = 0; _navigationPanel.Y = 2; _navigationPanel.Width = Dim.Fill(); _navigationPanel.Height = navigationHeight;
+            _contentPanel.X = 0; _contentPanel.Y = Pos.Bottom(_navigationPanel); _contentPanel.Width = Dim.Fill(); _contentPanel.Height = Dim.Fill(2);
             _navigation.X = 1; _navigation.Y = 0; _navigation.Width = Dim.Fill(1); _navigation.Height = 3;
             _workspace.X = 1; _workspace.Y = _decision.Visible ? 3 : 2; _workspace.Width = Dim.Fill(1); _workspace.Height = _confirmationInput.Visible ? Dim.Fill(2) : Dim.Fill();
             _homeView.X = 1; _homeView.Y = _decision.Visible ? 3 : 2; _homeView.Width = Dim.Fill(1); _homeView.Height = _confirmationInput.Visible ? Dim.Fill(2) : Dim.Fill();
@@ -1924,11 +1999,11 @@ public sealed class VelaTerminalShell : Window
         _impactView.Visible = false;
         _evidencePanel.Visible = false;
         HideLogViewer();
+        _contentHeading.Visible = false;
         _targetDetailView.Apply(
             PreflightOverviewFormatter.CreateTargetDetail(Overview, home));
         SetOverviewDecisionVisible(false);
         SetContentTitle("目标预检详情");
-        _contentHeading.Visible = false;
         _header.Text = BuildHeader(_applicationTitle, _dashboard, PreflightState);
         SetNavigationStatus();
         _targetDetailView.SetFocus();
@@ -2327,7 +2402,7 @@ public sealed class VelaTerminalShell : Window
             // one text block above a large empty area.
             if (_homeView.Visible || _targetDetailView.Visible || _impactView.Visible)
             {
-                _contentPanel.Height = Dim.Fill(1);
+                _contentPanel.Height = Dim.Fill(2);
             }
             else
             {
@@ -2336,16 +2411,21 @@ public sealed class VelaTerminalShell : Window
                     .Length + 4;
                 _contentPanel.Height = Math.Min(
                     Math.Max(10, compactRows),
-                    Math.Max(10, _screenHeight - 3));
+                    Math.Max(10, _screenHeight - 4));
             }
         }
         else if (LayoutMode == VelaShellLayout.TwoPane)
         {
-            _contentPanel.Height = Dim.Fill(1);
+            _contentPanel.Height = Dim.Fill(2);
         }
         // The HTML design uses the terminal window and individual cards as
         // boundaries; the main content rail itself stays borderless.
         _contentPanel.BorderStyle = Terminal.Gui.Drawing.LineStyle.None;
+        _contentRule.Visible = _contentHeading.Visible;
+        _contentRule.Text = new string('─', Math.Max(1, _screenWidth));
+        _contentRule.X = 1;
+        _contentRule.Y = 1;
+        _contentRule.Width = Dim.Fill(1);
         _workspace.Width = showsEvidenceRail ? Dim.Percent(58) : Dim.Fill(1);
         _decision.Width = showsEvidenceRail ? Dim.Percent(58) : Dim.Fill(1);
         _homeView.X = 1;
@@ -2354,16 +2434,17 @@ public sealed class VelaTerminalShell : Window
             : 2;
         _homeView.Width = Dim.Fill(1);
         _homeView.Height = _confirmationInput.Visible ? Dim.Fill(2) : Dim.Fill();
+        var surfaceY = _contentHeading.Visible ? 2 : 0;
         _targetDetailView.X = 1;
-        _targetDetailView.Y = 2;
+        _targetDetailView.Y = surfaceY;
         _targetDetailView.Width = Dim.Fill(1);
         _targetDetailView.Height = _confirmationInput.Visible ? Dim.Fill(2) : Dim.Fill();
         _impactView.X = 1;
-        _impactView.Y = 2;
+        _impactView.Y = surfaceY;
         _impactView.Width = Dim.Fill(1);
         _impactView.Height = _confirmationInput.Visible ? Dim.Fill(2) : Dim.Fill();
         _runProgressView.X = 1;
-        _runProgressView.Y = 2;
+        _runProgressView.Y = _contentHeading.Visible ? 2 : 0;
         _runProgressView.Width = Dim.Fill(1);
         _runProgressView.Height = _confirmationInput.Visible ? Dim.Fill(2) : Dim.Fill();
         _evidencePanel.Visible = showsEvidenceRail;

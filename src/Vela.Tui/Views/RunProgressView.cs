@@ -29,25 +29,25 @@ public sealed class RunProgressView : View
         Width = Dim.Fill();
         Height = Dim.Fill();
 
-        _title = CreateLabel(VelaTerminalTheme.Surface);
+        _title = CreateLabel(VelaTerminalTheme.Heading);
         _title.Text = "Optimizing VHDX Block Allocations ▪";
 
         _target = CreateLabel(VelaTerminalTheme.Muted);
-        _percent = CreateLabel(VelaTerminalTheme.Info);
+        _percent = CreateLabel(VelaTerminalTheme.InfoStrong);
         _percent.TextAlignment = Alignment.End;
 
         _progressPanel = new FrameView
         {
-            BorderStyle = LineStyle.Single,
+            BorderStyle = LineStyle.Rounded,
             SchemeName = VelaTerminalTheme.SurfacePanel,
             CanFocus = false
         };
-        _progressBar = CreateLabel(VelaTerminalTheme.Info);
+        _progressBar = CreateLabel(VelaTerminalTheme.InfoStrong);
 
         _consolePanel = new FrameView
         {
             Title = "Console Log · LIVE",
-            BorderStyle = LineStyle.Single,
+            BorderStyle = LineStyle.Rounded,
             SchemeName = VelaTerminalTheme.LogPanel,
             CanFocus = false
         };
