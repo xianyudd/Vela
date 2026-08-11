@@ -47,6 +47,27 @@ Vela 解决的不是“如何输入一条 compact 命令”，而是压缩前最
 
 它是执行前估算，不是承诺值；最终释放量以压缩完成后的 VHDX 快照差值为准。
 
+## 真实 TUI 画面
+
+以下素材来自 Vela 的实际 TUI 页面，覆盖实例选择、预检详情和运行日志。截图只展示界面状态，不代表 README 浏览过程会执行 WSL 停止或压缩动作。
+
+<table>
+  <tr>
+    <td><img src="docs/assets/tui/preflight-list.png" alt="Vela 多实例预检选择列表" width="560"></td>
+    <td><img src="docs/assets/tui/preflight-detail.png" alt="Vela 单实例预检详情" width="560"></td>
+  </tr>
+  <tr>
+    <td align="center">01 · 多实例选择</td>
+    <td align="center">01 · 单实例预检详情</td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><img src="docs/assets/tui/run-progress.png" alt="Vela 运行进度与 TUI 内 Console Log" width="900"></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center">02 · 运行进度与 TUI 内日志</td>
+  </tr>
+</table>
+
 ## 产品能力
 
 | 能力 | Vela 做什么 | 用户得到什么 |
