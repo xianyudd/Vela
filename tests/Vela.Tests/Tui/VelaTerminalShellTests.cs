@@ -481,6 +481,12 @@ public sealed class VelaTerminalShellTests
         Assert.Equal(VelaWorkspacePage.TargetDetail, shell.CurrentPage);
         Assert.Contains("尚未通过", shell.StatusText, StringComparison.Ordinal);
         Assert.Empty(actions);
+
+        shell.NewKeyDownEvent(Key.CursorRight);
+
+        Assert.Equal(VelaWorkspacePage.TargetDetail, shell.CurrentPage);
+        Assert.Contains("尚未通过", shell.StatusText, StringComparison.Ordinal);
+        Assert.Empty(actions);
     }
 
     [Fact]
@@ -1458,8 +1464,15 @@ public sealed class VelaTerminalShellTests
         }
     }
 
-    [Fact]
-    public void Horizontal_arrows_move_through_workspace_steps_without_starting_compaction()
+    [Theory]
+    [InlineData(160, 45)]
+    [InlineData(120, 35)]
+    [InlineData(100, 30)]
+    [InlineData(80, 24)]
+    [InlineData(60, 16)]
+    public void Horizontal_arrows_move_through_workspace_steps_without_starting_compaction(
+        int width,
+        int height)
     {
         var profile = CreateProfile();
         var dashboard = CreateReadyDashboard(profile);
@@ -1467,7 +1480,7 @@ public sealed class VelaTerminalShellTests
         app.Init(DriverRegistry.Names.ANSI);
         VelaTerminalTheme.Register();
         using var shell = new VelaTerminalShell(new MainMenu().ViewModel, dashboard);
-        app.Driver!.SetScreenSize(160, 45);
+        app.Driver!.SetScreenSize(width, height);
         using var host = new TerminalGuiShellHost(app, shell);
         var session = app.Begin(shell);
         var actions = new List<MainMenuAction>();
@@ -1487,7 +1500,10 @@ public sealed class VelaTerminalShellTests
 
             Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.CursorRight));
             Assert.Equal(VelaWorkspacePage.TargetDetail, shell.CurrentPage);
-            Assert.Contains("[←→]", shell.StatusText, StringComparison.Ordinal);
+            Assert.Contains(
+                width < 110 ? "[←→]步骤" : "[←→]  切换步骤",
+                shell.StatusText,
+                StringComparison.Ordinal);
 
             Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.CursorRight));
             Assert.Equal(VelaWorkspacePage.ActionPreview, shell.CurrentPage);
