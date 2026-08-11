@@ -78,7 +78,8 @@ public sealed class VelaTerminalShellTests
             Assert.Contains("目标发行版", rendered, StringComparison.Ordinal);
             Assert.Contains("实例锁定状态", rendered, StringComparison.Ordinal);
             Assert.Contains("✓ Ubuntu-24.04 预检通过", rendered, StringComparison.Ordinal);
-            Assert.Contains("> 02 影响评估", rendered, StringComparison.Ordinal);
+            Assert.Contains("> ② 环境预检", rendered, StringComparison.Ordinal);
+            Assert.Contains("③ 影响评估", rendered, StringComparison.Ordinal);
         }
         finally
         {

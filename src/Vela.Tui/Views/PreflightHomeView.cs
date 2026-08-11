@@ -266,7 +266,7 @@ public sealed class PreflightHomeView : View
             return "已锁定目标；按 R 重新扫描，或按 Esc 返回实例列表。";
         }
 
-        var detail = "请使用 ↑↓ 键选择目标，按 Enter 查看详细预检报告。";
+        var detail = "请使用 ↑↓ 选择目标，←→ 切换步骤，按 Enter 查看详细预检报告。";
         return home.Status is AutomaticPreflightStatus.Attention or AutomaticPreflightStatus.Failed &&
             !string.IsNullOrWhiteSpace(home.StatusReason)
             ? $"{detail} 关注项：{home.StatusReason}"

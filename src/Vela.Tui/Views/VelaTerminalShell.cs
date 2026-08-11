@@ -1746,7 +1746,7 @@ public sealed class VelaTerminalShell : Window
 
             return _screenWidth < 110
                 ? $"VELA  ·  {preflightStatus} {lockedName} {statusLabel}  ·  ② 环境预检"
-                : $"VELA  ·  {preflightStatus} {lockedName} {statusLabel}  ·  ① 选择实例 ✔  ─  ② 环境预检  ─  > 02 影响评估";
+                : $"VELA  ·  {preflightStatus} {lockedName} {statusLabel}  ·  ✔ ① 选择实例  ─  > ② 环境预检  ─  ③ 影响评估  ─  ④ 执行压缩";
         }
 
         if (state.Status == AutomaticPreflightStatus.Checking)
