@@ -1164,8 +1164,8 @@ public sealed class VelaTerminalShell : Window
         _evidencePanel.Visible = false;
         _contentHeading.Visible = false;
         _workspace.Visible = false;
-        _logArchiveView.Visible = true;
         HideLogViewer();
+        _logArchiveView.Visible = true;
         SetNavigationStatus();
         _logArchiveView.SetFocus();
         UpdateLogViewLayout();

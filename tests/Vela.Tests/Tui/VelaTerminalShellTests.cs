@@ -1007,6 +1007,9 @@ public sealed class VelaTerminalShellTests
 
         try
         {
+            shell.ShowLogArchive(new RunHistorySnapshot(
+                ImmutableArray.Create(entry),
+                ErrorMessage: null));
             shell.ShowLogDetail(
                 entry,
                 new RunLogSnapshot(
@@ -1028,7 +1031,9 @@ public sealed class VelaTerminalShellTests
             Assert.Contains("[Esc] 返回日志归档", shell.StatusText, StringComparison.Ordinal);
 
             Assert.True(app.Keyboard.RaiseKeyDownEvent(Key.Esc));
+            app.LayoutAndDraw(forceRedraw: true);
             Assert.Equal(VelaWorkspacePage.Logs, shell.CurrentPage);
+            Assert.Contains("日志归档（1）", app.Driver.ToString(), StringComparison.Ordinal);
         }
         finally
         {
