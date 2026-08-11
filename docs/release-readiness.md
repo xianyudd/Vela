@@ -18,7 +18,7 @@
 - [ ] 捕获运行进度页和完成结果页；执行截图必须来自明确的 Win11 / WSL 人工验收。
 - [ ] 创建第一个 GitHub Release，上传 self-contained `Vela.exe`。
 - [ ] 为发布物记录 SHA256，并在 README 提供下载入口。
-- [ ] 让 Windows CI 完成 restore、Release build、全量 test 和 coverage gate。
+- [x] 让 Windows CI 完成 restore、Release build、全量 test 和 coverage gate。
 - [ ] 确定并提交仓库开源许可文件。
 
 ## 仓库质量补齐
