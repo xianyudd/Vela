@@ -2,7 +2,7 @@
 
 # Vela
 
-### WSL VHDX 压缩前，先把目标、影响和结果讲清楚。
+### 把 WSL VHDX 压缩变成一条可审阅、可回溯的运行链。
 
 Windows 11 · WSL2 · Keyboard-first TUI
 
@@ -10,63 +10,74 @@ Windows 11 · WSL2 · Keyboard-first TUI
 [![.NET](https://img.shields.io/badge/.NET-10-512bd4?style=flat-square&logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![Stage](https://img.shields.io/badge/stage-private%20preview-d29922?style=flat-square)](https://github.com/xianyudd/Vela)
 
-[快速开始](#快速开始) · [产品流程](#一条可审阅的运行链) · [交互说明](#键盘交互) · [工程文档](#工程文档)
+[快速开始](#快速开始) · [真实运行画面](#真实运行画面) · [产品流程](#一条可审阅的运行链) · [键盘交互](#键盘交互) · [工程文档](#工程文档)
+
+<p>
+  <img src="docs/assets/tui/runtime-storyboard.png" alt="Vela 当前 Release TUI 的真实运行画面：实例选择、目标预检和 TUI 内日志" width="1000">
+</p>
+<sub>真实 Release TUI · 只读预检链路 · 目标锁定后才进入后续步骤</sub>
 
 </div>
 
-> Vela 是一个面向 Windows 11 的键盘优先终端工具：它盘点 WSL 发行版和 VHDX 状态，执行只读预检，计算预计可回收空间，锁定单一目标，并在影响范围明确、用户两次确认后执行压缩。
+> **选中哪一个，就只处理哪一个。**
+>
+> Vela 面向 Windows 11 提供键盘优先的 WSL VHDX 工作流：发现实例 → 只读预检 → 锁定目标 → 影响评估 → 两次 Y 确认 → 执行与留痕。
 
-## 先看结果
+## 先看 Vela 在解决什么
 
-Vela 解决的不是“如何输入一条 compact 命令”，而是压缩前最容易出错的几件事：
+Vela 解决的不是“如何输入一条 compact 命令”，而是压缩前的三个决策问题：
 
-- **目标是谁**：从已发现的 WSL 实例中选择，并将本次操作锁定到该发行版。
-- **现在是什么状态**：注册表 / Lxss 映射、VHDX 快照、运行实例和日志是否可用。
-- **大概能回收多少**：根据当前 VHDX 体积和访客文件系统已用空间，给出预计可回收空间。
-- **会影响什么**：展示 Global 或 Distro 停止范围，以及当前正在运行的发行版。
-- **结果是否可追溯**：运行过程实时写入结构化日志，并在 TUI 内查看最近运行记录。
+| 决策 | Vela 给出的答案 |
+| --- | --- |
+| **目标是谁** | 从发现的 WSL 实例中选择，并锁定为本次唯一目标。 |
+| **现在能不能做** | 用映射、VHDX 快照、运行状态、日志和阻断项建立预检证据。 |
+| **做完留下什么** | 显示预计可回收空间、影响范围、实时日志和历史结果。 |
 
-~~~text
-┌─ Vela ───────────────────────────────────────────────────────┐
-│ ✓ 预检通过                         Ubuntu-24.04              │
-│                                                               │
-│ 目标档案 ...................... Ubuntu 24.04 on D             │
-│ VHDX 当前体积 ................. 124.5 GB                     │
-│ 预计可回收空间 ................ 82.4 GB                      │
-│ 停止范围 ...................... 目标发行版                   │
-│                                                               │
-│ [Y] 进入确认        [Esc] 返回        日志：TUI 内可查看       │
-└───────────────────────────────────────────────────────────────┘
-~~~
-
-上面的数值是产品流程示意。预计值采用：
+预计可回收空间采用可复核的估算公式：
 
 ~~~text
 预计可回收空间 = max(VHDX 当前体积 - 访客文件系统已用空间, 0)
 ~~~
 
-它是执行前估算，不是承诺值；最终释放量以压缩完成后的 VHDX 快照差值为准。
+这是执行前估算；最终释放量以压缩完成后的 VHDX 快照差值为准。
 
 ## 真实 TUI 画面
 
-以下截图直接来自当前版本 Vela TUI 的真实运行进程，采集于 Release 构建的只读流程。截图覆盖实例选择、目标预检和 TUI 内日志；采集过程没有启动 WSL 停止或 VHDX 压缩。
+下面的素材直接来自当前 Release 构建在 tmux 中的运行画面，不是 UI 原型图。采集覆盖只读路径；没有启动 WSL 停止或 VHDX 压缩。
 
-<table>
-  <tr>
-    <td><img src="docs/assets/tui/runtime-preflight-list.png" alt="当前版本 Vela TUI 多实例预检选择列表" width="560"></td>
-    <td><img src="docs/assets/tui/runtime-preflight-detail.png" alt="当前版本 Vela TUI 单实例预检详情" width="560"></td>
-  </tr>
-  <tr>
-    <td align="center">01 · 实例选择（真实运行）</td>
-    <td align="center">01 · 目标预检（真实运行）</td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center"><img src="docs/assets/tui/runtime-log-detail.png" alt="当前版本 Vela TUI 内 Console Log 详情" width="900"></td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center">02 · TUI 内历史日志详情（真实运行）</td>
-  </tr>
-</table>
+### 01 / 选择唯一目标
+
+<p align="center">
+  <img src="docs/assets/tui/runtime-preflight-list-focus.png" alt="Vela 真实运行中的多实例选择列表" width="1000">
+</p>
+
+屏幕先回答“**这次准备处理哪一个实例**”：当前环境发现 `Ubuntu-24.04` 与 `docker-desktop`，表格同时给出当前体积、VHDX 路径摘要和运行状态。蓝色箭头只指向当前选中目标。
+
+### 02 / 锁定并预检
+
+<p align="center">
+  <img src="docs/assets/tui/runtime-preflight-detail-focus.png" alt="Vela 真实运行中的目标预检详情" width="1000">
+</p>
+
+锁定后，目标信息和检查明细收拢到同一页：`Ubuntu-24.04`、`170.08 GiB`、绝对 VHDX 路径、4 项 `PASS` 与 1 项阻断项一一对应。这里的 `BLOCKED` 是当前机器的真实状态，不用模拟成功结果掩盖风险。
+
+### 03 / 日志留在 TUI 内
+
+<p align="center">
+  <img src="docs/assets/tui/runtime-log-detail-focus.png" alt="Vela 真实运行中的 TUI Console Log 详情" width="1000">
+</p>
+
+历史运行记录进入 TUI 内置的 `Console Log` 视图，包含 `Task ID`、时间戳、事件类别和阶段名称。查看日志不需要打开日志目录，也不需要切换到另一个窗口。
+
+<details>
+<summary>截图采集说明</summary>
+
+- Release 构建：`Vela.Tui.dll`
+- 终端画布：`178 × 42`
+- 采集路径：实例选择 → 目标预检 → 日志归档 → Console Log
+- 采集范围：只读数据读取与界面浏览
+
+</details>
 
 ## 产品能力
 
