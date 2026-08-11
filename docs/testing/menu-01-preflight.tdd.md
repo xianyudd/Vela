@@ -21,9 +21,9 @@ VHDX 原始路径不进入首页投影，只展示「已配置 / 未读取」状
 
 验证记录：
 
-- `dotnet test Vela.sln --no-restore --nologo`：429/429 通过。
+- `dotnet test Vela.sln --no-restore --nologo`：432/432 通过。
 - `dotnet test tests/Vela.Tests/Vela.Tests.csproj --no-restore --filter FullyQualifiedName~WslCompactionImpactEstimatorTests`：4/4 通过。
-- `dotnet.exe test tests/Vela.Tests/Vela.Tests.csproj -c Release --no-restore --nologo -p:CollectCoverage=true -p:CoverletOutput=./artifacts/coverage/coverage -p:CoverletOutputFormat=cobertura`：429/429 通过。
+- `dotnet.exe test tests/Vela.Tests/Vela.Tests.csproj -c Release --no-restore --nologo -p:CollectCoverage=true -p:CoverletOutput=./../../artifacts/coverage/coverage -p:CoverletOutputFormat=cobertura`：全量测试与 coverage gate 以当前仓库结果为准。
 - `dotnet restore Vela.sln --locked-mode --nologo`：所有项目均是最新的。
 - Release Cobertura：`Vela.Core` 80.31%、`Vela.Windows` 82.05%；`scripts/Verify-Coverage.ps1` 通过。
 

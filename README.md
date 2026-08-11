@@ -8,9 +8,10 @@ Windows 11 · WSL2 · Keyboard-first TUI
 
 [![Platform](https://img.shields.io/badge/platform-Windows%2011-0d1117?style=flat-square&logo=windows&logoColor=58a6ff)](https://learn.microsoft.com/windows/wsl/)
 [![.NET](https://img.shields.io/badge/.NET-10-512bd4?style=flat-square&logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
+[![CI](https://github.com/xianyudd/Vela/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/xianyudd/Vela/actions/workflows/ci.yml)
 [![Stage](https://img.shields.io/badge/stage-private%20preview-d29922?style=flat-square)](https://github.com/xianyudd/Vela)
 
-[快速开始](#快速开始) · [Product Tour](#product-tour) · [键盘交互](#键盘交互) · [工程文档](#工程文档)
+[快速开始](#快速开始) · [Product Tour](#product-tour) · [发布准备](#发布准备) · [键盘交互](#键盘交互) · [工程文档](#工程文档)
 
 <p>
   <img src="docs/assets/tui/runtime-readonly-demo.gif" alt="Vela 真实 Release TUI 只读演示：实例选择、目标预检和 TUI 内日志" width="1100">
@@ -129,6 +130,7 @@ Vela 优先读取目标 VHDX 的 ext4 使用量，并按下式给出执行前估
 - 采集范围：只读数据读取与界面浏览
 - Hero GIF 使用上面三张真实全画布截图按实际流程顺序播放；没有叠加假 UI 或产品说明卡片。
 - `*-focus.png` 是 README 展示用裁切图；同目录的同名无 `-focus` 文件保留完整终端画布。
+- 当前 Product Tour 覆盖只读选择、预检和日志；影响评估、运行中和完成结果的真实素材列在[发布准备清单](docs/release-readiness.md)中。
 
 </details>
 
@@ -173,6 +175,14 @@ Vela 的输入由单一 TUI 入口串行处理，页面之间不启动嵌套读�
 首启和会改变执行目标的档案编辑 / 删除确认使用精确的大写 YES 加 Enter。压缩流程只使用两次 Y，不要求输入 YES。
 
 ## 快速开始
+
+### 发布状态
+
+当前处于 `private preview` 阶段，README 与源码优先服务于 Win11 开发者和人工验收。首个 self-contained 二进制包、SHA256 和执行态产品截图完成后，会发布到 [GitHub Releases](https://github.com/xianyudd/Vela/releases)。
+
+### 发布准备
+
+完整的截图、CI、Release 和仓库治理 TODO 见[发布准备清单](docs/release-readiness.md)。
 
 ### 环境要求
 
@@ -273,7 +283,7 @@ Vela.Tui ─────► Vela.Core
 dotnet restore .\Vela.sln -r win-x64 --locked-mode --ignore-failed-sources -p:EnableRuntimePackDownload=false -p:DisableTransitiveFrameworkReferenceDownloads=true
 dotnet build .\Vela.sln -c Release --no-restore
 dotnet test .\Vela.sln -c Release --no-build
-dotnet test .\tests\Vela.Tests\Vela.Tests.csproj -c Release --no-restore -p:CollectCoverage=true -p:CoverletOutput=.\artifacts\coverage\coverage -p:CoverletOutputFormat=cobertura -p:Include='[Vela.Core]*,[Vela.Windows]*' -p:ExcludeByFile='**/Program.cs'
+dotnet test .\tests\Vela.Tests\Vela.Tests.csproj -c Release --no-restore -p:CollectCoverage=true -p:CoverletOutput=.\..\..\artifacts\coverage\coverage -p:CoverletOutputFormat=cobertura -p:Include="[Vela.Core]*%2C[Vela.Windows]*" -p:ExcludeByFile="**/Program.cs"
 pwsh -NoProfile -File .\scripts\Verify-Coverage.ps1
 ~~~
 
@@ -288,7 +298,10 @@ Vela 当前聚焦单机 Windows 11 工作流：档案、预检、目标锁定、
 - [架构设计](docs/architecture.md)：产品边界、TUI 状态流、worker 协议、日志与 Windows 适配层。
 - [开发环境](docs/development-environment.md)：Visual Studio、Windows SDK、目录约定和开发期写入边界。
 - [测试与发布](docs/testing-and-release.md)：测试矩阵、覆盖率 gate、TUI 验收、发布 profile 和交付清单。
+- [发布准备清单](docs/release-readiness.md)：真实截图覆盖、CI、Release、贡献与仓库治理待办。
 - [实施计划](docs/implementation-plan.md)：从解决方案初始化到发布验收的历史实施记录。
+- [贡献指南](CONTRIBUTING.md)：开发环境、TDD、TUI 验收和 Pull Request 约定。
+- [安全策略](SECURITY.md)：私下报告入口、脱敏要求和当前安全边界。
 
 ## 项目状态
 

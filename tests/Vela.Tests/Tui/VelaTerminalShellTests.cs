@@ -1397,6 +1397,39 @@ public sealed class VelaTerminalShellTests
     }
 
     [Fact]
+    public void Driver_resize_from_minimal_canvas_restores_page_heading()
+    {
+        using var app = Application.Create(new VirtualTimeProvider());
+        app.Init(DriverRegistry.Names.ANSI);
+        VelaTerminalTheme.Register();
+        using var shell = new VelaTerminalShell(
+            new MainMenu().ViewModel,
+            DashboardViewModel.CreateInitial(CreateProfile()));
+        app.Driver!.SetScreenSize(60, 16);
+        using var host = new TerminalGuiShellHost(app, shell);
+        var session = app.Begin(shell);
+
+        try
+        {
+            shell.ShowRunProgress(new RunProgressViewModel(
+                RunProgressState.Running,
+                "正在读取 journal 事件。",
+                Percent: null,
+                TargetName: "docker-desktop"));
+            app.LayoutAndDraw(forceRedraw: true);
+
+            app.Driver.SetScreenSize(80, 24);
+            app.LayoutAndDraw(forceRedraw: true);
+
+            Assert.Contains("运行进度", app.Driver.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            app.End(session!);
+        }
+    }
+
+    [Fact]
     public void Menu_one_exposes_r_refresh_without_dispatching_a_compaction_action()
     {
         using var shell = new VelaTerminalShell(

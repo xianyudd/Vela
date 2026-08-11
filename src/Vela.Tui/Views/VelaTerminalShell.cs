@@ -2389,9 +2389,27 @@ public sealed class VelaTerminalShell : Window
         && _selectedLogEntry is null
         && _screenWidth >= VelaLayoutMetrics.AnalysisRailWidth;
 
+    private bool ShouldShowContentHeading =>
+        CurrentPage is not (VelaWorkspacePage.TargetDetail or VelaWorkspacePage.Logs or VelaWorkspacePage.LogAnalysis)
+        && !(CurrentPage == VelaWorkspacePage.ActionPreview && _impactView.Visible);
+
     private void ApplyContentRailLayout()
     {
+        var minimalHeight = _screenWidth < VelaLayoutMetrics.NarrowContentWidth &&
+            _screenHeight <= 16;
+        // At the smallest supported canvas the content rail has only two rows
+        // after the fixed header/navigation/footer bands. The page title and
+        // divider yield those rows to the page itself, and the page-derived
+        // visibility restores correctly after a resize.
+        _contentHeading.Visible = ShouldShowContentHeading && !minimalHeight;
+
         var showsEvidenceRail = ShouldShowEvidenceRail;
+        var compactLogSurface = minimalHeight &&
+            CurrentPage is VelaWorkspacePage.Logs or VelaWorkspacePage.LogAnalysis;
+        _logViewerPanel.BorderStyle = compactLogSurface
+            ? Terminal.Gui.Drawing.LineStyle.None
+            : Terminal.Gui.Drawing.LineStyle.Rounded;
+        _logViewerPanel.Title = compactLogSurface ? string.Empty : "Console Log · TUI";
         _runProgressView.Visible = CurrentPage == VelaWorkspacePage.Running;
         var unifiedSurface = (CurrentPage is VelaWorkspacePage.Overview or VelaWorkspacePage.TargetDetail or VelaWorkspacePage.ActionPreview)
             && LayoutMode == VelaShellLayout.TwoPane;
@@ -2428,13 +2446,13 @@ public sealed class VelaTerminalShell : Window
         _contentRule.Width = Dim.Fill(1);
         _workspace.Width = showsEvidenceRail ? Dim.Percent(58) : Dim.Fill(1);
         _decision.Width = showsEvidenceRail ? Dim.Percent(58) : Dim.Fill(1);
+        var surfaceY = _contentHeading.Visible ? 2 : 0;
         _homeView.X = 1;
         _homeView.Y = _decision.Visible
             ? (LayoutMode == VelaShellLayout.TwoPane ? 4 : 3)
-            : 2;
+            : surfaceY;
         _homeView.Width = Dim.Fill(1);
         _homeView.Height = _confirmationInput.Visible ? Dim.Fill(2) : Dim.Fill();
-        var surfaceY = _contentHeading.Visible ? 2 : 0;
         _targetDetailView.X = 1;
         _targetDetailView.Y = surfaceY;
         _targetDetailView.Width = Dim.Fill(1);

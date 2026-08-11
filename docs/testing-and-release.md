@@ -60,7 +60,7 @@ dotnet test .\tests\Vela.Tests --filter 'FullyQualifiedName~JsonProfileStore|Ful
 
 # 强制 80% line coverage gate，分别统计 Core 与 Windows
 # 先生成 Cobertura 报告，再使用独立脚本检查两个程序集
-dotnet test .\tests\Vela.Tests\Vela.Tests.csproj -c Release -p:CollectCoverage=true -p:CoverletOutput=.\artifacts\coverage\coverage -p:CoverletOutputFormat=cobertura -p:Include='[Vela.Core]*,[Vela.Windows]*' -p:ExcludeByFile='**/Program.cs'
+dotnet test .\tests\Vela.Tests\Vela.Tests.csproj -c Release -p:CollectCoverage=true -p:CoverletOutput=.\..\..\artifacts\coverage\coverage -p:CoverletOutputFormat=cobertura -p:Include="[Vela.Core]*%2C[Vela.Windows]*" -p:ExcludeByFile="**/Program.cs"
 pwsh -NoProfile -File .\scripts\Verify-Coverage.ps1
 ~~~
 
@@ -143,7 +143,7 @@ CompletedWithNoReclaim 表示流程完成且 VHDX 长度差为 0 B。
 ~~~xml
 <PropertyGroup>
   <AssemblyName>Vela</AssemblyName>
-  <TargetFramework>net9.0-windows</TargetFramework>
+  <TargetFramework>net10.0-windows</TargetFramework>
   <RuntimeIdentifier>win-x64</RuntimeIdentifier>
   <SelfContained>true</SelfContained>
   <PublishSingleFile>true</PublishSingleFile>
@@ -183,7 +183,7 @@ cmd.exe /c .\artifacts\publish\win-x64\Vela.exe < NUL
 
 ## 7. 交付目录
 
-Task 13 创建稳定入口：
+发布候选的稳定入口（完成发布任务后创建）：
 
 ~~~text
 D:\DevTools\Vela\

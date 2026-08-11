@@ -9,6 +9,7 @@ Vela 是一个面向 Win11 的单入口终端界面工具。它盘点 WSL 发行
 | [architecture.md](architecture.md) | 产品范围、TUI、分层、数据流、UAC worker、日志与原生命令设计。 |
 | [implementation-plan.md](implementation-plan.md) | 从当前空白解决方案到可发布 EXE 的逐步 TDD 实施清单。 |
 | [testing-and-release.md](testing-and-release.md) | 自动化测试、覆盖率 gate、人工验收、单文件发布与交付清单。 |
+| [release-readiness.md](release-readiness.md) | 公开仓库、真实截图、CI 和首个 Release 的剩余清单。 |
 
 ## 当前基线与目标路径
 
@@ -16,22 +17,26 @@ Vela 是一个面向 Win11 的单入口终端界面工具。它盘点 WSL 发行
 当前源码基线
 D:\Jason\Documents\Workspace\vs2022\repo\Vela
 ├─ Vela.sln
+├─ src\
+├─ tests\
 ├─ docs\
-└─ .vs\                         # Visual Studio 本地状态，不纳入 Git
+├─ legacy\powershell\
+└─ .git\                         # Git 元数据
 
-发布后的日常入口（当前为计划目标）
+发布后的日常入口（发布任务完成后使用）
 D:\DevTools\Vela\Vela.exe
 
 用户数据与运行记录
 %LocalAppData%\Vela\
 ~~~
 
-当前源码目录尚未初始化 Git，也尚未创建 src、tests、legacy、artifacts 等实施目录。实施 agent 从本索引和交接文档开始，按计划复选框推进。
+当前仓库已经包含源码、测试、legacy 归档、构建规则和 Git 历史。`implementation-plan.md` 是历史实施记录；当前发布前剩余事项以 [发布准备清单](release-readiness.md) 为准。
 
 ## 建议阅读顺序
 
-1. [agent-handoff.md](agent-handoff.md)
+1. [release-readiness.md](release-readiness.md)
 2. [development-environment.md](development-environment.md)
 3. [architecture.md](architecture.md)
-4. [implementation-plan.md](implementation-plan.md)
-5. [testing-and-release.md](testing-and-release.md)
+4. [testing-and-release.md](testing-and-release.md)
+5. [agent-handoff.md](agent-handoff.md)
+6. [implementation-plan.md](implementation-plan.md)（历史记录）

@@ -1,5 +1,7 @@
 # Vela 实施 Agent 交接单
 
+> 本文保留初始实施边界与架构约束。仓库已经完成初始化并包含 `src`、`tests`、`legacy` 和 Git 历史；当前发布前任务请查看 [发布准备清单](release-readiness.md)。
+
 ## 当前起点
 
 项目根为：
@@ -8,7 +10,7 @@
 D:\Jason\Documents\Workspace\vs2022\repo\Vela
 ~~~
 
-当前只存在 Vela.sln、docs 和 Visual Studio 的 .vs 本地状态。代码、测试、Git 仓库、发布目录均尚未创建。先读本文件，再依次读 development-environment.md、architecture.md、implementation-plan.md、testing-and-release.md。
+当前仓库包含 Vela.sln、源码、测试、文档、legacy 归档和 Git 历史。`artifacts` 是本地构建与测试输出目录，发布目录仍需单独执行发布任务后创建。阅读顺序建议为：release-readiness.md、development-environment.md、architecture.md、testing-and-release.md；implementation-plan.md 作为历史记录保留。
 
 ## 文件写入边界
 
@@ -39,16 +41,16 @@ D:\Jason\Documents\Workspace\vs2022\repo\Vela\
 
 ## 实施范围
 
-1. 按 implementation-plan.md 的复选框顺序创建四项目解决方案。
-2. 先写失败测试，再写最小实现，再重构。
-3. 每项任务完成后运行文档指定的测试；每个 Chunk 完成后运行全量 build、test 与 coverage gate。
-4. 将每个逻辑里程碑以 Conventional Commit 提交；首个提交前初始化 Git。
-5. 交付 EXE 到 D:\DevTools\Vela，源码始终留在项目根目录。
+1. 以当前项目文件和 `global.json` 为事实基线，不按历史计划重新创建解决方案。
+2. 新功能遵循先测试、再实现、再重构的 TDD 顺序。
+3. 每项任务完成后运行文档指定的测试；发布前运行全量 build、test 与 coverage gate。
+4. 逻辑里程碑使用 Conventional Commit；提交前检查 diff、秘密和工作区状态。
+5. 交付 EXE 到 D:\DevTools\Vela 前单独确认目标路径和覆盖文件，源码始终留在项目根目录。
 
 ## 强制架构约束
 
-- Vela.Core 使用 net9.0，且不引用 Windows API、Spectre.Console 或进程 API。
-- Vela.Windows、Vela.Tui、Vela.Tests 使用 net9.0-windows。
+- Vela.Core 使用 net10.0，且不引用 Windows API、Spectre.Console 或进程 API。
+- Vela.Windows、Vela.Tui、Vela.Tests 使用 net10.0-windows。
 - 真实原生命令仅封装在 Vela.Windows，全部由固定绝对路径与 ArgumentList 调用。
 - Compact worker 只接受 --worker --run-id <D 格式 GUID>，并根据 Distro 重新解析 Lxss VHDX；已解析路径与请求路径严格相等后才进入动作阶段。
 - 运行目录固定为 %LocalAppData%\Vela\logs\<RunId>。父 TUI 创建首个事件并轮询；worker 只追加同一日志流。

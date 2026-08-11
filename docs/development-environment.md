@@ -6,23 +6,23 @@
 | --- | --- | --- |
 | IDE | Visual Studio Community 2022 17.14.16 | 创建、调试、测试、发布。 |
 | 解决方案格式 | Visual Studio 17.14.36518.9 | 已写入 Vela.sln。 |
-| .NET SDK | 9.0.305 | 首版编译 SDK。 |
+| .NET SDK | 10.0.302 | 当前锁定的编译 SDK。 |
 | MSBuild | Visual Studio 侧 17.14.23；dotnet CLI 报告 17.14.21 | VS 与命令行构建。 |
 | Windows SDK | 10.0.22621.0、10.0.26100.0 | Win11 原生 API 与调试支持。 |
 | PowerShell | 7.6.3 | 现有 PowerShell 工具行为对照与排障。 |
 | Windows Terminal | 已安装 | Vela TUI 的推荐运行宿主。 |
-| NuGet | nuget.org 已启用且连通 | 还原 Spectre.Console、xUnit、coverlet。 |
+| NuGet | nuget.org 已启用且连通 | 还原 Terminal.Gui、Spectre.Console、xUnit、coverlet。 |
 
-本机另有 .NET 10 runtime，但首版 SDK 为 9.0.305。首版框架划分如下：
+当前 `global.json` 锁定 SDK 10.0.302，框架划分如下：
 
 ~~~text
-Vela.Core       net9.0
-Vela.Windows    net9.0-windows
-Vela.Tui        net9.0-windows
-Vela.Tests      net9.0-windows
+Vela.Core       net10.0
+Vela.Windows    net10.0-windows
+Vela.Tui        net10.0-windows
+Vela.Tests      net10.0-windows
 ~~~
 
-Core 保持跨平台且不引用 Windows API；其余项目显式使用 Windows TFM，以匹配注册表、WindowsIdentity 和 Windows 原生命令适配。Visual Studio 2022 17.14 与 .NET 9 是本机已验证的首版组合。
+Core 保持跨平台且不引用 Windows API；其余项目显式使用 Windows TFM，以匹配注册表、WindowsIdentity 和 Windows 原生命令适配。Visual Studio 2022 17.14 与 .NET 10 是当前已验证组合。
 
 参考：
 
@@ -31,22 +31,22 @@ Core 保持跨平台且不引用 Windows API；其余项目显式使用 Windows 
 
 ## 2. 当前状态与目录职责
 
-当前项目根已存在 Vela.sln、docs 和 Visual Studio 产生的 .vs；.git、src、tests、legacy、artifacts、Directory.Build.props、Directory.Packages.props、global.json 均由实施计划创建。
+当前项目根已存在 Vela.sln、docs、.git、src、tests、legacy、artifacts、Directory.Build.props、Directory.Packages.props 和 global.json。
 
 ~~~text
-源码与 Git 仓库（当前已存在根目录，后续按计划扩展）
+源码与 Git 仓库
 D:\Jason\Documents\Workspace\vs2022\repo\Vela\
 ├─ Vela.sln
 ├─ docs\
-├─ src\                           # 后续 C# 源码
-├─ tests\                         # 后续 xUnit 测试
-├─ legacy\powershell\             # 后续迁移的旧工具行为对照
+├─ src\                           # C# 源码
+├─ tests\                         # xUnit 测试
+├─ legacy\powershell\             # 旧工具行为对照
 ├─ artifacts\                     # 本地构建与发布输出，Git 忽略
 ├─ Directory.Build.props
 ├─ Directory.Packages.props
 └─ global.json
 
-稳定发布位置（Task 13 创建）
+稳定发布位置（发布任务完成后创建）
 D:\DevTools\Vela\
 ├─ Vela.exe
 ├─ README.md

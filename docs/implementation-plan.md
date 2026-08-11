@@ -1,5 +1,7 @@
 # Vela 实施计划
 
+> **历史记录说明：** 本计划以 .NET 9 为初始基线。当前源码已经迁移到 .NET 10；执行命令、目标框架和发布参数以 `global.json`、各项目文件、根目录 README 与 `docs/release-readiness.md` 为准。
+
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development（有 subagent 时）或 superpowers:executing-plans 实施本计划。复选框用于持续记录进度。
 
 **目标：** 构建单入口 C# Spectre.Console TUI “Vela”。它覆盖现有 PowerShell 工具的诊断、日志、WSL 盘点、VHDX 检查、确认、UAC worker 与 DiskPart 工作流，并以发行版注册表映射作为 Compact 目标的严格来源。
@@ -534,7 +536,7 @@ git commit -m "feat: orchestrate VHDX compaction workflow"
 测试项目引用 coverlet.msbuild（PrivateAssets=all）。用如下命令让 Vela.Core 与 Vela.Windows 任一 line coverage 低于 80% 时直接失败：
 
 ~~~powershell
-dotnet test .\tests\Vela.Tests\Vela.Tests.csproj -c Release -p:CollectCoverage=true -p:CoverletOutput=.\artifacts\coverage\coverage -p:CoverletOutputFormat=cobertura -p:Include='[Vela.Core]*,[Vela.Windows]*' -p:ExcludeByFile='**/Program.cs' -p:Threshold=80 -p:ThresholdType=line -p:ThresholdStat=minimum
+dotnet test .\tests\Vela.Tests\Vela.Tests.csproj -c Release -p:CollectCoverage=true -p:CoverletOutput=.\..\..\artifacts\coverage\coverage -p:CoverletOutputFormat=cobertura -p:Include="[Vela.Core]*%2C[Vela.Windows]*" -p:ExcludeByFile="**/Program.cs" -p:Threshold=80 -p:ThresholdType=line -p:ThresholdStat=minimum
 ~~~
 
 - [ ] **Step 2：设置静态质量**
