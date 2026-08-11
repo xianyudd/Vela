@@ -49,22 +49,22 @@ Vela 解决的不是“如何输入一条 compact 命令”，而是压缩前最
 
 ## 真实 TUI 画面
 
-以下素材来自 Vela 的实际 TUI 页面，覆盖实例选择、预检详情和运行日志。截图只展示界面状态，不代表 README 浏览过程会执行 WSL 停止或压缩动作。
+以下截图直接来自当前版本 Vela TUI 的真实运行进程，采集于 Release 构建的只读流程。截图覆盖实例选择、目标预检和 TUI 内日志；采集过程没有启动 WSL 停止或 VHDX 压缩。
 
 <table>
   <tr>
-    <td><img src="docs/assets/tui/preflight-list.png" alt="Vela 多实例预检选择列表" width="560"></td>
-    <td><img src="docs/assets/tui/preflight-detail.png" alt="Vela 单实例预检详情" width="560"></td>
+    <td><img src="docs/assets/tui/runtime-preflight-list.png" alt="当前版本 Vela TUI 多实例预检选择列表" width="560"></td>
+    <td><img src="docs/assets/tui/runtime-preflight-detail.png" alt="当前版本 Vela TUI 单实例预检详情" width="560"></td>
   </tr>
   <tr>
-    <td align="center">01 · 多实例选择</td>
-    <td align="center">01 · 单实例预检详情</td>
+    <td align="center">01 · 实例选择（真实运行）</td>
+    <td align="center">01 · 目标预检（真实运行）</td>
   </tr>
   <tr>
-    <td colspan="2" align="center"><img src="docs/assets/tui/run-progress.png" alt="Vela 运行进度与 TUI 内 Console Log" width="900"></td>
+    <td colspan="2" align="center"><img src="docs/assets/tui/runtime-log-detail.png" alt="当前版本 Vela TUI 内 Console Log 详情" width="900"></td>
   </tr>
   <tr>
-    <td colspan="2" align="center">02 · 运行进度与 TUI 内日志</td>
+    <td colspan="2" align="center">02 · TUI 内历史日志详情（真实运行）</td>
   </tr>
 </table>
 
