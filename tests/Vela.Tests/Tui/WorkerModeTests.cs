@@ -419,7 +419,7 @@ public sealed class WorkerModeTests
         {
             CallCount++;
             await _wsl.ShutdownAllAsync(cancellationToken);
-            await _diskPart.CompactVdiskAsync(request.Profile.VhdxPath, cancellationToken);
+            await _diskPart.CompactVdiskAsync(request.RunId, request.Profile.VhdxPath, cancellationToken);
             return _result;
         }
     }

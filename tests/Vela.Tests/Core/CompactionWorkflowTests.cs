@@ -141,6 +141,54 @@ public sealed class CompactionWorkflowTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_WhenDetailWorkspaceValidationThrows_ReturnsDiskPartPreflightFailed()
+    {
+        var wsl = ReadyWsl();
+        var diskPart = new RecordingDiskPartClient
+        {
+            DetailException = new InvalidOperationException("Privileged workspace validation failed."),
+        };
+        var journal = new FakeRunJournal();
+        var workflow = CreateWorkflow(
+            wsl,
+            new FakeLxssProfileResolver(MatchedResolution()),
+            new ScriptedInspector(SucceededInspection(10_000), SucceededInspection(9_000)),
+            diskPart,
+            journal);
+
+        var result = await workflow.ExecuteAsync(Request(ShutdownMode.Global));
+
+        Assert.Equal(TerminalResult.DiskPartPreflightFailed, result.Summary.TerminalResult);
+        Assert.Single(diskPart.DetailPaths);
+        Assert.Empty(diskPart.CompactPaths);
+        Assert.Null(result.Summary.AfterSnapshot);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenCompactWorkspaceValidationThrows_ReturnsDiskPartCompactFailed()
+    {
+        var wsl = ReadyWsl();
+        var diskPart = new RecordingDiskPartClient
+        {
+            CompactException = new InvalidOperationException("Privileged workspace validation failed."),
+        };
+        var journal = new FakeRunJournal();
+        var workflow = CreateWorkflow(
+            wsl,
+            new FakeLxssProfileResolver(MatchedResolution()),
+            new ScriptedInspector(SucceededInspection(10_000), SucceededInspection(9_000)),
+            diskPart,
+            journal);
+
+        var result = await workflow.ExecuteAsync(Request(ShutdownMode.Global));
+
+        Assert.Equal(TerminalResult.DiskPartCompactFailed, result.Summary.TerminalResult);
+        Assert.Single(diskPart.DetailPaths);
+        Assert.Single(diskPart.CompactPaths);
+        Assert.Null(result.Summary.AfterSnapshot);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_WhenLengthDoesNotChange_ReturnsCompletedWithNoReclaim()
     {
         var wsl = ReadyWsl();
@@ -403,22 +451,32 @@ public sealed class CompactionWorkflowTests
 
         public ProcessExecutionResult DetailResult { get; init; } = SucceededProcessResult();
         public ProcessExecutionResult CompactResult { get; init; } = SucceededProcessResult();
+        public Exception? DetailException { get; init; }
+        public Exception? CompactException { get; init; }
         public List<string> DetailPaths { get; } = new();
         public List<string> CompactPaths { get; } = new();
 
-        public Task<ProcessExecutionResult> DetailVdiskAsync(string validatedVhdxPath, CancellationToken cancellationToken)
+        public Task<ProcessExecutionResult> DetailVdiskAsync(Guid runId, string validatedVhdxPath, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             DetailPaths.Add(validatedVhdxPath);
             _onInvoked?.Invoke("diskpart.detail");
+            if (DetailException is not null)
+            {
+                return Task.FromException<ProcessExecutionResult>(DetailException);
+            }
             return Task.FromResult(DetailResult);
         }
 
-        public Task<ProcessExecutionResult> CompactVdiskAsync(string validatedVhdxPath, CancellationToken cancellationToken)
+        public Task<ProcessExecutionResult> CompactVdiskAsync(Guid runId, string validatedVhdxPath, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             CompactPaths.Add(validatedVhdxPath);
             _onInvoked?.Invoke("diskpart.compact");
+            if (CompactException is not null)
+            {
+                return Task.FromException<ProcessExecutionResult>(CompactException);
+            }
             return Task.FromResult(CompactResult);
         }
     }

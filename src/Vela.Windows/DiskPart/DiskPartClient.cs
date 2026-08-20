@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Text;
 using Vela.Core.Contracts;
 using Vela.Windows.Processes;
 
@@ -10,14 +9,14 @@ public sealed class DiskPartClient : IDiskPartClient
     private readonly IProcessRunner _processRunner;
     private readonly NativeToolPaths _nativeToolPaths;
     private readonly DiskPartScriptBuilder _scriptBuilder;
-    private readonly string _temporaryDirectory;
+    private readonly IPrivilegedDiskPartWorkspace _workspace;
 
     public DiskPartClient()
         : this(
             new WindowsProcessRunner(),
             new NativeToolPaths(),
             new DiskPartScriptBuilder(),
-            Path.Combine(Path.GetTempPath(), "Vela"))
+            new PrivilegedDiskPartWorkspace())
     {
     }
 
@@ -25,113 +24,70 @@ public sealed class DiskPartClient : IDiskPartClient
         IProcessRunner processRunner,
         NativeToolPaths nativeToolPaths,
         DiskPartScriptBuilder scriptBuilder,
-        string temporaryDirectory)
+        IPrivilegedDiskPartWorkspace workspace)
     {
         ArgumentNullException.ThrowIfNull(processRunner);
         ArgumentNullException.ThrowIfNull(nativeToolPaths);
         ArgumentNullException.ThrowIfNull(scriptBuilder);
-
-        if (string.IsNullOrWhiteSpace(temporaryDirectory))
-        {
-            throw new ArgumentException("A temporary directory is required.", nameof(temporaryDirectory));
-        }
+        ArgumentNullException.ThrowIfNull(workspace);
 
         _processRunner = processRunner;
         _nativeToolPaths = nativeToolPaths;
         _scriptBuilder = scriptBuilder;
-        _temporaryDirectory = Path.GetFullPath(temporaryDirectory);
+        _workspace = workspace;
     }
 
     public Task<ProcessExecutionResult> DetailVdiskAsync(
+        Guid runId,
         string validatedVhdxPath,
         CancellationToken cancellationToken) =>
         RunAsync(
+            runId,
             validatedVhdxPath,
             _scriptBuilder.BuildDetailScript,
             cancellationToken);
 
     public Task<ProcessExecutionResult> CompactVdiskAsync(
+        Guid runId,
         string validatedVhdxPath,
         CancellationToken cancellationToken) =>
         RunAsync(
+            runId,
             validatedVhdxPath,
             _scriptBuilder.BuildCompactScript,
             cancellationToken);
 
     private async Task<ProcessExecutionResult> RunAsync(
+        Guid runId,
         string validatedVhdxPath,
         Func<string, string> scriptFactory,
         CancellationToken cancellationToken)
     {
+        if (runId == Guid.Empty)
+        {
+            throw new ArgumentException("The run identifier must not be empty.", nameof(runId));
+        }
+
         cancellationToken.ThrowIfCancellationRequested();
         var script = scriptFactory(validatedVhdxPath);
-        var scriptPath = Path.Combine(
-            _temporaryDirectory,
-            $"vela-diskpart-{Guid.NewGuid():D}.txt");
-        var createdDirectory = false;
 
-        try
-        {
-            if (!Directory.Exists(_temporaryDirectory))
-            {
-                Directory.CreateDirectory(_temporaryDirectory);
-                createdDirectory = true;
-            }
+        await using var lease = await _workspace
+            .CreateScriptAsync(runId, script, cancellationToken)
+            .ConfigureAwait(false);
 
-            await File.WriteAllTextAsync(
-                    scriptPath,
-                    script,
-                    Encoding.ASCII,
-                    cancellationToken)
-                .ConfigureAwait(false);
+        await lease.VerifyAsync(cancellationToken).ConfigureAwait(false);
 
-            return await _processRunner
-                .RunAsync(
-                    new ProcessInvocation(
-                        _nativeToolPaths.DiskPartExePath,
-                        ImmutableArray.Create("/s", scriptPath),
-                        Timeout: null),
-                    output: null,
-                    cancellationToken)
-                .ConfigureAwait(false);
-        }
-        finally
-        {
-            TryDeleteFile(scriptPath);
-            if (createdDirectory)
-            {
-                TryDeleteDirectory(_temporaryDirectory);
-            }
-        }
-    }
+        var result = await _processRunner
+            .RunAsync(
+                new ProcessInvocation(
+                    _nativeToolPaths.DiskPartExePath,
+                    ImmutableArray.Create("/s", lease.ScriptPath),
+                    Timeout: null),
+                output: null,
+                cancellationToken)
+            .ConfigureAwait(false);
 
-    private static void TryDeleteFile(string path)
-    {
-        try
-        {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        }
-        catch (Exception)
-        {
-            // The process result is more useful than a best-effort cleanup exception.
-        }
-    }
-
-    private static void TryDeleteDirectory(string path)
-    {
-        try
-        {
-            if (Directory.Exists(path) && !Directory.EnumerateFileSystemEntries(path).Any())
-            {
-                Directory.Delete(path);
-            }
-        }
-        catch (Exception)
-        {
-            // The process result is more useful than a best-effort cleanup exception.
-        }
+        await lease.VerifyAsync(cancellationToken).ConfigureAwait(false);
+        return result;
     }
 }
