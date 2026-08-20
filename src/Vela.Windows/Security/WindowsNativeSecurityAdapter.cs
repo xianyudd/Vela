@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
@@ -12,6 +13,7 @@ namespace Vela.Windows.Security;
 /// All calls are Windows-only; consumers outside Windows inject fakes through
 /// <see cref="INativeSecurityAdapter"/>.
 /// </summary>
+[ExcludeFromCodeCoverage]
 internal static class NativeSecurityMethods
 {
     public const int TokenAdjustPrivileges = 0x0020;
@@ -162,6 +164,7 @@ internal static class NativeSecurityMethods
 /// Production implementation of <see cref="INativeSecurityAdapter"/> backed by
 /// Win32. Windows-only; Linux test runs substitute fakes.
 /// </summary>
+[ExcludeFromCodeCoverage]
 public sealed class WindowsNativeSecurityAdapter : INativeSecurityAdapter
 {
     private const int SecurityDescriptorSddlRevision = 1;
