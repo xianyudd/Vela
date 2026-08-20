@@ -12,7 +12,7 @@ if (-not (Test-Path -LiteralPath $CoveragePath -PathType Leaf)) {
 
 [xml]$report = Get-Content -LiteralPath $CoveragePath -Raw
 $packages = @($report.coverage.packages.package)
-$required = @("Vela.Core", "Vela.Windows")
+$required = @("Vela.Core", "Vela.Windows", "Vela.Application", "Vela.Tui")
 $seen = @{}
 
 foreach ($name in $required) {

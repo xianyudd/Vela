@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using Vela.Application.Profiles;
 using Vela.Core.Models;
 using Vela.Tui;
 using Vela.Tui.Application;

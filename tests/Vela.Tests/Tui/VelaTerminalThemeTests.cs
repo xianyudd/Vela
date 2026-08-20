@@ -38,7 +38,7 @@ public sealed class VelaTerminalThemeTests
     [Fact]
     public void Shell_uses_a_structured_terminal_frame_and_read_only_badge()
     {
-        using var app = Application.Create(new VirtualTimeProvider());
+        using var app = Terminal.Gui.App.Application.Create(new VirtualTimeProvider());
         app.Init(DriverRegistry.Names.ANSI);
         VelaTerminalTheme.Register();
         using var shell = new VelaTerminalShell(

@@ -54,7 +54,7 @@ jobs:
           -p:CollectCoverage=true
           -p:CoverletOutput=.\..\..\artifacts\coverage\coverage
           -p:CoverletOutputFormat=cobertura
-          -p:Include="[Vela.Core]*%2C[Vela.Windows]*"
+          -p:Include="[Vela.Core]*%2C[Vela.Windows]*%2C[Vela.Application]*%2C[Vela.Tui]*"
           -p:ExcludeByFile="**/Program.cs"
 
       - name: Verify coverage gate
