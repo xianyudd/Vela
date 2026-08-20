@@ -34,7 +34,9 @@ public sealed record TuiSessionState(
     DisplayMessage? RunHistoryError,
     ImmutableArray<DisplayRunEvent> LogDetailEvents,
     long LogDetailRevision,
-    Guid? CurrentLogDetailRunId)
+    Guid? CurrentLogDetailRunId,
+    int SelectedLogIndex,
+    ImmutableArray<Guid> RunHistoryRunIds)
 {
     /// <summary>
     /// The startup confirmation text required to proceed.
@@ -69,7 +71,9 @@ public sealed record TuiSessionState(
         RunHistoryError: null,
         LogDetailEvents: ImmutableArray<DisplayRunEvent>.Empty,
         LogDetailRevision: 0,
-        CurrentLogDetailRunId: null);
+        CurrentLogDetailRunId: null,
+        SelectedLogIndex: 0,
+        RunHistoryRunIds: ImmutableArray<Guid>.Empty);
 }
 
 /// <summary>

@@ -28,7 +28,7 @@ public static class TuiViewProjector
             Title: "Vela — WSL VHDX Compact",
             StatusMessage: statusMessage,
             StatusSeverity: statusSeverity,
-            SelectedIndex: ResolveSelectedIndex(state),
+            SelectedIndex: ResolveSelectedIndex(page, state),
             TargetSummaries: ProjectTargets(state),
             RunHistory: state.RunHistoryEntries,
             LogEvents: state.LogDetailEvents,
@@ -103,15 +103,10 @@ public static class TuiViewProjector
         return DisplayMessageSeverity.Info;
     }
 
-    private static int ResolveSelectedIndex(TuiSessionState state)
-    {
-        if (state.RunHistoryEntries.Length > 0 && state.SelectedMenuIndex < state.RunHistoryEntries.Length)
-        {
-            return state.SelectedMenuIndex;
-        }
-
-        return state.SelectedProfileIndex;
-    }
+    private static int ResolveSelectedIndex(TuiWorkspacePage page, TuiSessionState state) =>
+        page == TuiWorkspacePage.Logs
+            ? state.SelectedLogIndex
+            : state.SelectedProfileIndex;
 
     private static ImmutableArray<DisplayVhdxSummary> ProjectTargets(TuiSessionState state)
     {
