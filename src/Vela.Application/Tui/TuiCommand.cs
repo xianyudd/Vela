@@ -77,7 +77,7 @@ public sealed record MoveLogSelection(int Offset) : TuiCommand;
 public sealed record OpenSelectedLog : TuiCommand;
 
 /// <summary>Run-history effect completed.</summary>
-public sealed record RunHistoryLoaded(long Revision, ImmutableArray<DisplayRunSummary> Entries) : TuiCommand;
+public sealed record RunHistoryLoaded(long Revision, ImmutableArray<DisplayRunSummary> Entries, ImmutableArray<Guid> RunIds) : TuiCommand;
 
 /// <summary>Run-history effect failed.</summary>
 public sealed record RunHistoryFailed(long Revision, DisplayMessage Message) : TuiCommand;

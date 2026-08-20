@@ -325,6 +325,53 @@ public sealed class TuiReducerBranchTests
     public void Reducer_MoveLogSelection_NoOpWhenEmpty()
     {
         var transition = TuiReducer.Reduce(Ready, new MoveLogSelection(1));
-        Assert.Equal(0, transition.State.SelectedMenuIndex);
+        Assert.Equal(0, transition.State.SelectedLogIndex);
+    }
+
+    [Fact]
+    public void Reducer_MoveLogSelection_WrapsAndAdvances()
+    {
+        var state = Ready with
+        {
+            RunHistoryEntries = ImmutableArray.Create(
+                DisplayRunSummary.Malformed("a"),
+                DisplayRunSummary.Malformed("b"),
+                DisplayRunSummary.Malformed("c")),
+            SelectedLogIndex = 0
+        };
+
+        var down = TuiReducer.Reduce(state, new MoveLogSelection(1));
+        Assert.Equal(1, down.State.SelectedLogIndex);
+
+        var wrap = TuiReducer.Reduce(state, new MoveLogSelection(-1));
+        Assert.Equal(2, wrap.State.SelectedLogIndex);
+
+        var wrapForward = TuiReducer.Reduce(state with { SelectedLogIndex = 2 }, new MoveLogSelection(1));
+        Assert.Equal(0, wrapForward.State.SelectedLogIndex);
+    }
+
+    [Fact]
+    public void Reducer_RunHistoryLoaded_PopulatesParallelRunIds()
+    {
+        var runId = Guid.Parse("44444444-4444-4444-4444-444444444444");
+        var summary = new DisplayRunSummary(
+            StartedAtUtc: DateTimeOffset.UtcNow,
+            CompletedAtUtc: DateTimeOffset.UtcNow,
+            ProfileDisplayName: "Ubuntu 24.04",
+            DistroName: "Ubuntu-24.04",
+            Intent: OperationIntent.Compact,
+            TerminalResult: TerminalResult.Succeeded,
+            ReclaimedBytes: 1024,
+            IsMalformed: false,
+            ErrorMessage: null);
+        var state = Ready with { RunHistoryRevision = 1 };
+
+        var transition = TuiReducer.Reduce(
+            state,
+            new RunHistoryLoaded(1, ImmutableArray.Create(summary), ImmutableArray.Create(runId)));
+
+        Assert.Single(transition.State.RunHistoryEntries);
+        Assert.Single(transition.State.RunHistoryRunIds);
+        Assert.Equal(runId, transition.State.RunHistoryRunIds[0]);
     }
 }

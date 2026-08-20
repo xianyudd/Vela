@@ -370,8 +370,9 @@ public sealed class TuiReducerTests
     }
 
     [Fact]
-    public void Reducer_OpenSelectedLog_EmitsTrustedRunIdOnlyInsideEffect()
+    public void Reducer_OpenSelectedLog_EmitsTrustedRunIdFromParallelState()
     {
+        var runId = Guid.Parse("33333333-3333-3333-3333-333333333333");
         var summary = new DisplayRunSummary(
             StartedAtUtc: DateTimeOffset.UtcNow,
             CompletedAtUtc: DateTimeOffset.UtcNow,
@@ -385,14 +386,17 @@ public sealed class TuiReducerTests
         var state = Ready with
         {
             RunHistoryEntries = ImmutableArray.Create(summary),
-            SelectedMenuIndex = 0
+            RunHistoryRunIds = ImmutableArray.Create(runId),
+            SelectedLogIndex = 0
         };
 
         var transition = TuiReducer.Reduce(state, new OpenSelectedLog());
 
         var effect = Assert.IsType<ReadLogDetailEffect>(Assert.Single(transition.Effects));
-        // The trusted run id lives only in the effect, never in view state.
-        Assert.True(effect.TrustedRunId != Guid.Empty);
+        // The run id is threaded from trusted session state into the effect;
+        // it never crosses into view state.
+        Assert.Equal(runId, effect.TrustedRunId);
+        Assert.Equal(runId, transition.State.CurrentLogDetailRunId);
     }
 
     [Fact]
@@ -402,7 +406,8 @@ public sealed class TuiReducerTests
         var state = Ready with
         {
             RunHistoryEntries = ImmutableArray.Create(malformed),
-            SelectedMenuIndex = 0
+            RunHistoryRunIds = ImmutableArray.Create(Guid.Parse("33333333-3333-3333-3333-333333333333")),
+            SelectedLogIndex = 0
         };
 
         var transition = TuiReducer.Reduce(state, new OpenSelectedLog());
