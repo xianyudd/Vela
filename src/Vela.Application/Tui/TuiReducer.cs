@@ -365,28 +365,27 @@ public static class TuiReducer
             return TuiTransition.NoEffect(state);
         }
 
-        var current = 0;
-        var next = (current + move.Offset + state.RunHistoryEntries.Length) % state.RunHistoryEntries.Length;
-        return TuiTransition.NoEffect(state with { SelectedMenuIndex = next });
+        var next = (state.SelectedLogIndex + move.Offset + state.RunHistoryEntries.Length) % state.RunHistoryEntries.Length;
+        return TuiTransition.NoEffect(state with { SelectedLogIndex = next });
     }
 
     private static TuiTransition ReduceOpenSelectedLog(TuiSessionState state)
     {
         if (IsBusy(state) ||
             state.RunHistoryEntries.IsDefaultOrEmpty ||
-            state.SelectedMenuIndex >= state.RunHistoryEntries.Length)
+            state.SelectedLogIndex >= state.RunHistoryEntries.Length ||
+            state.SelectedLogIndex >= state.RunHistoryRunIds.Length)
         {
             return TuiTransition.NoEffect(state);
         }
 
-        var selected = state.RunHistoryEntries[state.SelectedMenuIndex];
+        var selected = state.RunHistoryEntries[state.SelectedLogIndex];
         if (selected.IsMalformed)
         {
             return TuiTransition.NoEffect(state);
         }
 
-        // The trusted run ID is only available inside the effect, never in view state.
-        var trustedRunId = Guid.NewGuid(); // would be mapped from the entry in the real runtime
+        var trustedRunId = state.RunHistoryRunIds[state.SelectedLogIndex];
         var nextRevision = state.LogDetailRevision + 1;
         return TuiTransition.WithEffect(
             state with
@@ -410,6 +409,7 @@ public static class TuiReducer
             state with
             {
                 RunHistoryEntries = loaded.Entries,
+                RunHistoryRunIds = loaded.RunIds,
                 RunHistoryError = null
             });
     }
