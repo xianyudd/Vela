@@ -169,6 +169,29 @@ public sealed class WorkerMode
             return CreateResult(TerminalResult.ValidationFailed);
         }
 
+        // Verify elevation before opening the journal or claiming/consuming the
+        // pending request. A non-elevated worker must leave the operation
+        // request and existing journal untouched so the rightful elevated
+        // worker is not preempted.
+        bool isAdministrator;
+        try
+        {
+            isAdministrator = _administratorProbe.IsAdministrator();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return CreateResult(TerminalResult.WorkerInterrupted);
+        }
+
+        if (!isAdministrator)
+        {
+            return CreateResult(TerminalResult.ValidationFailed);
+        }
+
         JournalOperationResult opened;
         try
         {
@@ -231,39 +254,6 @@ public sealed class WorkerMode
                     request,
                     "WorkerRequestInvalid",
                     RunPhase.Validation,
-                    TerminalResult.ValidationFailed,
-                    cancellationToken)
-                .ConfigureAwait(false);
-        }
-
-        bool isAdministrator;
-        try
-        {
-            isAdministrator = _administratorProbe.IsAdministrator();
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception)
-        {
-            return await CompleteFailureAsync(
-                    runId,
-                    request,
-                    "WorkerAdministratorProbeFailed",
-                    RunPhase.Elevation,
-                    TerminalResult.WorkerInterrupted,
-                    cancellationToken)
-                .ConfigureAwait(false);
-        }
-
-        if (!isAdministrator)
-        {
-            return await CompleteFailureAsync(
-                    runId,
-                    request,
-                    "WorkerNotElevated",
-                    RunPhase.Elevation,
                     TerminalResult.ValidationFailed,
                     cancellationToken)
                 .ConfigureAwait(false);

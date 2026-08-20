@@ -194,7 +194,7 @@ git commit -m "fix: verify worker elevation before claiming requests"
 
 ## Chunk 2: Privileged DiskPart workspace hotfix
 
-**Goal:** DiskPart scripts are created, verified, pinned, and cleaned under `%ProgramData%\Vela\Privileged\DiskPart\<operation-nonce>\<script-nonce>.txt` with protected owner/DACL/high integrity, eliminating the `%TEMP%` replacement window.
+**Goal:** DiskPart scripts are created, verified, pinned, and cleaned under `%ProgramData%\Vela\Privileged\DiskPart\<run-id>\<script-nonce>.txt` with protected owner/DACL/high integrity, eliminating the `%TEMP%` replacement window.
 
 **Dependencies:** Chunk 1 complete.
 
@@ -239,10 +239,10 @@ public interface IPrivilegedDiskPartScriptLease : IAsyncDisposable
 }
 ```
 
-- [ ] Implement `DiskPartScriptLease` with a private pinned `SafeFileHandle`; expose only `ScriptPath` through `IPrivilegedDiskPartScriptLease`.
 - [ ] RED test: `DiskPartClient_KeepsScriptLeaseOpenWhileProcessRuns` with a recording fake lease and fake runner asserting its `Disposed` flag is false during invocation.
 - [ ] RED test: `DiskPartClient_DisposesLeaseAfterRunnerCompletes`.
 - [ ] RED test: `DiskPartClient_VerifiesLeaseBeforeLaunchAndAfterProcessExit`; if the pre-launch verification fails, the process runner call count stays zero.
+- [ ] RED test: `DiskPartClient_DetailAndCompactPassTrustedRunIdToWorkspace`.
 
 Run:
 
@@ -252,6 +252,7 @@ dotnet test .\tests\Vela.Tests\Vela.Tests.csproj -c Release --no-restore --filte
 
 Expected RED: missing types/constructor.
 
+- [ ] Implement `DiskPartScriptLease` with a private pinned `SafeFileHandle`; expose only `ScriptPath` and `VerifyAsync` through `IPrivilegedDiskPartScriptLease`.
 - [ ] Add a non-empty trusted `runId` parameter to both `IDiskPartClient` operations and pass `OperationRequest.RunId` from `CompactionWorkflow`.
 - [ ] Update `DiskPartClient` constructor to accept `IPrivilegedDiskPartWorkspace` instead of raw temp directory.
 - [ ] Keep a test-only constructor overload if useful:
@@ -279,6 +280,8 @@ Primary API references verified on 2026-08-13:
 - Microsoft Learn [`Mandatory Integrity Control`](https://learn.microsoft.com/en-us/windows/win32/secauthz/mandatory-integrity-control): mandatory label ACEs live in the SACL, and the default mandatory policy is no-write-up.
 - Microsoft Learn [`ConvertStringSecurityDescriptorToSecurityDescriptorW`](https://learn.microsoft.com/en-us/windows/win32/api/sddl/nf-sddl-convertstringsecuritydescriptortosecuritydescriptorw): converts SDDL to a self-relative security descriptor and returns a `LocalFree`-owned buffer.
 - Microsoft Learn [`GetFinalPathNameByHandleW`](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfinalpathnamebyhandlew): retrieves the final path for a file or directory handle; the returned path can show the fully resolved target of a symbolic link.
+- Microsoft Learn [`AccessCheck`](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-accesscheck): evaluates requested access rights against a security descriptor and an impersonation token.
+- Microsoft Learn [`CreateRestrictedToken`](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-createrestrictedtoken): creates a restricted version of an access token by disabling SIDs, deleting privileges, and/or adding restricting SIDs.
 
 **Files:**
 - Create: `src/Vela.Windows/Security/WindowsSecurityDescriptorFactory.cs`
@@ -296,6 +299,7 @@ Primary API references verified on 2026-08-13:
   - `RejectsIdentityMismatchBetweenCreationHandleAndResolvedPath`.
   - `PrivilegeScope_WhenSecurityPrivilegeIsMissing_FailsBeforeCreatingWorkspace`.
   - `PrivilegeScope_RestoresPreviousTokenStateAfterSuccessAndException`.
+  - `MediumIntegrityAccessCheck_DeniesWriteDeleteRenameWriteDacAndWriteOwner`.
 - [ ] Implement using Windows APIs rather than shelling out:
   - `ConvertStringSecurityDescriptorToSecurityDescriptorW` for SDDL.
   - `CreateDirectoryW` / `CreateFileW` with `SECURITY_ATTRIBUTES` so objects are visible with the final descriptor.
@@ -344,17 +348,17 @@ Expected GREEN.
   - `CreateScriptAsync_UsesProgramDataPrivilegedRoot`.
   - `CreateScriptAsync_WritesAsciiAndFlushesToDisk`.
   - `CreateScriptAsync_UsesCreateNewAndRejectsExistingFile`.
-  - `CreateScriptAsync_KeepsCreationHandlePinnedWithFileShareReadOnly`.
+  - `CreateScriptAsync_ReopensReadOnlyPinWithFileShareReadOnly`.
   - `CreateScriptAsync_RejectsPreExistingDirectoryWithUnexpectedAcl`.
   - `CreateScriptAsync_RejectsReparseSegment`.
   - `DisposeAsync_BestEffortDeletesScriptAndRunDirectory`.
 - [ ] Implement root:
 
 ```text
-%ProgramData%\Vela\Privileged\DiskPart\<operation-nonce>\vela-diskpart-<script-nonce>.txt
+%ProgramData%\Vela\Privileged\DiskPart\<run-id>\vela-diskpart-<script-nonce>.txt
 ```
 
-Use code-derived fixed segments, a non-empty `Guid` formatted as `D`, and a cryptographically strong random nonce; do not accept a caller-supplied root except through an internal fakeable native/filesystem seam.
+Use code-derived fixed segments, a trusted non-empty run id `Guid` formatted as `D`, and a cryptographically strong script nonce; do not accept a caller-supplied root except through an internal fakeable native/filesystem seam.
 
 - [ ] For each directory segment:
   - create missing with protected descriptor;
@@ -363,12 +367,12 @@ Use code-derived fixed segments, a non-empty `Guid` formatted as `D`, and a cryp
 - [ ] For script file:
   - write ASCII bytes only;
   - create once with read/write access, create-new semantics, and `FileShare.Read` only;
-  - write and flush through the creation handle;
-  - while the creation handle is still open, acquire a read-only pin handle, compare both file identities, then close the writer so no replacement gap exists;
+  - write and call `Flush(flushToDisk: true)`, capture file identity, then close the writer;
+  - immediately reopen a read-only `FileShare.Read` pin, compare its identity with the creation identity, and rely on the already-verified protected DACL/high MIC during that short reopen interval;
   - verify file identity and security descriptor through the retained read-only handle and its resolved path;
   - verify parent directories again before returning lease;
   - bracket high-integrity SACL reads with `SE_SECURITY_NAME` enable/restore and assert restoration in a fake token-privilege adapter test.
-- [ ] Add an elevated, opt-in Windows integration check for the real `%ProgramData%` security descriptor and cleanup path; keep the default automated suite on fake native/filesystem boundaries.
+- [ ] Add an elevated, opt-in Windows integration check for the real `%ProgramData%` descriptor and cleanup path. Use `AccessCheck` or a restricted medium-integrity token to assert denial of write, delete/rename, `WRITE_DAC`, and `WRITE_OWNER`; keep the default automated suite on fake native/filesystem boundaries.
 
 Run focused tests. Expected GREEN.
 
@@ -487,6 +491,10 @@ Expected GREEN.
 - Modify: `src/Vela.Tui/Application/TuiServices.cs`
 - Modify: tests currently using `ProfileService`, `ProfileStoreState`, `ProfileDraft`, `ProfileManagementViewModel`.
 
+- [ ] First update/add tests for `ProfileService` validation, failed-store immutability, display-safe profile rows, persisted JSON compatibility, and the Application dependency rule; point them at the intended `Vela.Application` namespaces.
+
+Run the focused command below. Expected RED: the new namespaces/contracts are missing.
+
 - [ ] Move pure records/interfaces from `TuiServices.cs` and `JsonProfileStore.cs` without changing persisted JSON shape.
 - [ ] Keep `JsonProfileStore` in `Vela.Windows.Configuration` as the Windows file adapter implementing `IProfileStore`.
 - [ ] Delete `JsonProfileStoreAdapter`; it becomes redundant once `JsonProfileStore : IProfileStore`.
@@ -537,20 +545,42 @@ public sealed record NavigateMenu(int Offset) : TuiCommand;
 public sealed record SelectTarget(int Offset) : TuiCommand;
 public sealed record LockSelectedTarget : TuiCommand;
 public sealed record RefreshPreflight : TuiCommand;
+public sealed record PreflightCompleted(
+    Guid ProfileId,
+    long Generation,
+    PreflightReport Report) : TuiCommand;
+public sealed record PreflightFailed(
+    Guid ProfileId,
+    long Generation,
+    DisplayMessage Message) : TuiCommand;
 public sealed record OpenImpactPreview : TuiCommand;
+public sealed record ImpactEstimateCompleted(
+    long Revision,
+    CompactionImpactEstimate Estimate) : TuiCommand;
+public sealed record ImpactEstimateFailed(long Revision, DisplayMessage Message) : TuiCommand;
 public sealed record SubmitFirstY : TuiCommand;
 public sealed record SubmitSecondY : TuiCommand;
 public sealed record CancelOrBack : TuiCommand;
 public sealed record OpenLogs : TuiCommand;
 public sealed record MoveLogSelection(int Offset) : TuiCommand;
 public sealed record OpenSelectedLog : TuiCommand;
-public sealed record ExecutionJournalEvent(DisplayRunEvent Event) : TuiCommand;
+public sealed record RunHistoryLoaded(long Revision, ImmutableArray<RunSummary> Entries) : TuiCommand;
+public sealed record RunHistoryFailed(long Revision, DisplayMessage Message) : TuiCommand;
+public sealed record LogDetailLoaded(
+    long Revision,
+    Guid TrustedRunId,
+    ImmutableArray<DisplayRunEvent> Events) : TuiCommand;
+public sealed record LogDetailFailed(long Revision, DisplayMessage Message) : TuiCommand;
+public sealed record ExecutionJournalEvent(long Generation, DisplayRunEvent Event) : TuiCommand;
 
 public abstract record TuiEffect;
 public sealed record InitializeDataRootEffect(long Generation) : TuiEffect;
-public sealed record StartPreflightEffect(Profile Profile, bool PreserveTargetSelection) : TuiEffect;
+public sealed record StartPreflightEffect(
+    Profile Profile,
+    bool PreserveTargetSelection,
+    long Generation) : TuiEffect;
 public sealed record EstimateImpactEffect(LockedCompactionTarget Target, long Revision) : TuiEffect;
-public sealed record StartCompactionEffect(OperationRequest Request) : TuiEffect;
+public sealed record StartCompactionEffect(OperationRequest Request, long Generation) : TuiEffect;
 public sealed record ReadRunHistoryEffect(long Revision) : TuiEffect;
 public sealed record ReadLogDetailEffect(Guid TrustedRunId, long Revision) : TuiEffect;
 public sealed record RequestStopEffect : TuiEffect;
@@ -569,6 +599,7 @@ public sealed record RequestStopEffect : TuiEffect;
   - `Reducer_RunningState_IgnoresNavigationAndRefresh`.
   - `Reducer_EscapeFromResult_ReturnsToOverview`.
   - `Reducer_RejectsStaleAsyncEffectByRevision`.
+  - `Reducer_RejectsPreflightCompletionFromStaleGenerationOrProfile`.
   - `Reducer_OpenLogs_EmitsHistoryReadAndUsesOpaqueSelection`.
   - `Reducer_OpenSelectedLog_EmitsTrustedRunIdOnlyInsideEffect`.
   - `Projector_ExcludesRawPathRunIdNativeOutputAndExceptionText`.
@@ -1273,7 +1304,7 @@ git commit -m "refactor: complete model-first terminal gui architecture"
 ## Definition of done
 
 - Worker admin probe happens before journal open and request claim; non-admin does not consume/move/write pending request or existing journal.
-- DiskPart scripts are created under the protected ProgramData workspace, verified, retained on the creation handle with only read sharing, and cleaned best-effort.
+- DiskPart scripts are created under the protected ProgramData workspace, verified, reopened through a read-only `FileShare.Read` pin, and cleaned best-effort.
 - `Vela.Application` owns immutable `TuiSessionState`, typed `TuiCommand`, pure `TuiReducer`, explicit `TuiEffect`, and effect ports.
 - `TuiRuntime` and `TuiEffectRunner` orchestrate async preflight, impact, UAC, journal, history, and logs.
 - Terminal.Gui shell binds state and emits commands; it does not own workflow state machine logic.
