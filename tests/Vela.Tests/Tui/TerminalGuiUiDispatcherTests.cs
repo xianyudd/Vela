@@ -1,4 +1,4 @@
-using Terminal.Gui.App;
+using static Terminal.Gui.App.Application;
 using Terminal.Gui.Drivers;
 using Terminal.Gui.Time;
 using Terminal.Gui.Views;
@@ -20,7 +20,7 @@ public sealed class TerminalGuiUiDispatcherTests
         var invoked = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
         var uiThread = new Thread(() =>
         {
-            using var app = Application.Create(new VirtualTimeProvider());
+            using var app = Terminal.Gui.App.Application.Create(new VirtualTimeProvider());
             app.Init(DriverRegistry.Names.ANSI);
             using var window = new Window();
             var session = app.Begin(window);

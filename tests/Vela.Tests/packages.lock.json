@@ -24,6 +24,22 @@
           "Microsoft.TestPlatform.TestHost": "17.12.0"
         }
       },
+      "Terminal.Gui": {
+        "type": "Direct",
+        "requested": "[2.4.5, )",
+        "resolved": "2.4.5",
+        "contentHash": "gAZ7qNUuy5QBQA5XW+BAA8uREUKKaJN6HgwNYqTuPRcdKGQP8Or3fVsRFNo4IARknVxNI17YZrhzcUYJ/YVHTg==",
+        "dependencies": {
+          "ColorHelper": "1.8.1",
+          "JetBrains.Annotations": "2025.2.4",
+          "Markdig": "1.1.3",
+          "Microsoft.Extensions.Logging.Abstractions": "10.0.7",
+          "System.IO.Abstractions": "22.1.1",
+          "TextMateSharp": "2.0.4",
+          "TextMateSharp.Grammars": "2.0.4",
+          "Wcwidth": "4.0.1"
+        }
+      },
       "xunit": {
         "type": "Direct",
         "requested": "[2.9.2, )",
@@ -194,6 +210,12 @@
           "xunit.extensibility.core": "[2.9.2]"
         }
       },
+      "vela.application": {
+        "type": "Project",
+        "dependencies": {
+          "Vela.Core": "[1.0.0, )"
+        }
+      },
       "vela.core": {
         "type": "Project"
       },
@@ -202,6 +224,7 @@
         "dependencies": {
           "Spectre.Console": "[0.57.2, )",
           "Terminal.Gui": "[2.4.5, )",
+          "Vela.Application": "[1.0.0, )",
           "Vela.Core": "[1.0.0, )",
           "Vela.Windows": "[1.0.0, )"
         }
@@ -209,6 +232,7 @@
       "vela.windows": {
         "type": "Project",
         "dependencies": {
+          "Vela.Application": "[1.0.0, )",
           "Vela.Core": "[1.0.0, )"
         }
       },
@@ -220,29 +244,6 @@
         "dependencies": {
           "Spectre.Console.Ansi": "0.57.2"
         }
-      },
-      "Terminal.Gui": {
-        "type": "CentralTransitive",
-        "requested": "[2.4.5, )",
-        "resolved": "2.4.5",
-        "contentHash": "gAZ7qNUuy5QBQA5XW+BAA8uREUKKaJN6HgwNYqTuPRcdKGQP8Or3fVsRFNo4IARknVxNI17YZrhzcUYJ/YVHTg==",
-        "dependencies": {
-          "ColorHelper": "1.8.1",
-          "JetBrains.Annotations": "2025.2.4",
-          "Markdig": "1.1.3",
-          "Microsoft.Extensions.Logging.Abstractions": "10.0.7",
-          "System.IO.Abstractions": "22.1.1",
-          "TextMateSharp": "2.0.4",
-          "TextMateSharp.Grammars": "2.0.4",
-          "Wcwidth": "4.0.1"
-        }
-      }
-    },
-    "net10.0-windows7.0/win-x64": {
-      "Onigwrap": {
-        "type": "Transitive",
-        "resolved": "1.0.11",
-        "contentHash": "5/WAxSYWfiiPzp1X13qqdqjFmYLKDD/U7Vh3WCkKxWG9BjqdrXnQE5fCKCFJX+xWvuYLTxwZIVWBwBWObViE8g=="
       }
     }
   }

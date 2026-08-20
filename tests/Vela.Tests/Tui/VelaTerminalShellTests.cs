@@ -1,4 +1,4 @@
-using Terminal.Gui.App;
+using Terminal.Gui;
 using Terminal.Gui.Drivers;
 using Terminal.Gui.Input;
 using Terminal.Gui.Time;
@@ -17,7 +17,7 @@ public sealed class VelaTerminalShellTests
     [Fact]
     public void Design_sidebar_exposes_workspace_and_log_archive_modules()
     {
-        using var app = Application.Create(new VirtualTimeProvider());
+        using var app = Terminal.Gui.App.Application.Create(new VirtualTimeProvider());
         app.Init(DriverRegistry.Names.ANSI);
         VelaTerminalTheme.Register();
         using var shell = new VelaTerminalShell(
@@ -50,7 +50,7 @@ public sealed class VelaTerminalShellTests
     {
         var profile = CreateProfile();
         var dashboard = CreateReadyDashboard(profile);
-        using var app = Application.Create(new VirtualTimeProvider());
+        using var app = Terminal.Gui.App.Application.Create(new VirtualTimeProvider());
         app.Init(DriverRegistry.Names.ANSI);
         VelaTerminalTheme.Register();
         using var shell = new VelaTerminalShell(new MainMenu().ViewModel, dashboard);
@@ -92,7 +92,7 @@ public sealed class VelaTerminalShellTests
     {
         var profile = CreateProfile();
         var dashboard = CreateReadyDashboard(profile);
-        using var app = Application.Create(new VirtualTimeProvider());
+        using var app = Terminal.Gui.App.Application.Create(new VirtualTimeProvider());
         app.Init(DriverRegistry.Names.ANSI);
         VelaTerminalTheme.Register();
         using var shell = new VelaTerminalShell(new MainMenu().ViewModel, dashboard);
@@ -828,7 +828,7 @@ public sealed class VelaTerminalShellTests
         shell.NewKeyDownEvent(Key.Enter);
         shell.SelectMenuIndex(1);
 
-        using var app = Application.Create(new VirtualTimeProvider());
+        using var app = Terminal.Gui.App.Application.Create(new VirtualTimeProvider());
         app.Init(DriverRegistry.Names.ANSI);
         VelaTerminalTheme.Register();
         using var host = new TerminalGuiShellHost(app, shell);
@@ -884,7 +884,7 @@ public sealed class VelaTerminalShellTests
         int width,
         int height)
     {
-        using var app = Application.Create(new VirtualTimeProvider());
+        using var app = Terminal.Gui.App.Application.Create(new VirtualTimeProvider());
         app.Init(DriverRegistry.Names.ANSI);
         VelaTerminalTheme.Register();
         using var shell = new VelaTerminalShell(
@@ -968,7 +968,7 @@ public sealed class VelaTerminalShellTests
     [Fact]
     public void Narrow_log_page_prioritizes_error_and_warning_rows()
     {
-        using var app = Application.Create(new VirtualTimeProvider());
+        using var app = Terminal.Gui.App.Application.Create(new VirtualTimeProvider());
         app.Init(DriverRegistry.Names.ANSI);
         VelaTerminalTheme.Register();
         using var shell = new VelaTerminalShell(
@@ -999,7 +999,7 @@ public sealed class VelaTerminalShellTests
     [Fact]
     public void Log_analysis_page_renders_counts_and_contextual_navigation()
     {
-        using var app = Application.Create(new VirtualTimeProvider());
+        using var app = Terminal.Gui.App.Application.Create(new VirtualTimeProvider());
         app.Init(DriverRegistry.Names.ANSI);
         VelaTerminalTheme.Register();
         using var shell = new VelaTerminalShell(
@@ -1065,7 +1065,7 @@ public sealed class VelaTerminalShellTests
                     ErrorMessage: "压缩失败")),
             ErrorMessage: null);
 
-        using var app = Application.Create(new VirtualTimeProvider());
+        using var app = Terminal.Gui.App.Application.Create(new VirtualTimeProvider());
         app.Init(DriverRegistry.Names.ANSI);
         VelaTerminalTheme.Register();
         using var shell = new VelaTerminalShell(
@@ -1115,7 +1115,7 @@ public sealed class VelaTerminalShellTests
             IsMalformed: false,
             ErrorMessage: null);
 
-        using var app = Application.Create(new VirtualTimeProvider());
+        using var app = Terminal.Gui.App.Application.Create(new VirtualTimeProvider());
         app.Init(DriverRegistry.Names.ANSI);
         VelaTerminalTheme.Register();
         using var shell = new VelaTerminalShell(
@@ -1164,7 +1164,7 @@ public sealed class VelaTerminalShellTests
     [Fact]
     public void Design_module_shortcuts_switch_between_workspace_and_log_archive()
     {
-        using var app = Application.Create(new VirtualTimeProvider());
+        using var app = Terminal.Gui.App.Application.Create(new VirtualTimeProvider());
         app.Init(DriverRegistry.Names.ANSI);
         VelaTerminalTheme.Register();
         using var shell = new VelaTerminalShell(
@@ -1194,7 +1194,7 @@ public sealed class VelaTerminalShellTests
     [Fact]
     public void Narrow_log_analysis_keeps_summary_and_error_signal_visible()
     {
-        using var app = Application.Create(new VirtualTimeProvider());
+        using var app = Terminal.Gui.App.Application.Create(new VirtualTimeProvider());
         app.Init(DriverRegistry.Names.ANSI);
         VelaTerminalTheme.Register();
         using var shell = new VelaTerminalShell(
@@ -1229,7 +1229,7 @@ public sealed class VelaTerminalShellTests
     [Fact]
     public void Wide_log_analysis_uses_a_single_context_rail_without_hiding_log_rows()
     {
-        using var app = Application.Create(new VirtualTimeProvider());
+        using var app = Terminal.Gui.App.Application.Create(new VirtualTimeProvider());
         app.Init(DriverRegistry.Names.ANSI);
         VelaTerminalTheme.Register();
         using var shell = new VelaTerminalShell(
@@ -1264,7 +1264,7 @@ public sealed class VelaTerminalShellTests
     public void Checking_preflight_renders_task_card_summary_and_evidence_table()
     {
         var profile = CreateProfile();
-        using var app = Application.Create(new VirtualTimeProvider());
+        using var app = Terminal.Gui.App.Application.Create(new VirtualTimeProvider());
         app.Init(DriverRegistry.Names.ANSI);
         VelaTerminalTheme.Register();
         using var shell = new VelaTerminalShell(
@@ -1303,7 +1303,7 @@ public sealed class VelaTerminalShellTests
     public void Medium_overview_card_keeps_evidence_next_step_and_action_bar_visible()
     {
         var profile = CreateProfile();
-        using var app = Application.Create(new VirtualTimeProvider());
+        using var app = Terminal.Gui.App.Application.Create(new VirtualTimeProvider());
         app.Init(DriverRegistry.Names.ANSI);
         VelaTerminalTheme.Register();
         using var shell = new VelaTerminalShell(
@@ -1360,7 +1360,7 @@ public sealed class VelaTerminalShellTests
     [Fact]
     public void Driver_resize_reflows_shell_without_losing_preflight_status()
     {
-        using var app = Application.Create(new VirtualTimeProvider());
+        using var app = Terminal.Gui.App.Application.Create(new VirtualTimeProvider());
         app.Init(DriverRegistry.Names.ANSI);
         VelaTerminalTheme.Register();
         using var shell = new VelaTerminalShell(
@@ -1399,7 +1399,7 @@ public sealed class VelaTerminalShellTests
     [Fact]
     public void Driver_resize_from_minimal_canvas_restores_page_heading()
     {
-        using var app = Application.Create(new VirtualTimeProvider());
+        using var app = Terminal.Gui.App.Application.Create(new VirtualTimeProvider());
         app.Init(DriverRegistry.Names.ANSI);
         VelaTerminalTheme.Register();
         using var shell = new VelaTerminalShell(
@@ -1494,7 +1494,7 @@ public sealed class VelaTerminalShellTests
     [InlineData('R')]
     public void Menu_one_refresh_is_handled_when_the_navigation_list_has_focus(char input)
     {
-        using var app = Application.Create(new VirtualTimeProvider());
+        using var app = Terminal.Gui.App.Application.Create(new VirtualTimeProvider());
         app.Init(DriverRegistry.Names.ANSI);
         VelaTerminalTheme.Register();
         using var shell = new VelaTerminalShell(
@@ -1552,7 +1552,7 @@ public sealed class VelaTerminalShellTests
             LogAvailabilityState = PreflightDataState.Available,
             LogsAvailable = true
         };
-        using var app = Application.Create(new VirtualTimeProvider());
+        using var app = Terminal.Gui.App.Application.Create(new VirtualTimeProvider());
         app.Init(DriverRegistry.Names.ANSI);
         VelaTerminalTheme.Register();
         using var shell = new VelaTerminalShell(new MainMenu().ViewModel, dashboard);
@@ -1647,7 +1647,7 @@ public sealed class VelaTerminalShellTests
     {
         var profile = CreateProfile();
         var dashboard = CreateReadyDashboard(profile);
-        using var app = Application.Create(new VirtualTimeProvider());
+        using var app = Terminal.Gui.App.Application.Create(new VirtualTimeProvider());
         app.Init(DriverRegistry.Names.ANSI);
         VelaTerminalTheme.Register();
         using var shell = new VelaTerminalShell(new MainMenu().ViewModel, dashboard);
@@ -1703,7 +1703,7 @@ public sealed class VelaTerminalShellTests
     {
         var profile = CreateProfile();
         var dashboard = CreateReadyDashboard(profile);
-        using var app = Application.Create(new VirtualTimeProvider());
+        using var app = Terminal.Gui.App.Application.Create(new VirtualTimeProvider());
         app.Init(DriverRegistry.Names.ANSI);
         VelaTerminalTheme.Register();
         using var shell = new VelaTerminalShell(new MainMenu().ViewModel, dashboard);
@@ -1839,7 +1839,7 @@ public sealed class VelaTerminalShellTests
         int height,
         string expectedContent)
     {
-        using var app = Application.Create(new VirtualTimeProvider());
+        using var app = Terminal.Gui.App.Application.Create(new VirtualTimeProvider());
         app.Init(DriverRegistry.Names.ANSI);
         VelaTerminalTheme.Register();
         var profile = CreateProfile();
@@ -1926,7 +1926,7 @@ public sealed class VelaTerminalShellTests
     public void Overview_renders_reference_dashboard_cards_with_actionable_copy()
     {
         var profile = CreateProfile();
-        using var app = Application.Create(new VirtualTimeProvider());
+        using var app = Terminal.Gui.App.Application.Create(new VirtualTimeProvider());
         app.Init(DriverRegistry.Names.ANSI);
         VelaTerminalTheme.Register();
         using var shell = new VelaTerminalShell(

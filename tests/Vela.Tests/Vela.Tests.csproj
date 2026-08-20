@@ -12,6 +12,7 @@
     <PackageReference Include="coverlet.collector" PrivateAssets="all" />
     <PackageReference Include="coverlet.msbuild" PrivateAssets="all" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Terminal.Gui" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
   </ItemGroup>
@@ -21,6 +22,7 @@
     <ProjectReference Include="..\..\src\Vela.Core\Vela.Core.csproj" />
     <ProjectReference Include="..\..\src\Vela.Windows\Vela.Windows.csproj" />
     <ProjectReference Include="..\..\src\Vela.Tui\Vela.Tui.csproj" />
+    <ProjectReference Include="..\..\src\Vela.Application\Vela.Application.csproj" />
   </ItemGroup>
 
 </Project>

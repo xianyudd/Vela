@@ -1,19 +1,17 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Vela.Application.Profiles;
 using Vela.Core.Models;
 using Vela.Core.Validation;
 using Vela.Windows.Diagnostics;
 
 namespace Vela.Windows.Configuration;
 
-public sealed record ProfileStoreState(
-    int SchemaVersion,
-    Guid LastProfileId,
-    int LogRetentionDays,
-    ImmutableArray<Profile> Profiles);
-
-public sealed class JsonProfileStore
+/// <summary>
+/// Windows file adapter that persists <see cref="ProfileStoreState"/> as JSON.
+/// </summary>
+public sealed class JsonProfileStore : IProfileStore
 {
     public const int CurrentSchemaVersion = 1;
     public const int DefaultLogRetentionDays = 90;

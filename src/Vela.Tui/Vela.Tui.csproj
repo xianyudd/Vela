@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Vela.Core\Vela.Core.csproj" />
     <ProjectReference Include="..\Vela.Windows\Vela.Windows.csproj" />
+    <ProjectReference Include="..\Vela.Application\Vela.Application.csproj" />
   </ItemGroup>
 
   <ItemGroup>

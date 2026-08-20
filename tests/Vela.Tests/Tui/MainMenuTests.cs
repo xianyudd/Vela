@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Spectre.Console;
+using Vela.Application.Profiles;
 using Vela.Core.Contracts;
 using Vela.Core.Models;
 using Vela.Tui;

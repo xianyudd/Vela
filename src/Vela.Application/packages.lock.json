@@ -2,12 +2,6 @@
   "version": 2,
   "dependencies": {
     "net10.0-windows7.0": {
-      "vela.application": {
-        "type": "Project",
-        "dependencies": {
-          "Vela.Core": "[1.0.0, )"
-        }
-      },
       "vela.core": {
         "type": "Project"
       }

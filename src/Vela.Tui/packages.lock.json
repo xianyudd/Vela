@@ -116,21 +116,21 @@
         "resolved": "4.0.1",
         "contentHash": "PMU8u3pGf9nUkee39KMrB8qqId7u7kyGWaZpOh9E4Mal3xChq+relS/hHQOicGAswyzi7F5DjXjac0mTnRBX8Q=="
       },
+      "vela.application": {
+        "type": "Project",
+        "dependencies": {
+          "Vela.Core": "[1.0.0, )"
+        }
+      },
       "vela.core": {
         "type": "Project"
       },
       "vela.windows": {
         "type": "Project",
         "dependencies": {
+          "Vela.Application": "[1.0.0, )",
           "Vela.Core": "[1.0.0, )"
         }
-      }
-    },
-    "net10.0-windows7.0/win-x64": {
-      "Onigwrap": {
-        "type": "Transitive",
-        "resolved": "1.0.11",
-        "contentHash": "5/WAxSYWfiiPzp1X13qqdqjFmYLKDD/U7Vh3WCkKxWG9BjqdrXnQE5fCKCFJX+xWvuYLTxwZIVWBwBWObViE8g=="
       }
     }
   }
