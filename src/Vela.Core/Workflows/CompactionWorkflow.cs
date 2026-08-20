@@ -452,7 +452,7 @@ public sealed class CompactionWorkflow
         try
         {
             detailResult = await _diskPartClient
-                .DetailVdiskAsync(resolution.ResolvedVhdxPath!, cancellationToken)
+                .DetailVdiskAsync(request.RunId, resolution.ResolvedVhdxPath!, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -496,7 +496,7 @@ public sealed class CompactionWorkflow
         try
         {
             compactResult = await _diskPartClient
-                .CompactVdiskAsync(resolution.ResolvedVhdxPath!, cancellationToken)
+                .CompactVdiskAsync(request.RunId, resolution.ResolvedVhdxPath!, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

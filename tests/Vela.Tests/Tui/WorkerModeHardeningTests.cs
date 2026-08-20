@@ -81,8 +81,69 @@ public sealed class WorkerModeHardeningTests
 
         Assert.Equal(TerminalResult.WorkerInterrupted, result.TerminalResult);
         Assert.Equal(10, result.ExitCode);
-        Assert.Contains(journal.Events, item => item.OperationName == "WorkerAdministratorProbeFailed");
-        Assert.Equal(runId, Assert.Single(journal.Summaries).RunId);
+        Assert.Empty(journal.Operations);
+        Assert.Empty(store.ClaimedRunIds);
+        Assert.Empty(store.ConsumedRunIds);
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenNotAdministrator_DoesNotOpenJournalClaimConsumeOrAppend()
+    {
+        using var root = TestRoot.Create();
+        var paths = new AppPaths(root.RootDirectory);
+        var runId = Guid.Parse("e5b3c1a2-0f4d-4e7b-9c1a-2b3d4e5f6a7b");
+        var request = CreateRequest(runId);
+        var journal = new RecordingJournal();
+        var store = new RecordingStore(request, paths.GetPendingRequestFilePath(runId));
+        var mode = new WorkerMode(
+            paths,
+            store,
+            journal,
+            new FixedAdministratorProbe(false),
+            new FixedResolver(),
+            new FixedExecutor(CreateWorkflow(request, TerminalResult.Succeeded)),
+            new FixedClock());
+
+        var result = await mode.RunAsync(
+            ["--worker", "--run-id", runId.ToString("D")],
+            CancellationToken.None);
+
+        Assert.Equal(TerminalResult.ValidationFailed, result.TerminalResult);
+        Assert.Equal(2, result.ExitCode);
+        Assert.Empty(store.ClaimedRunIds);
+        Assert.Empty(store.ConsumedRunIds);
+        Assert.Empty(journal.Operations);
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenArgumentsInvalid_DoesNotProbeAdministrator()
+    {
+        using var root = TestRoot.Create();
+        var paths = new AppPaths(root.RootDirectory);
+        var runId = Guid.Parse("f6c4d2b3-1a5e-4f8c-8d2b-3c4e5f6a7b8c");
+        var request = CreateRequest(runId);
+        var journal = new RecordingJournal();
+        var store = new RecordingStore(request, paths.GetPendingRequestFilePath(runId));
+        var probe = new RecordingAdministratorProbe(false);
+        var mode = new WorkerMode(
+            paths,
+            store,
+            journal,
+            probe,
+            new FixedResolver(),
+            new FixedExecutor(CreateWorkflow(request, TerminalResult.Succeeded)),
+            new FixedClock());
+
+        var result = await mode.RunAsync(
+            ["--worker", "--run-id", "not-a-guid"],
+            CancellationToken.None);
+
+        Assert.Equal(TerminalResult.ValidationFailed, result.TerminalResult);
+        Assert.Equal(2, result.ExitCode);
+        Assert.Equal(0, probe.CallCount);
+        Assert.Empty(journal.Operations);
+        Assert.Empty(store.ClaimedRunIds);
+        Assert.Empty(store.ConsumedRunIds);
     }
 
     [Fact]
@@ -117,8 +178,45 @@ public sealed class WorkerModeHardeningTests
         Assert.Equal(TerminalResult.ValidationFailed, Assert.Single(journal.Summaries).TerminalResult);
         Assert.Equal(runId, Assert.Single(store.ConsumedRunIds));
         Assert.Equal(
-            new[] { "append:WorkerFailed", "summary", "append:WorkerRequestConsumeFailed" },
+            new[] { "open", "append:WorkerFailed", "summary", "append:WorkerRequestConsumeFailed" },
             journal.Operations);
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenSucceeded_WritesCanonicalTerminalEventFieldsAndExitCode()
+    {
+        using var root = TestRoot.Create();
+        var paths = new AppPaths(root.RootDirectory);
+        var runId = Guid.Parse("a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d");
+        var request = CreateRequest(runId);
+        var journal = new RecordingJournal();
+        var store = new RecordingStore(request, paths.GetPendingRequestFilePath(runId));
+        var mode = new WorkerMode(
+            paths,
+            store,
+            journal,
+            new FixedAdministratorProbe(true),
+            new FixedResolver(),
+            new FixedExecutor(CreateWorkflow(request, TerminalResult.Succeeded)),
+            new FixedClock());
+
+        var result = await mode.RunAsync(
+            ["--worker", "--run-id", runId.ToString("D")],
+            CancellationToken.None);
+
+        Assert.Equal(TerminalResult.Succeeded, result.TerminalResult);
+        Assert.Equal(0, result.ExitCode);
+        var terminal = Assert.Single(
+            journal.Events,
+            item => item.OperationName == "WorkerCompleted");
+        Assert.Equal(runId, terminal.RunId);
+        Assert.Equal(TerminalResult.Succeeded, terminal.TerminalResult);
+        Assert.Equal(0, terminal.ExitCode);
+        Assert.Equal(
+            WorkerExitCodes.FromTerminalResult(terminal.TerminalResult!.Value),
+            terminal.ExitCode);
+        Assert.Equal(runId, Assert.Single(journal.Summaries).RunId);
+        Assert.Equal(runId, Assert.Single(store.ConsumedRunIds));
     }
     private static OperationRequest CreateRequest(Guid runId) =>
         new(
@@ -134,15 +232,7 @@ public sealed class WorkerModeHardeningTests
 
     private static WorkflowResult CreateWorkflow(OperationRequest request, TerminalResult terminalResult) =>
         new(
-            new RunSummary(
-                request.RunId,
-                request.Profile,
-                request.Intent,
-                DateTimeOffset.UnixEpoch,
-                DateTimeOffset.UnixEpoch,
-                null,
-                null,
-                terminalResult),
+            CreateSummary(request, terminalResult),
             new PreflightReport(
                 Vela.Core.Validation.ValidationResult.Valid,
                 null,
@@ -152,6 +242,31 @@ public sealed class WorkerModeHardeningTests
             ImmutableArray<WorkflowDiagnostic>.Empty,
             null);
 
+    private static RunSummary CreateSummary(OperationRequest request, TerminalResult terminalResult)
+    {
+        var success = terminalResult is TerminalResult.Succeeded or TerminalResult.CompletedWithNoReclaim;
+        var beforeLength = 10_000L;
+        var afterLength = terminalResult == TerminalResult.CompletedWithNoReclaim ? beforeLength : 7_500L;
+        return new(
+            request.RunId,
+            request.Profile,
+            request.Intent,
+            DateTimeOffset.UnixEpoch,
+            DateTimeOffset.UnixEpoch,
+            success ? CreateSnapshot(beforeLength) : null,
+            success ? CreateSnapshot(afterLength) : null,
+            terminalResult);
+    }
+
+    private static VhdxSnapshot CreateSnapshot(long fileLengthBytes) =>
+        new(
+            DateTimeOffset.UnixEpoch,
+            @"D:\DevTools\WSL2\Ubuntu24.04\ext4.vhdx",
+            fileLengthBytes,
+            DateTimeOffset.UnixEpoch,
+            null,
+            new DriveSnapshot(@"D:\", 100_000L, 50_000L));
+
     private sealed class RecordingJournal : IRunJournal
     {
         public List<RunEvent> Events { get; } = new();
@@ -159,11 +274,17 @@ public sealed class WorkerModeHardeningTests
         public List<string> Operations { get; } = new();
         private long _sequence;
 
-        public Task<JournalOperationResult> CreateRunAsync(Guid runId, CancellationToken cancellationToken) =>
-            Task.FromResult(JournalOperationResult.Success(null));
+        public Task<JournalOperationResult> CreateRunAsync(Guid runId, CancellationToken cancellationToken)
+        {
+            Operations.Add("create");
+            return Task.FromResult(JournalOperationResult.Success(null));
+        }
 
-        public Task<JournalOperationResult> OpenExistingRunAsync(Guid runId, CancellationToken cancellationToken) =>
-            Task.FromResult(JournalOperationResult.Success(null));
+        public Task<JournalOperationResult> OpenExistingRunAsync(Guid runId, CancellationToken cancellationToken)
+        {
+            Operations.Add("open");
+            return Task.FromResult(JournalOperationResult.Success(null));
+        }
 
         public Task<JournalAppendResult> AppendAsync(RunEventDraft eventDraft, CancellationToken cancellationToken)
         {
@@ -212,6 +333,8 @@ public sealed class WorkerModeHardeningTests
             _consumeSucceeds = consumeSucceeds;
         }
 
+        public List<Guid> ClaimedRunIds { get; } = new();
+
         public List<Guid> ConsumedRunIds { get; } = new();
 
         public Task<OperationRequestWriteResult> WriteAsync(OperationRequest request, CancellationToken cancellationToken) =>
@@ -220,8 +343,11 @@ public sealed class WorkerModeHardeningTests
         public Task<OperationRequestReadResult> ReadAsync(Guid expectedRunId, CancellationToken cancellationToken) =>
             Task.FromResult(OperationRequestReadResult.Success(_request, _sourcePath));
 
-        public Task<OperationRequestClaimResult> ClaimAsync(Guid expectedRunId, CancellationToken cancellationToken) =>
-            Task.FromResult(OperationRequestClaimResult.Success(_request, _sourcePath));
+        public Task<OperationRequestClaimResult> ClaimAsync(Guid expectedRunId, CancellationToken cancellationToken)
+        {
+            ClaimedRunIds.Add(expectedRunId);
+            return Task.FromResult(OperationRequestClaimResult.Success(_request, _sourcePath));
+        }
 
         public Task<OperationRequestConsumeResult> ConsumeAsync(Guid expectedRunId, CancellationToken cancellationToken)
         {
@@ -238,6 +364,18 @@ public sealed class WorkerModeHardeningTests
         private readonly bool _value;
         public FixedAdministratorProbe(bool value) => _value = value;
         public bool IsAdministrator() => _value;
+    }
+
+    private sealed class RecordingAdministratorProbe : IAdministratorProbe
+    {
+        private readonly bool _value;
+        public RecordingAdministratorProbe(bool value) => _value = value;
+        public int CallCount { get; private set; }
+        public bool IsAdministrator()
+        {
+            CallCount++;
+            return _value;
+        }
     }
 
     private sealed class ThrowingAdministratorProbe : IAdministratorProbe

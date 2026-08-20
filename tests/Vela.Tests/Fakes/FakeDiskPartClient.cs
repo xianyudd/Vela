@@ -23,6 +23,7 @@ public sealed class FakeDiskPartClient : IDiskPartClient
     public ImmutableArray<string> CompactVdiskPaths => _compactVdiskPaths;
 
     public Task<ProcessExecutionResult> DetailVdiskAsync(
+        Guid runId,
         string validatedVhdxPath,
         CancellationToken cancellationToken)
     {
@@ -34,6 +35,7 @@ public sealed class FakeDiskPartClient : IDiskPartClient
     }
 
     public Task<ProcessExecutionResult> CompactVdiskAsync(
+        Guid runId,
         string validatedVhdxPath,
         CancellationToken cancellationToken)
     {

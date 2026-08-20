@@ -111,7 +111,7 @@ public sealed class WorkerModeTests
     }
 
     [Fact]
-    public async Task RunAsync_WhenWorkerIsNotAdministrator_WritesElevationFailureAndSkipsExecution()
+    public async Task RunAsync_WhenWorkerIsNotAdministrator_ReturnsValidationFailedWithoutTouchingJournalStoreOrExecutor()
     {
         using var root = TestRoot.Create();
         var paths = new AppPaths(root.RootDirectory);
@@ -134,13 +134,10 @@ public sealed class WorkerModeTests
         Assert.Equal(TerminalResult.ValidationFailed, result.TerminalResult);
         Assert.Equal(2, result.ExitCode);
         Assert.Equal(0, executor.CallCount);
-        Assert.Contains(
-            journal.Events,
-            static @event => @event.OperationName == "WorkerNotElevated" &&
-                             @event.Phase == RunPhase.Elevation &&
-                             @event.Level == RunEventLevel.Error);
-        Assert.Equal(TerminalResult.ValidationFailed, Assert.Single(journal.Summaries).TerminalResult);
-        Assert.Equal(1, store.ConsumeCalls);
+        Assert.Equal(0, journal.OpenExistingRunCalls);
+        Assert.Equal(0, journal.AppendCalls);
+        Assert.Equal(0, journal.SummaryWriteCalls);
+        Assert.Equal(0, store.ConsumeCalls);
     }
 
     [Fact]
@@ -422,7 +419,7 @@ public sealed class WorkerModeTests
         {
             CallCount++;
             await _wsl.ShutdownAllAsync(cancellationToken);
-            await _diskPart.CompactVdiskAsync(request.Profile.VhdxPath, cancellationToken);
+            await _diskPart.CompactVdiskAsync(request.RunId, request.Profile.VhdxPath, cancellationToken);
             return _result;
         }
     }
