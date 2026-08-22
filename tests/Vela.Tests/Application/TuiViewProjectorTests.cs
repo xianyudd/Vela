@@ -233,6 +233,52 @@ public sealed class TuiViewProjectorTests
         Assert.Equal("未知", summary.HostCapacityStatus);
     }
 
+    [Fact]
+    public void Projector_ReportsMappingAsNotCheckedWhenResolutionIsAbsent()
+    {
+        var profile = new Profile(
+            Guid.Parse("33333333-3333-3333-3333-333333333333"),
+            "Ubuntu 24.04",
+            "Ubuntu-24.04",
+            @"D:\WSL\Ubuntu\ext4.vhdx",
+            ShutdownMode.Distro,
+            TimeSpan.FromSeconds(30));
+
+        var snapshot = new VhdxSnapshot(
+            CapturedAtUtc: DateTimeOffset.UnixEpoch,
+            Path: @"D:\WSL\Ubuntu\ext4.vhdx",
+            FileLengthBytes: 4L * 1024 * 1024 * 1024,
+            LastWriteUtc: DateTimeOffset.UnixEpoch,
+            IsSparse: false,
+            Drive: new DriveSnapshot(
+                RootPath: @"D:\",
+                TotalSizeBytes: 500L * 1024 * 1024 * 1024,
+                AvailableFreeSpaceBytes: 120L * 1024 * 1024 * 1024));
+
+        // The VHDX was inspected but the registry mapping never resolved, so the
+        // report exists while its resolution stays null.
+        var report = new PreflightReport(
+            ValidationResult.Valid,
+            InstalledInventory: null,
+            LxssResolution: null,
+            VhdxInspection: new VhdxInspectionResult(VhdxInspectionStatus.Succeeded, snapshot),
+            RunningInventory: null);
+
+        var state = TuiSessionState.Initial() with
+        {
+            StartupStatus = StartupStatus.Ready,
+            CurrentProfile = profile,
+            LockedTarget = new LockedCompactionTarget(profile, profile.VhdxPath, LockedTargetQuality.SelectedProfile),
+            PreflightStatus = PreflightStatus.Ready,
+            LastPreflightReport = report
+        };
+
+        var summary = Assert.Single(TuiViewProjector.Project(state).TargetSummaries);
+        Assert.Equal("尚未检查", summary.MappingStatus);
+        Assert.Equal("4.00 GiB", summary.CurrentSize);
+        Assert.Equal("否", summary.SparseState);
+    }
+
     private static void AssertNoForbiddenContent(TuiViewState viewState)
     {
         // Serialize the whole view state and check for any forbidden data.
