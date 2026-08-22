@@ -80,6 +80,56 @@ public sealed class CompactionTargetProfileFactoryTests
         Assert.Equal(target.VhdxPath, request.Profile.VhdxPath);
     }
 
+    [Fact]
+    public void IsTargetMismatch_flags_a_locked_row_that_addresses_another_distro()
+    {
+        var mismatch = CompactionTargetProfileFactory.IsTargetMismatch(
+            CreateProfile(),
+            new WslDistribution(
+                "Ubuntu-22.04",
+                WslDistributionState.Running,
+                2,
+                false,
+                @"D:\Other\ext4.vhdx"));
+
+        // The stored profile's shutdown scope and "safe" labelling were written
+        // for its own distro, so addressing another one must be surfaced.
+        Assert.True(mismatch);
+    }
+
+    [Fact]
+    public void IsTargetMismatch_ignores_casing_differences()
+    {
+        var profile = CreateProfile();
+
+        var mismatch = CompactionTargetProfileFactory.IsTargetMismatch(
+            profile,
+            new WslDistribution(
+                profile.DistroName.ToLowerInvariant(),
+                WslDistributionState.Running,
+                2,
+                true,
+                profile.VhdxPath));
+
+        Assert.False(mismatch);
+    }
+
+    [Fact]
+    public void IsTargetMismatch_reports_no_mismatch_without_a_locked_target()
+    {
+        Assert.False(CompactionTargetProfileFactory.IsTargetMismatch(CreateProfile(), lockedTarget: null));
+    }
+
+    [Fact]
+    public void IsTargetMismatch_reports_no_mismatch_for_a_blank_locked_name()
+    {
+        // A blank row is rejected by Create as well; it must not raise a warning
+        // that names an empty distro.
+        Assert.False(CompactionTargetProfileFactory.IsTargetMismatch(
+            CreateProfile(),
+            new WslDistribution("   ", WslDistributionState.Stopped, 2, false)));
+    }
+
     private static Profile CreateProfile() => new(
         Guid.Parse("ed979041-296f-49fd-9aae-61ceacbb06c0"),
         "Ubuntu 24.04",

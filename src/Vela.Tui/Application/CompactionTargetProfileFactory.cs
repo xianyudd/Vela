@@ -26,6 +26,27 @@ public static class CompactionTargetProfileFactory
             : new OperationRequest(runId, profile, OperationIntent.Compact);
     }
 
+    /// <summary>
+    /// Reports whether the locked inventory row addresses a different distro
+    /// than the stored profile describes. When it does, the profile's shutdown
+    /// scope and display name were written for another distro, so the operator
+    /// must be warned before the operation is allowed to proceed.
+    /// </summary>
+    public static bool IsTargetMismatch(Profile baseProfile, WslDistribution? lockedTarget)
+    {
+        ArgumentNullException.ThrowIfNull(baseProfile);
+
+        if (lockedTarget is null || string.IsNullOrWhiteSpace(lockedTarget.Name))
+        {
+            return false;
+        }
+
+        return !string.Equals(
+            lockedTarget.Name,
+            baseProfile.DistroName,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     public static Profile? Create(Profile baseProfile, WslDistribution? lockedTarget)
     {
         ArgumentNullException.ThrowIfNull(baseProfile);
