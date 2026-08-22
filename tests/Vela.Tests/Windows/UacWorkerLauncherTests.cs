@@ -34,7 +34,7 @@ public sealed class UacWorkerLauncherTests
     }
 
     [Fact]
-    public async Task LaunchAsync_UsesTheExactRunAsWorkerArgumentBoundaries()
+    public async Task LaunchAsync_UsesTheExactSilentWorkerArgumentBoundaries()
     {
         var runId = Guid.Parse("7cf7f32d-1780-446d-91a1-5d18c8aa74a6");
         var starter = new RecordingProcessStarter();
@@ -47,8 +47,12 @@ public sealed class UacWorkerLauncherTests
         Assert.Equal(ElevatedWorkerLaunchStatus.Started, result.Status);
         var startInfo = Assert.Single(starter.StartInfos);
         Assert.Equal(@"D:\Vela\Vela.exe", startInfo.FileName);
-        Assert.True(startInfo.UseShellExecute);
-        Assert.Equal("runas", startInfo.Verb);
+        // 主进程已提权(manifest requireAdministrator),worker 直接继承其管理员令牌:
+        // 必须 UseShellExecute=false(令牌继承 + CreateNoWindow 才生效)、不再 runas
+        // (否则会触发第二次 UAC)、CreateNoWindow=true(worker 只走 journal,不需要窗口)。
+        Assert.False(startInfo.UseShellExecute);
+        Assert.Equal(string.Empty, startInfo.Verb);
+        Assert.True(startInfo.CreateNoWindow);
         Assert.Equal(
             new[] { "--worker", "--run-id", runId.ToString("D") },
             startInfo.Arguments);
@@ -311,6 +315,7 @@ public sealed class UacWorkerLauncherTests
                 startInfo.FileName,
                 startInfo.UseShellExecute,
                 startInfo.Verb,
+                startInfo.CreateNoWindow,
                 startInfo.ArgumentList.ToImmutableArray()));
         }
     }
@@ -331,6 +336,7 @@ public sealed class UacWorkerLauncherTests
         string FileName,
         bool UseShellExecute,
         string Verb,
+        bool CreateNoWindow,
         ImmutableArray<string> Arguments);
 
     private sealed class RecordingLauncher : IElevatedWorkerLauncher
