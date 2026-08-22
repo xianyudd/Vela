@@ -70,6 +70,37 @@ public sealed class PrivilegedDiskPartWorkspaceTests
     }
 
     [Fact]
+    public async Task CreateScriptAsync_WhenNoAncestorExists_CreatesTheChainFromTheAnchorDown()
+    {
+        var (adapter, ws) = CreateWorkspace();
+
+        await using var lease = await ws.CreateScriptAsync(RunId, "x", CancellationToken.None);
+
+        // %ProgramData%\Vela 及其下每一级都必须逐段建出来: 直接建叶子目录会以
+        // ERROR_PATH_NOT_FOUND 失败, 让全新机器上的压缩永远走不到 diskpart。
+        var anchor = PrivilegedDiskPartWorkspace.GetTrustedPrefix();
+        var root = PrivilegedDiskPartWorkspace.ComputeRootPath();
+        var runDir = Path.GetDirectoryName(lease.ScriptPath)!;
+        Assert.Equal(
+            [anchor, Path.GetDirectoryName(root)!, root, runDir],
+            adapter.CreatedDirectories);
+    }
+
+    [Fact]
+    public async Task CreateScriptAsync_RejectsPreExistingAnchorWithUnexpectedAcl()
+    {
+        var (adapter, ws) = CreateWorkspace();
+        // %ProgramData% 默认允许普通用户创建子目录, 所以 anchor 可能是他人预先建好的。
+        // 描述符不合规时必须失败关闭, 而不是继续在其下面创建受信任对象。
+        adapter.PreConfigureSddl(PrivilegedDiskPartWorkspace.GetTrustedPrefix(), "O:IUD:PAI(A;;FA;;;IU)");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await ws.CreateScriptAsync(RunId, "x", CancellationToken.None));
+
+        Assert.Empty(adapter.Creates);
+    }
+
+    [Fact]
     public async Task CreateScriptAsync_RejectsPreExistingDirectoryWithUnexpectedAcl()
     {
         var (adapter, ws) = CreateWorkspace();
@@ -126,15 +157,32 @@ public sealed class PrivilegedDiskPartWorkspaceTests
     {
         private readonly Dictionary<string, string> _sddl = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<SafeFileHandle, string> _handlePath = new();
+        private readonly HashSet<string> _directories = new(StringComparer.OrdinalIgnoreCase);
+
+        public FakeAdapter()
+        {
+            // 真机上 %ProgramData% 存在, 但 Vela 的任何一级都不存在: workspace
+            // 必须自己把 anchor 以下的每一段建出来。
+            var anchorParent = Path.GetDirectoryName(PrivilegedDiskPartWorkspace.GetTrustedPrefix());
+            if (!string.IsNullOrEmpty(anchorParent))
+            {
+                _directories.Add(anchorParent);
+            }
+        }
 
         public List<(string Path, FileAccess Access, FileShare Share, FileMode Mode)> Creates { get; } = new();
         public List<(byte[] Bytes, bool Flushed)> Writes { get; } = new();
+        public List<string> CreatedDirectories { get; } = new();
         public List<string> DeletedFiles { get; } = new();
         public List<string> DeletedDirs { get; } = new();
         public HashSet<string> ReparsePaths { get; } = new(StringComparer.OrdinalIgnoreCase);
         public bool FailOnCreateNewIfExists { get; set; }
 
-        public void PreConfigureSddl(string path, string sddl) => _sddl[path] = sddl;
+        public void PreConfigureSddl(string path, string sddl)
+        {
+            _sddl[path] = sddl;
+            _directories.Add(path);
+        }
 
         public IDisposable AcquireSecurityPrivilegeScope() => new NoOp();
         public bool IsSecurityPrivilegeEnabled() => false;
@@ -142,16 +190,35 @@ public sealed class PrivilegedDiskPartWorkspaceTests
 
         public bool CreateDirectoryWithDescriptor(string path, string sddl)
         {
-            if (_sddl.ContainsKey(path))
+            if (_directories.Contains(path))
             {
                 return false; // 已存在
             }
+
+            // Win32 CreateDirectoryW 不创建中间目录: 父目录缺失时它以
+            // ERROR_PATH_NOT_FOUND 失败, 真实适配器把它翻成 InvalidOperationException。
+            var parent = Path.GetDirectoryName(path);
+            if (string.IsNullOrEmpty(parent) || !_directories.Contains(parent))
+            {
+                throw new InvalidOperationException(
+                    $"CreateDirectory failed for '{path}': 系统找不到指定的路径。");
+            }
+
+            _directories.Add(path);
+            CreatedDirectories.Add(path);
             _sddl[path] = sddl;
             return true;
         }
 
         public SafeFileHandle OpenDirectoryByHandle(string path)
         {
+            // OPEN_EXISTING 语义: 目录不存在就打不开句柄。
+            if (!_directories.Contains(path))
+            {
+                throw new InvalidOperationException(
+                    $"Open directory '{path}' failed: 系统找不到指定的路径。");
+            }
+
             // 如果这个 path 还没配置, 给合规默认
             if (!_sddl.ContainsKey(path))
             {
@@ -210,18 +277,15 @@ public sealed class PrivilegedDiskPartWorkspaceTests
         public string GetFinalPathName(SafeFileHandle handle)
             => _handlePath.TryGetValue(handle, out var p) ? p : throw new InvalidOperationException("unknown handle");
 
-        public string ReadSecurityDescriptorSddl(SafeFileHandle handle, bool includeSacl)
+        public string ReadSecurityDescriptorSddl(SafeFileHandle handle, bool includeIntegrityLabel)
         {
             if (!_handlePath.TryGetValue(handle, out var p) || !_sddl.TryGetValue(p, out var sddl))
             {
                 throw new InvalidOperationException("unknown path");
             }
-            if (includeSacl)
-            {
-                return sddl;
-            }
-            var i = sddl.IndexOf("S:", StringComparison.Ordinal);
-            return i < 0 ? sddl : sddl[..i];
+
+            // 关键: 不能逐字回显写入值 —— 真机会规范化, 见 WindowsSddlNormalization。
+            return WindowsSddlNormalization.AsReadBack(sddl, includeIntegrityLabel);
         }
 
         public bool IsPrivilegedDescriptorCompliant(string sddl, bool requireHighIntegrity)
@@ -243,6 +307,7 @@ public sealed class PrivilegedDiskPartWorkspaceTests
         {
             DeletedDirs.Add(path);
             _sddl.Remove(path);
+            _directories.Remove(path);
             return true;
         }
 

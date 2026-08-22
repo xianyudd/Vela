@@ -48,11 +48,9 @@ public sealed class PrivilegedDiskPartWorkspace : IPrivilegedDiskPartWorkspace
         cancellationToken.ThrowIfCancellationRequested();
 
         var root = ComputeRootPath();
-        EnsureDirectoryWithDescriptor(root);
-
         var runSegment = runId.ToString("D", CultureInfo.InvariantCulture);
         var runDir = Path.Combine(root, runSegment);
-        EnsureDirectoryWithDescriptor(runDir);
+        EnsureDirectoryChainWithDescriptor(runDir);
 
         var nonce = GenerateNonce();
         var fileName = $"{ScriptFilePrefix}{nonce}.txt";
@@ -139,6 +137,60 @@ public sealed class PrivilegedDiskPartWorkspace : IPrivilegedDiskPartWorkspace
         var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
         return Path.Combine(programData, AnchorFolderName);
     }
+
+    /// <summary>
+    /// Materialises every directory from the trusted anchor down to
+    /// <paramref name="leafPath"/>, inclusive.
+    /// </summary>
+    /// <remarks>
+    /// Win32 <c>CreateDirectoryW</c> does not create intermediate directories, so
+    /// the chain has to be walked one segment at a time: asking for the leaf on a
+    /// machine that has never hosted the workspace fails with
+    /// ERROR_PATH_NOT_FOUND. Each segment is created and verified before its
+    /// child is created, so a hijacked ancestor stops the walk instead of being
+    /// silently adopted as the parent of a new privileged object.
+    /// </remarks>
+    private void EnsureDirectoryChainWithDescriptor(string leafPath)
+    {
+        foreach (var segment in EnumerateAnchoredChain(leafPath))
+        {
+            EnsureDirectoryWithDescriptor(segment);
+        }
+    }
+
+    /// <summary>
+    /// Returns the directory chain from <see cref="GetTrustedPrefix"/> down to
+    /// <paramref name="leafPath"/>, anchor first.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// When <paramref name="leafPath"/> does not sit inside the trusted anchor.
+    /// </exception>
+    private static IReadOnlyList<string> EnumerateAnchoredChain(string leafPath)
+    {
+        var anchor = Normalize(GetTrustedPrefix());
+        var current = Normalize(leafPath);
+        var chain = new List<string>();
+
+        while (!string.Equals(current, anchor, StringComparison.OrdinalIgnoreCase))
+        {
+            chain.Add(current);
+            var parent = Path.GetDirectoryName(current);
+            if (string.IsNullOrEmpty(parent) || parent.Length >= current.Length)
+            {
+                throw new InvalidOperationException(
+                    $"Privileged path '{leafPath}' is outside the trusted anchor '{anchor}'.");
+            }
+
+            current = parent;
+        }
+
+        chain.Add(anchor);
+        chain.Reverse();
+        return chain;
+    }
+
+    private static string Normalize(string path) =>
+        Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
 
     private void EnsureDirectoryWithDescriptor(string path)
     {
