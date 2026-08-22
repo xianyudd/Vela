@@ -96,11 +96,19 @@ public sealed class UacWorkerLauncher : IElevatedWorkerLauncher
                     new ElevatedWorkerLaunchResult(ElevatedWorkerLaunchStatus.Rejected));
             }
 
+            // The interactive process already runs elevated (app.manifest
+            // declares requireAdministrator), so launch the worker with a plain
+            // CreateProcess: the child inherits the parent's full administrator
+            // token directly. This avoids a redundant second UAC prompt that a
+            // "runas" ShellExecute would trigger. The worker communicates only
+            // through the run journal and needs no console, so suppress its
+            // window; UseShellExecute must be false for both the inherited token
+            // and CreateNoWindow to take effect.
             var startInfo = new ProcessStartInfo
             {
                 FileName = executablePath,
-                UseShellExecute = true,
-                Verb = "runas"
+                UseShellExecute = false,
+                CreateNoWindow = true
             };
             var entryAssemblyPath = Assembly.GetEntryAssembly()?.Location;
             if (IsDotnetHost(executablePath) &&
