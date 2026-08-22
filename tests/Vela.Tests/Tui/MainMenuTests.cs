@@ -564,6 +564,97 @@ public sealed class MainMenuTests
             output.Split("Vela — WSL VHDX Compact", StringSplitOptions.None).Length - 1);
     }
 
+    [Fact]
+    public void CreateExecuteConfirmation_states_a_target_profile_mismatch_before_anything_else()
+    {
+        // The locked row addresses Ubuntu-24.04 while the chosen profile was
+        // authored for the test distro: the reassuring profile name must not be
+        // the first thing the operator reads.
+        var lockedTarget = CreateProfile() with
+        {
+            DisplayName = "TEST Vela-Test (Distro, safe)",
+            DistroName = "Ubuntu-24.04",
+            ShutdownMode = ShutdownMode.Distro
+        };
+
+        var confirmation = MainMenu.CreateExecuteConfirmation(
+            lockedTarget,
+            ImmutableArray.Create(
+                new WslDistribution("Ubuntu-24.04", WslDistributionState.Running, 2, true)),
+            dataRootDirectory: null,
+            targetMismatch: true,
+            baseProfileDistroName: "Vela-Test-Ubuntu-24.04");
+
+        Assert.StartsWith("⚠ 目标与档案不一致", confirmation.Prompt, StringComparison.Ordinal);
+        Assert.Contains("Ubuntu-24.04", confirmation.Prompt, StringComparison.Ordinal);
+        Assert.Contains("Vela-Test-Ubuntu-24.04", confirmation.Prompt, StringComparison.Ordinal);
+        Assert.Contains("停止范围与名称标注可能并不适用", confirmation.Prompt, StringComparison.Ordinal);
+        Assert.Equal("Y", confirmation.RequiredInput);
+    }
+
+    [Fact]
+    public void CreateExecuteConfirmation_omits_the_mismatch_warning_for_a_matching_target()
+    {
+        var confirmation = MainMenu.CreateExecuteConfirmation(
+            CreateProfile(),
+            ImmutableArray.Create(
+                new WslDistribution("Ubuntu-24.04", WslDistributionState.Running, 2, true)),
+            dataRootDirectory: null,
+            targetMismatch: false,
+            baseProfileDistroName: "Ubuntu-24.04");
+
+        Assert.DoesNotContain("⚠", confirmation.Prompt, StringComparison.Ordinal);
+        Assert.StartsWith("即将对发行版", confirmation.Prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CreateExecuteConfirmation_names_an_unspecified_base_distro_in_the_mismatch_warning()
+    {
+        var confirmation = MainMenu.CreateExecuteConfirmation(
+            CreateProfile(),
+            ImmutableArray<WslDistribution>.Empty,
+            dataRootDirectory: null,
+            targetMismatch: true,
+            baseProfileDistroName: "   ");
+
+        Assert.Contains("配置的发行版是 未指定。", confirmation.Prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CreateExecuteConfirmation_discloses_the_global_blast_radius_from_the_supplied_inventory()
+    {
+        var confirmation = MainMenu.CreateExecuteConfirmation(
+            CreateProfile(),
+            ImmutableArray.Create(
+                new WslDistribution("Ubuntu-24.04", WslDistributionState.Running, 2, true),
+                new WslDistribution("docker-desktop", WslDistributionState.Running, 2, false),
+                new WslDistribution("Vela-Test-Ubuntu-24.04", WslDistributionState.Running, 2, false),
+                new WslDistribution("Ubuntu-22.04", WslDistributionState.Stopped, 2, false)));
+
+        // Global stops every running distro, so the count and the names have to
+        // come from the inventory that was passed in, not from the target alone.
+        Assert.Contains("将停止全部 3 个正在运行的 WSL 发行版", confirmation.Prompt, StringComparison.Ordinal);
+        Assert.Contains("包括与本次目标无关的实例", confirmation.Prompt, StringComparison.Ordinal);
+        Assert.Contains("Vela-Test-Ubuntu-24.04", confirmation.Prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ubuntu-22.04", confirmation.Prompt, StringComparison.Ordinal);
+        Assert.Equal(
+            new[] { "Ubuntu-24.04", "docker-desktop", "Vela-Test-Ubuntu-24.04" },
+            confirmation.RunningDistros);
+    }
+
+    [Fact]
+    public void CreateExecuteConfirmation_reports_an_empty_global_blast_radius_explicitly()
+    {
+        var confirmation = MainMenu.CreateExecuteConfirmation(
+            CreateProfile(),
+            ImmutableArray.Create(
+                new WslDistribution("Ubuntu-24.04", WslDistributionState.Stopped, 2, true)));
+
+        Assert.Contains("当前没有运行中的发行版。", confirmation.Prompt, StringComparison.Ordinal);
+        Assert.Contains("当前无运行中的发行版", confirmation.Prompt, StringComparison.Ordinal);
+        Assert.Empty(confirmation.RunningDistros);
+    }
+
     private static Profile CreateProfile() =>
         new(
             Guid.Parse("64d3e392-c081-4f1c-a95b-a7d0980527dd"),
