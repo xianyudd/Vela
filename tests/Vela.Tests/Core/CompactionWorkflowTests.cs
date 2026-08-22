@@ -162,6 +162,13 @@ public sealed class CompactionWorkflowTests
         Assert.Single(diskPart.DetailPaths);
         Assert.Empty(diskPart.CompactPaths);
         Assert.Null(result.Summary.AfterSnapshot);
+
+        // diskpart 还没启动就抛出时, 事件里除了 "失败" 必须留下原因, 否则日志上
+        // 只剩 exitCode=null / output=null, 没法把工作区问题和真实的 diskpart 失败区分开。
+        var preflight = Assert.Single(journal.Events.Where(item => item.OperationName == "DiskPart detail vdisk"));
+        Assert.Equal(RunEventLevel.Error, preflight.Level);
+        Assert.Contains("InvalidOperationException", preflight.Output);
+        Assert.Contains("Privileged workspace validation failed.", preflight.Output);
     }
 
     [Fact]
@@ -186,6 +193,13 @@ public sealed class CompactionWorkflowTests
         Assert.Single(diskPart.DetailPaths);
         Assert.Single(diskPart.CompactPaths);
         Assert.Null(result.Summary.AfterSnapshot);
+
+        // diskpart 还没启动就抛出时, 事件里除了 "失败" 必须留下原因, 否则日志上
+        // 只剩 exitCode=null / output=null, 没法把工作区问题和真实的 diskpart 失败区分开。
+        var preflight = Assert.Single(journal.Events.Where(item => item.OperationName == "DiskPart compact vdisk"));
+        Assert.Equal(RunEventLevel.Error, preflight.Level);
+        Assert.Contains("InvalidOperationException", preflight.Output);
+        Assert.Contains("Privileged workspace validation failed.", preflight.Output);
     }
 
     [Fact]

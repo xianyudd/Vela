@@ -360,9 +360,9 @@ public sealed class CompactionWorkflow
         {
             throw;
         }
-        catch (Exception)
+        catch (Exception exception)
         {
-            shutdownResult = FailedProcessResult();
+            shutdownResult = FailedProcessResult(exception);
         }
 
         diagnostics = await AppendOrDiagnoseAsync(
@@ -459,9 +459,9 @@ public sealed class CompactionWorkflow
         {
             throw;
         }
-        catch (Exception)
+        catch (Exception exception)
         {
-            detailResult = FailedProcessResult();
+            detailResult = FailedProcessResult(exception);
         }
 
         diagnostics = await AppendOrDiagnoseAsync(
@@ -503,9 +503,9 @@ public sealed class CompactionWorkflow
         {
             throw;
         }
-        catch (Exception)
+        catch (Exception exception)
         {
-            compactResult = FailedProcessResult();
+            compactResult = FailedProcessResult(exception);
         }
 
         diagnostics = await AppendOrDiagnoseAsync(
@@ -900,13 +900,47 @@ public sealed class CompactionWorkflow
         result.Status == ProcessExecutionStatus.Succeeded &&
         result.ExitCode == 0;
 
-    private static ProcessExecutionResult FailedProcessResult() => new(
+    private static ProcessExecutionResult FailedProcessResult(Exception exception) => new(
         ProcessExecutionStatus.Failed,
         null,
         ImmutableArray<string>.Empty,
-        ImmutableArray<string>.Empty,
+        DescribeException(exception),
         DateTimeOffset.UtcNow,
         DateTimeOffset.UtcNow);
+
+    /// <summary>
+    /// Renders an exception that prevented a process from launching into the
+    /// standard-error lines of the synthetic failure result, so the run journal
+    /// records why the step failed instead of an empty output.
+    /// </summary>
+    /// <remarks>
+    /// Type name and message only — never the stack trace: this text reaches the
+    /// trusted journal, and the journal is also the source the display projection
+    /// sanitises. The chain is walked so wrapped Win32 failures (the actual cause
+    /// is usually the innermost one) survive, but depth and length are bounded so
+    /// a pathological chain cannot flood the journal.
+    /// </remarks>
+    private static ImmutableArray<string> DescribeException(Exception exception)
+    {
+        const int maxDepth = 4;
+        const int maxMessageLength = 512;
+
+        var lines = ImmutableArray.CreateBuilder<string>();
+        var current = exception;
+        for (var depth = 0; current is not null && depth < maxDepth; depth++)
+        {
+            var message = current.Message ?? string.Empty;
+            if (message.Length > maxMessageLength)
+            {
+                message = string.Concat(message.AsSpan(0, maxMessageLength), "…");
+            }
+
+            lines.Add($"{current.GetType().FullName}: {message}");
+            current = current.InnerException;
+        }
+
+        return lines.ToImmutable();
+    }
 
     private static string? CreateProcessOutput(ProcessExecutionResult? result)
     {
