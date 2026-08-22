@@ -56,6 +56,7 @@ public sealed class ProcessUacProcessStarter : IUacProcessStarter
 public sealed class UacWorkerLauncher : IElevatedWorkerLauncher
 {
     private const int UacCancelledErrorCode = 1223;
+    private const int ElevationRequiredErrorCode = 740;
     private readonly IExecutablePathProvider _executablePathProvider;
     private readonly IUacProcessStarter _processStarter;
 
@@ -97,13 +98,14 @@ public sealed class UacWorkerLauncher : IElevatedWorkerLauncher
             }
 
             // The interactive process already runs elevated (app.manifest
-            // declares requireAdministrator), so launch the worker with a plain
-            // CreateProcess: the child inherits the parent's full administrator
-            // token directly. This avoids a redundant second UAC prompt that a
-            // "runas" ShellExecute would trigger. The worker communicates only
-            // through the run journal and needs no console, so suppress its
-            // window; UseShellExecute must be false for both the inherited token
-            // and CreateNoWindow to take effect.
+            // declares requireAdministrator), so a plain CreateProcess is enough:
+            // the child inherits the parent's administrator token directly and
+            // Windows raises no prompt for it either way. What the shell route
+            // does cost is a visible console window - UseShellExecute ignores
+            // CreateNoWindow - which would flash over the interface on every
+            // compaction. The worker talks only through the run journal and needs
+            // no console, so both flags below are load-bearing: UseShellExecute
+            // must be false for CreateNoWindow to take effect at all.
             var startInfo = new ProcessStartInfo
             {
                 FileName = executablePath,
@@ -124,8 +126,26 @@ public sealed class UacWorkerLauncher : IElevatedWorkerLauncher
             return Task.FromResult(
                 new ElevatedWorkerLaunchResult(ElevatedWorkerLaunchStatus.Started));
         }
+        catch (Win32Exception exception) when (exception.NativeErrorCode == ElevationRequiredErrorCode)
+        {
+            // The worker demands elevation the launching process does not hold.
+            // With the manifest in force this cannot happen; it is the signature
+            // of the manifest being bypassed - "dotnet run" against the project
+            // ignores it - and the generic Failed status leaves nothing in the
+            // journal to explain a launch that fails every single time.
+            return Task.FromResult(
+                new ElevatedWorkerLaunchResult(
+                    ElevatedWorkerLaunchStatus.Rejected,
+                    "The worker requires an elevated token and this process does not hold one. " +
+                    "Start the built executable, which requests elevation through its manifest."));
+        }
         catch (Win32Exception exception) when (exception.NativeErrorCode == UacCancelledErrorCode)
         {
+            // Unreachable while the launch above is a plain CreateProcess, which
+            // shows no prompt to cancel. Retained deliberately: it is the only
+            // mapping onto CancelledBeforeElevation, so reintroducing any
+            // consent-raising launch keeps reporting a declined prompt as a
+            // cancellation rather than as a generic failure.
             return Task.FromResult(
                 new ElevatedWorkerLaunchResult(ElevatedWorkerLaunchStatus.Cancelled));
         }
@@ -270,6 +290,7 @@ public sealed class ElevatedOperationCoordinator
                         ? "UacCancelled"
                         : "UacLaunchFailed",
                     consumeRequest: true,
+                    failureReason: launched.FailureReason,
                     cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -299,7 +320,8 @@ public sealed class ElevatedOperationCoordinator
         TerminalResult terminalResult,
         string operationName,
         bool consumeRequest,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? failureReason = null)
     {
         var occurredAtUtc = _clock.UtcNow;
         JournalAppendResult appended;
@@ -315,7 +337,7 @@ public sealed class ElevatedOperationCoordinator
                         ImmutableArray<string>.Empty,
                         ExitCode: TerminalResultSemantics.ToExitCode(terminalResult),
                         Duration: null,
-                        Output: null,
+                        Output: failureReason,
                         TerminalResult: terminalResult),
                     cancellationToken)
                 .ConfigureAwait(false);

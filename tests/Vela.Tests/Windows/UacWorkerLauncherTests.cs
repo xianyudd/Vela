@@ -48,8 +48,9 @@ public sealed class UacWorkerLauncherTests
         var startInfo = Assert.Single(starter.StartInfos);
         Assert.Equal(@"D:\Vela\Vela.exe", startInfo.FileName);
         // 主进程已提权(manifest requireAdministrator),worker 直接继承其管理员令牌:
-        // 必须 UseShellExecute=false(令牌继承 + CreateNoWindow 才生效)、不再 runas
-        // (否则会触发第二次 UAC)、CreateNoWindow=true(worker 只走 journal,不需要窗口)。
+        // 必须 UseShellExecute=false —— 这是 CreateNoWindow 生效的前提,而 runas 那条
+        // shell 路径恰恰做不到,每次压缩都会闪一个控制台窗口(提权本身不多一次提示,
+        // 父进程已经是管理员)。CreateNoWindow=true:worker 只走 journal,不需要窗口。
         Assert.False(startInfo.UseShellExecute);
         Assert.Equal(string.Empty, startInfo.Verb);
         Assert.True(startInfo.CreateNoWindow);
@@ -220,6 +221,7 @@ public sealed class UacWorkerLauncherTests
 
     [Theory]
     [InlineData(1223, ElevatedWorkerLaunchStatus.Cancelled)]
+    [InlineData(740, ElevatedWorkerLaunchStatus.Rejected)]
     [InlineData(5, ElevatedWorkerLaunchStatus.Failed)]
     public async Task LaunchAsync_MapsUacExceptionsToDeterministicStatus(
         int nativeErrorCode,
@@ -234,6 +236,41 @@ public sealed class UacWorkerLauncherTests
             CancellationToken.None);
 
         Assert.Equal(expectedStatus, result.Status);
+    }
+
+    [Fact]
+    public async Task LaunchAsync_WhenElevationIsRequired_ExplainsWhyInAPathFreeReason()
+    {
+        var launcher = new UacWorkerLauncher(
+            new FixedExecutablePathProvider(@"D:\Vela\Vela.exe"),
+            new ThrowingProcessStarter(new Win32Exception(740 /* ERROR_ELEVATION_REQUIRED */)));
+
+        var result = await launcher.LaunchAsync(
+            Guid.Parse("44f3a14b-4f4c-415a-93a1-7050d0893713"),
+            CancellationToken.None);
+
+        // 这条原因会进受信 journal,并由展示层清洗后呈现:必须解释得清楚,又不能
+        // 夹带路径、堆栈或 "Exception" 之类会被整行替换成占位符的词。
+        Assert.NotNull(result.FailureReason);
+        Assert.Contains("elevated token", result.FailureReason);
+        Assert.DoesNotContain("Exception", result.FailureReason);
+        Assert.DoesNotContain(":\\", result.FailureReason);
+        Assert.DoesNotContain("   at ", result.FailureReason);
+    }
+
+    [Fact]
+    public async Task LaunchAsync_WhenTheFailureCarriesNoUsefulDetail_LeavesTheReasonUnset()
+    {
+        var launcher = new UacWorkerLauncher(
+            new FixedExecutablePathProvider(@"D:\Vela\Vela.exe"),
+            new ThrowingProcessStarter(new Win32Exception(5 /* ERROR_ACCESS_DENIED */)));
+
+        var result = await launcher.LaunchAsync(
+            Guid.Parse("44f3a14b-4f4c-415a-93a1-7050d0893713"),
+            CancellationToken.None);
+
+        Assert.Equal(ElevatedWorkerLaunchStatus.Failed, result.Status);
+        Assert.Null(result.FailureReason);
     }
 
     private static OperationRequest CreateRequest() =>
