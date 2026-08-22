@@ -1,4 +1,4 @@
-using System.Text;
+using Vela.Application.Display;
 using Vela.Core.Models;
 using Vela.Core.Workflows;
 using Vela.Tui.ProgramModes;
@@ -7,45 +7,18 @@ namespace Vela.Tui.Application;
 
 internal static class TuiDisplayText
 {
-    public static string Sanitize(string? value, int maxCells = 240)
-    {
-        if (maxCells <= 0 || string.IsNullOrEmpty(value))
-        {
-            return string.Empty;
-        }
-
-        var normalized = StripControlAndEscapeSequences(value);
-        if (DisplayWidth(normalized) <= maxCells)
-        {
-            return normalized;
-        }
-
-        if (maxCells == 1)
-        {
-            return "…";
-        }
-
-        var builder = new StringBuilder(normalized.Length);
-        var width = 0;
-        foreach (var rune in normalized.EnumerateRunes())
-        {
-            var runeWidth = GetRuneWidth(rune.Value);
-            if (width + runeWidth > maxCells - 1)
-            {
-                break;
-            }
-
-            builder.Append(rune.ToString());
-            width += runeWidth;
-        }
-
-        return builder.Append('…').ToString();
-    }
+    /// <summary>
+    /// Bounds <paramref name="value"/> to <paramref name="maxCells"/> display
+    /// cells. Delegates to <see cref="DisplayTextSanitizer"/> so the TUI and the
+    /// application-layer projection cannot disagree about what is renderable.
+    /// </summary>
+    public static string Sanitize(string? value, int maxCells = 240) =>
+        DisplayTextSanitizer.Sanitize(value, maxCells);
 
     public static string PadRight(string? value, int totalCells)
     {
         var sanitized = Sanitize(value, totalCells);
-        var padding = Math.Max(0, totalCells - DisplayWidth(sanitized));
+        var padding = Math.Max(0, totalCells - DisplayTextSanitizer.DisplayWidth(sanitized));
         return sanitized + new string(' ', padding);
     }
 
@@ -180,115 +153,4 @@ internal static class TuiDisplayText
                 : value.Contains("尚未", StringComparison.Ordinal)
                     ? "尚未检查"
                     : "已解析";
-
-    private static string StripControlAndEscapeSequences(string value)
-    {
-        var builder = new StringBuilder(value.Length);
-        for (var index = 0; index < value.Length; index++)
-        {
-            var character = value[index];
-            if (character == '')
-            {
-                index = SkipEscapeSequence(value, index);
-                continue;
-            }
-
-            if (char.IsControl(character) || character == '')
-            {
-                builder.Append(' ');
-            }
-            else
-            {
-                builder.Append(character);
-            }
-        }
-
-        return builder.ToString();
-    }
-
-    private static int SkipEscapeSequence(string value, int escapeIndex)
-    {
-        if (escapeIndex + 1 >= value.Length)
-        {
-            return escapeIndex;
-        }
-
-        var next = value[escapeIndex + 1];
-        if (next == '[')
-        {
-            var index = escapeIndex + 2;
-            while (index < value.Length)
-            {
-                var character = value[index];
-                if (character >= '@' && character <= '~')
-                {
-                    return index;
-                }
-
-                index++;
-            }
-
-            return value.Length - 1;
-        }
-
-        if (next == ']')
-        {
-            for (var index = escapeIndex + 2; index < value.Length; index++)
-            {
-                if (value[index] == '')
-                {
-                    return index;
-                }
-
-                if (value[index] == '' && index + 1 < value.Length && value[index + 1] == '\\')
-                {
-                    return index + 1;
-                }
-            }
-
-            return value.Length - 1;
-        }
-
-        return escapeIndex + 1;
-    }
-
-    private static int DisplayWidth(string value)
-    {
-        var width = 0;
-        foreach (var rune in value.EnumerateRunes())
-        {
-            width += GetRuneWidth(rune.Value);
-        }
-
-        return width;
-    }
-
-    private static int GetRuneWidth(int value)
-    {
-        if (value == 0 || value is >= 0x0300 and <= 0x036f ||
-            value is >= 0x1ab0 and <= 0x1aff ||
-            value is >= 0x1dc0 and <= 0x1dff ||
-            value is >= 0x20d0 and <= 0x20ff ||
-            value is >= 0xfe00 and <= 0xfe0f ||
-            value is >= 0xfe20 and <= 0xfe2f ||
-            value is >= 0xe0100 and <= 0xe01ef)
-        {
-            return 0;
-        }
-
-        return value switch
-        {
-            >= 0x1100 and <= 0x115f => 2,
-            >= 0x2329 and <= 0x232a => 2,
-            >= 0x2e80 and <= 0xa4cf => 2,
-            >= 0xac00 and <= 0xd7a3 => 2,
-            >= 0xf900 and <= 0xfaff => 2,
-            >= 0xfe10 and <= 0xfe19 => 2,
-            >= 0xfe30 and <= 0xfe6f => 2,
-            >= 0xff00 and <= 0xff60 => 2,
-            >= 0xffe0 and <= 0xffe6 => 2,
-            >= 0x1f300 and <= 0x1faff => 2,
-            _ => 1
-        };
-    }
 }

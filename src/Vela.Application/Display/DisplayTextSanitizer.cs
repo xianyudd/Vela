@@ -232,8 +232,22 @@ public static class DisplayTextSanitizer
         return escapeIndex + 1;
     }
 
-    private static int DisplayWidth(string value)
+    /// <summary>
+    /// Returns how many terminal cells <paramref name="value"/> occupies,
+    /// counting combining marks as zero and CJK/emoji runes as two.
+    /// </summary>
+    /// <remarks>
+    /// Public because callers that lay text out in fixed columns need the same
+    /// width arithmetic <see cref="Sanitize"/> truncates by. A second
+    /// implementation would drift from this one and mis-pad.
+    /// </remarks>
+    public static int DisplayWidth(string? value)
     {
+        if (string.IsNullOrEmpty(value))
+        {
+            return 0;
+        }
+
         var width = 0;
         foreach (var rune in value.EnumerateRunes())
         {
