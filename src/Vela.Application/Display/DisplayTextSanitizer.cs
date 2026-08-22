@@ -149,10 +149,11 @@ public static class DisplayTextSanitizer
     };
 
     /// <summary>
-    /// Localizes an LXSS profile-resolution status, with a stable fallback for
-    /// unknown enum values.
+    /// Localizes an LXSS profile-resolution status. A null status means the
+    /// resolution has not run yet, and unknown enum values share that same
+    /// stable fallback, so callers never need a fallback string of their own.
     /// </summary>
-    public static string FormatMappingStatus(LxssResolutionStatus status) => status switch
+    public static string FormatMappingStatus(LxssResolutionStatus? status) => status switch
     {
         LxssResolutionStatus.Matched => "已匹配",
         LxssResolutionStatus.Mismatched => "不匹配",

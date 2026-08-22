@@ -130,9 +130,9 @@ public static class TuiViewProjector
                 ? DisplayTextSanitizer.FormatBytes(impactBytes)
                 : "未知";
 
-        var mappingStatus = report?.LxssResolution is { } resolution
-            ? DisplayTextSanitizer.FormatMappingStatus(resolution.Status)
-            : "尚未检查";
+        // A missing resolution and an unknown status read the same to the user,
+        // so the sanitizer owns that fallback instead of repeating it here.
+        var mappingStatus = DisplayTextSanitizer.FormatMappingStatus(report?.LxssResolution?.Status);
 
         return ImmutableArray.Create(
             new DisplayVhdxSummary(

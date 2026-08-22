@@ -569,6 +569,37 @@ public sealed class PreflightOverviewViewModelTests
         Assert.Contains(expectedNextStep, overview.NextStep, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(TargetMappingState.Matched, "已匹配")]
+    [InlineData(TargetMappingState.Mismatched, "不匹配")]
+    [InlineData(TargetMappingState.NotFound, "未找到")]
+    [InlineData(TargetMappingState.Failed, "解析失败")]
+    [InlineData(TargetMappingState.NotChecked, "尚未检查")]
+    public void Create_labels_every_mapping_state_with_the_shared_wording(
+        TargetMappingState mappingState,
+        string expected)
+    {
+        var profile = CreateProfile();
+        var dashboard = DashboardViewModel.CreateInitial(profile) with { MappingState = mappingState };
+        var state = new AutomaticPreflightState(
+            profile.Id,
+            1,
+            1,
+            AutomaticPreflightStatus.Ready,
+            dashboard,
+            "预检状态。");
+
+        var overview = PreflightOverviewViewModel.Create(dashboard, state);
+
+        Assert.Equal(expected, overview.Gates[0].Detail);
+    }
+
+    [Fact]
+    public void Formatter_reports_unknown_for_a_negative_capacity()
+    {
+        Assert.Equal("未知", PreflightOverviewFormatter.FormatCapacity(-1));
+    }
+
     private static Profile CreateProfile() => new(
         Guid.Parse("ed979041-296f-49fd-9aae-61ceacbb06c0"),
         "Ubuntu 24.04",

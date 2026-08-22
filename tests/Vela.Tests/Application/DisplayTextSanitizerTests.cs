@@ -174,4 +174,12 @@ public sealed class DisplayTextSanitizerTests
     {
         Assert.Equal("尚未检查", DisplayTextSanitizer.FormatMappingStatus((LxssResolutionStatus)999));
     }
+
+    [Fact]
+    public void FormatMappingStatus_TreatsAMissingResolutionAsNotChecked()
+    {
+        // Callers pass the status straight from an optional resolution, so the
+        // "not checked yet" wording must live here and not in every caller.
+        Assert.Equal("尚未检查", DisplayTextSanitizer.FormatMappingStatus(null));
+    }
 }

@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
+using Vela.Application.Display;
 using Vela.Core.Contracts;
 using Vela.Core.Models;
 
@@ -431,20 +432,12 @@ public static class PreflightOverviewFormatter
     public const long Gibibyte = 1024L * 1024L * 1024L;
     public const long Tebibyte = 1024L * Gibibyte;
 
-    public static string FormatCapacity(long bytes)
-    {
-        if (bytes < 0)
-        {
-            return "未知";
-        }
-
-        var divisor = bytes >= Tebibyte ? Tebibyte : Gibibyte;
-        var unit = bytes >= Tebibyte ? "TiB" : "GiB";
-        var value = bytes / (double)divisor;
-        return string.Create(
-            CultureInfo.InvariantCulture,
-            $"{value:0.00} {unit}");
-    }
+    /// <summary>
+    /// Formats a byte count for the terminal. The tiers and wording live in
+    /// <see cref="DisplayTextSanitizer.FormatBytes"/> so this surface and the
+    /// application-layer projection can never drift apart.
+    /// </summary>
+    public static string FormatCapacity(long bytes) => DisplayTextSanitizer.FormatBytes(bytes);
 
     public static string FormatVhdxPath(string? path) => FormatVhdxPath(path, 80);
 
@@ -507,12 +500,11 @@ public static class PreflightOverviewFormatter
         return TuiDisplayText.Sanitize(normalized, maxCells);
     }
 
-    public static string FormatSparseState(bool? isSparse) => isSparse switch
-    {
-        true => "是",
-        false => "否",
-        _ => "未知"
-    };
+    /// <summary>
+    /// Localizes the sparse-state flag through the shared sanitizer.
+    /// </summary>
+    public static string FormatSparseState(bool? isSparse) =>
+        DisplayTextSanitizer.FormatSparseState(isSparse);
 
     public static string FormatGateStatus(PreflightGateStatus status) => status switch
     {
