@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Vela.Application.Display;
+using Vela.Core.Contracts;
 
 namespace Vela.Tests.Application;
 
@@ -66,5 +67,111 @@ public sealed class DisplayTextSanitizerTests
         var sanitized = DisplayTextSanitizer.SanitizeLines(lines, maxLines: 5);
 
         Assert.Equal(5, sanitized.Length);
+    }
+
+    // ------------------------------------------------------------------
+    // Cell-bounded sanitize
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void Sanitize_ReturnsEmptyForNullEmptyOrNonPositiveBudget()
+    {
+        Assert.Equal(string.Empty, DisplayTextSanitizer.Sanitize(null));
+        Assert.Equal(string.Empty, DisplayTextSanitizer.Sanitize(string.Empty));
+        Assert.Equal(string.Empty, DisplayTextSanitizer.Sanitize("文本", maxCells: 0));
+    }
+
+    [Fact]
+    public void Sanitize_StripsControlAndEscapeSequences()
+    {
+        // CSI and OSC sequences plus embedded control characters are removed.
+        var raw = "前\u001b[31m红\u001b[0m后\u0007尾";
+        Assert.Equal("前红后 尾", DisplayTextSanitizer.Sanitize(raw, maxCells: 240));
+    }
+
+    [Fact]
+    public void Sanitize_TruncatesToCellBudgetWithEllipsis()
+    {
+        // Each CJK character is two cells; a 5-cell budget fits two CJK chars
+        // plus the ellipsis (2 + 2 + 1 = 5).
+        var truncated = DisplayTextSanitizer.Sanitize("一二三四五", maxCells: 5);
+        Assert.Equal("一二…", truncated);
+    }
+
+    [Fact]
+    public void Sanitize_ReturnsEllipsisForSingleCellBudget()
+    {
+        Assert.Equal("…", DisplayTextSanitizer.Sanitize("很长的一段文本", maxCells: 1));
+    }
+
+    // ------------------------------------------------------------------
+    // Byte formatting
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void FormatBytes_ReturnsUnknownForNullOrNegative()
+    {
+        Assert.Equal("未知", DisplayTextSanitizer.FormatBytes(null));
+        Assert.Equal("未知", DisplayTextSanitizer.FormatBytes(-1));
+    }
+
+    [Fact]
+    public void FormatBytes_FormatsGiBAndTiB()
+    {
+        Assert.Equal("0.00 GiB", DisplayTextSanitizer.FormatBytes(0));
+        Assert.Equal("10.00 GiB", DisplayTextSanitizer.FormatBytes(10L * 1024 * 1024 * 1024));
+        Assert.Equal("1.50 TiB", DisplayTextSanitizer.FormatBytes((long)(1.5 * 1024 * 1024 * 1024 * 1024)));
+    }
+
+    // ------------------------------------------------------------------
+    // File name extraction
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void FileNameOnly_ExtractsLastSegment()
+    {
+        Assert.Equal("ext4.vhdx", DisplayTextSanitizer.FileNameOnly(@"D:\WSL\Ubuntu\ext4.vhdx"));
+        Assert.Equal("ext4.vhdx", DisplayTextSanitizer.FileNameOnly("ext4.vhdx"));
+    }
+
+    [Fact]
+    public void FileNameOnly_ReturnsEmptyForNullOrWhitespace()
+    {
+        Assert.Equal(string.Empty, DisplayTextSanitizer.FileNameOnly(null));
+        Assert.Equal(string.Empty, DisplayTextSanitizer.FileNameOnly("   "));
+    }
+
+    // ------------------------------------------------------------------
+    // Localization helpers
+    // ------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(true, "是")]
+    [InlineData(false, "否")]
+    public void FormatSparseState_LocalizesKnownStates(bool? value, string expected)
+    {
+        Assert.Equal(expected, DisplayTextSanitizer.FormatSparseState(value));
+    }
+
+    [Fact]
+    public void FormatSparseState_ReturnsUnknownForNull()
+    {
+        Assert.Equal("未知", DisplayTextSanitizer.FormatSparseState(null));
+    }
+
+    [Theory]
+    [InlineData(LxssResolutionStatus.Matched, "已匹配")]
+    [InlineData(LxssResolutionStatus.Mismatched, "不匹配")]
+    [InlineData(LxssResolutionStatus.NotFound, "未找到")]
+    [InlineData(LxssResolutionStatus.Failed, "解析失败")]
+    public void FormatMappingStatus_LocalizesKnownStates(LxssResolutionStatus status, string expected)
+    {
+        Assert.Equal(expected, DisplayTextSanitizer.FormatMappingStatus(status));
+    }
+
+    [Fact]
+    public void FormatMappingStatus_FallsBackForUnknownEnumValue()
+    {
+        Assert.Equal("尚未检查", DisplayTextSanitizer.FormatMappingStatus((LxssResolutionStatus)999));
     }
 }
