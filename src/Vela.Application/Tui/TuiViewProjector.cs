@@ -110,20 +110,44 @@ public static class TuiViewProjector
 
     private static ImmutableArray<DisplayVhdxSummary> ProjectTargets(TuiSessionState state)
     {
-        if (state.LockedTarget is null)
+        if (state.LockedTarget is not { } target)
         {
             return ImmutableArray<DisplayVhdxSummary>.Empty;
         }
 
-        var target = state.LockedTarget;
+        var report = state.LastPreflightReport;
+        var snapshot = report?.VhdxInspection?.Snapshot;
+
+        var fileName = DisplayTextSanitizer.FileNameOnly(snapshot?.Path ?? target.VhdxPath);
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            fileName = "待配置";
+        }
+
+        var currentSize = snapshot is { } snap
+            ? DisplayTextSanitizer.FormatBytes(snap.FileLengthBytes)
+            : state.LastImpactEstimate is { CurrentVhdxSizeBytes: { } impactBytes }
+                ? DisplayTextSanitizer.FormatBytes(impactBytes)
+                : "未知";
+
+        var mappingStatus = report?.LxssResolution is { } resolution
+            ? DisplayTextSanitizer.FormatMappingStatus(resolution.Status)
+            : "尚未检查";
+
         return ImmutableArray.Create(
             new DisplayVhdxSummary(
-                target.Profile.DistroName,
-                target.Profile.DisplayName,
-                TargetConfigured: !string.IsNullOrWhiteSpace(target.VhdxPath),
-                CurrentVhdxSizeBytes: null,
-                ReclaimableBytes: state.LastImpactEstimate?.ReclaimableBytes));
+                fileName,
+                FileType: "VHDX",
+                CurrentSize: currentSize,
+                MappingStatus: mappingStatus,
+                SparseState: DisplayTextSanitizer.FormatSparseState(snapshot?.IsSparse),
+                HostCapacityStatus: FormatHostCapacity(snapshot?.Drive)));
     }
+
+    private static string FormatHostCapacity(DriveSnapshot? drive) =>
+        drive is null
+            ? "未知"
+            : $"可用 {DisplayTextSanitizer.FormatBytes(drive.AvailableFreeSpaceBytes)} / 共 {DisplayTextSanitizer.FormatBytes(drive.TotalSizeBytes)}";
 
     private static string? ResolveError(TuiSessionState state)
     {
