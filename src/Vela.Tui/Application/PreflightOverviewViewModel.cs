@@ -193,7 +193,8 @@ public sealed record PreflightOverviewViewModel(
     int NoticeCount,
     string? FirstNotice,
     string NextStep,
-    string? ConfiguredVhdxPath = null)
+    string? ConfiguredVhdxPath = null,
+    TimeSpan? Elapsed = null)
 {
     private const string MappingGate = "注册表 / Lxss 映射";
     private const string VhdxGate = "VHDX 快照";
@@ -234,7 +235,8 @@ public sealed record PreflightOverviewViewModel(
             notices.Length + (dashboard.ErrorMessage is null ? 0 : 1),
             firstNotice,
             FormatNextStep(state.Status),
-            dashboard.ConfiguredVhdxPath);
+            dashboard.ConfiguredVhdxPath,
+            state.Elapsed);
     }
 
     private static ImmutableArray<PreflightGateViewModel> CreateGates(
@@ -397,7 +399,8 @@ public sealed record PreflightOverviewViewModel(
         string? firstNotice,
         int noticeCount) => state.Status switch
         {
-        AutomaticPreflightStatus.Checking => "正在核对目标、快照与运行状态。",
+        AutomaticPreflightStatus.Checking =>
+                $"正在核对目标、快照与运行状态{PreflightOverviewFormatter.FormatCheckingElapsed(state.Elapsed)}。",
             AutomaticPreflightStatus.Ready when noticeCount == 0 => "5 项检查通过，未发现阻断项。",
             AutomaticPreflightStatus.Ready => $"预检完成；{noticeCount} 项需要处理。",
             AutomaticPreflightStatus.Attention when firstNotice is not null =>
@@ -543,6 +546,20 @@ public static class PreflightOverviewFormatter
         _ => "•"
     };
 
+    // A read-only preflight shells out to wsl.exe, which can stall for tens of
+    // seconds. Surfacing the elapsed time is what separates "still working" from
+    // "wedged" for the operator. Below one second there is nothing to show yet.
+    private static readonly TimeSpan MinimumReportedElapsed = TimeSpan.FromSeconds(1);
+
+    public static string FormatCheckingElapsed(TimeSpan? elapsed) =>
+        elapsed is { } value && value >= MinimumReportedElapsed
+            ? $"（已用 {((long)value.TotalSeconds).ToString(CultureInfo.InvariantCulture)} 秒）"
+            : string.Empty;
+
+    /// <summary>Status-line text for an in-flight read-only preflight.</summary>
+    public static string FormatCheckingStatus(TimeSpan? elapsed) =>
+        $"只读预检进行中{FormatCheckingElapsed(elapsed)}，完成后自动更新。";
+
     public static string FormatHomeStatusTitle(AutomaticPreflightStatus status) => status switch
     {
         AutomaticPreflightStatus.Ready => "预检通过",
@@ -560,7 +577,7 @@ public static class PreflightOverviewFormatter
             AutomaticPreflightStatus.Ready =>
                 $"{overview.NoticeCount} 项需要处理",
             AutomaticPreflightStatus.Checking =>
-                "正在读取目标映射、VHDX 快照、运行实例和日志",
+                $"正在读取目标映射、VHDX 快照、运行实例和日志{FormatCheckingElapsed(overview.Elapsed)}",
             AutomaticPreflightStatus.Attention or AutomaticPreflightStatus.Stale
                 when overview.FirstNotice is not null => overview.FirstNotice,
             AutomaticPreflightStatus.Failed when overview.FirstNotice is not null => overview.FirstNotice,

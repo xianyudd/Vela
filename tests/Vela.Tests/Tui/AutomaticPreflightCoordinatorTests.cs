@@ -61,6 +61,103 @@ public sealed class AutomaticPreflightCoordinatorTests
         Assert.Equal(AutomaticPreflightStatus.Attention, coordinator.Current.Status);
     }
 
+    [Fact]
+    public async Task Progress_refresh_advances_the_revision_and_reports_the_elapsed_time()
+    {
+        var profile = CreateProfile("Ubuntu 24.04");
+        var completion = new TaskCompletionSource<DashboardViewModel>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var coordinator = new AutomaticPreflightCoordinator((_, _) => completion.Task);
+        var published = new List<AutomaticPreflightState>();
+        coordinator.StateChanged += published.Add;
+
+        var running = coordinator.Start(profile);
+        var refreshed = coordinator.TryRefreshChecking(TimeSpan.FromSeconds(4));
+
+        Assert.True(refreshed);
+        Assert.Equal(AutomaticPreflightStatus.Checking, coordinator.Current.Status);
+        Assert.Equal(TimeSpan.FromSeconds(4), coordinator.Current.Elapsed);
+        Assert.Equal(profile.Id, coordinator.Current.ProfileId);
+        Assert.Equal(1, coordinator.Current.Generation);
+        Assert.Equal(2, coordinator.Current.Revision);
+        Assert.Contains("4", coordinator.Current.Message!, StringComparison.Ordinal);
+        Assert.Equal(2, published.Count);
+
+        completion.SetResult(DashboardViewModel.CreateInitial(profile));
+        await running;
+    }
+
+    [Fact]
+    public void Progress_refresh_below_one_second_reports_no_elapsed_time_yet()
+    {
+        var profile = CreateProfile("Ubuntu 24.04");
+        var completion = new TaskCompletionSource<DashboardViewModel>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var coordinator = new AutomaticPreflightCoordinator((_, _) => completion.Task);
+
+        _ = coordinator.Start(profile);
+        var refreshed = coordinator.TryRefreshChecking(TimeSpan.FromMilliseconds(400));
+
+        Assert.True(refreshed);
+        Assert.DoesNotContain("已用", coordinator.Current.Message!, StringComparison.Ordinal);
+        Assert.Equal(TimeSpan.FromMilliseconds(400), coordinator.Current.Elapsed);
+        completion.SetResult(DashboardViewModel.CreateInitial(profile));
+    }
+
+    [Fact]
+    public void Progress_refresh_clamps_a_negative_elapsed_time_to_zero()
+    {
+        var profile = CreateProfile("Ubuntu 24.04");
+        var completion = new TaskCompletionSource<DashboardViewModel>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var coordinator = new AutomaticPreflightCoordinator((_, _) => completion.Task);
+
+        _ = coordinator.Start(profile);
+        coordinator.TryRefreshChecking(TimeSpan.FromSeconds(-5));
+
+        Assert.Equal(TimeSpan.Zero, coordinator.Current.Elapsed);
+        completion.SetResult(DashboardViewModel.CreateInitial(profile));
+    }
+
+    [Fact]
+    public void Progress_refresh_is_rejected_before_any_preflight_starts()
+    {
+        using var coordinator = new AutomaticPreflightCoordinator(
+            (profile, _) => Task.FromResult(DashboardViewModel.CreateInitial(profile)));
+
+        Assert.False(coordinator.TryRefreshChecking(TimeSpan.FromSeconds(1)));
+        Assert.Equal(AutomaticPreflightStatus.Idle, coordinator.Current.Status);
+        Assert.Equal(0, coordinator.Current.Revision);
+    }
+
+    [Fact]
+    public async Task Progress_refresh_stops_once_the_preflight_completed()
+    {
+        var profile = CreateProfile("Ubuntu 24.04");
+        using var coordinator = new AutomaticPreflightCoordinator(
+            (requested, _) => Task.FromResult(DashboardViewModel.CreateInitial(requested)));
+
+        await coordinator.Start(profile);
+        var revisionAfterCompletion = coordinator.Current.Revision;
+
+        // The ticker races with completion by design; a refresh after the run
+        // finished must be a no-op so the terminal state is never overwritten.
+        Assert.False(coordinator.TryRefreshChecking(TimeSpan.FromSeconds(9)));
+        Assert.Equal(revisionAfterCompletion, coordinator.Current.Revision);
+        Assert.Null(coordinator.Current.Elapsed);
+    }
+
+    [Fact]
+    public void Progress_refresh_is_rejected_after_disposal_without_throwing()
+    {
+        var profile = CreateProfile("Ubuntu 24.04");
+        var completion = new TaskCompletionSource<DashboardViewModel>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var coordinator = new AutomaticPreflightCoordinator((_, _) => completion.Task);
+
+        _ = coordinator.Start(profile);
+        coordinator.Dispose();
+
+        Assert.False(coordinator.TryRefreshChecking(TimeSpan.FromSeconds(2)));
+        completion.SetResult(DashboardViewModel.CreateInitial(profile));
+    }
+
     private static Profile CreateProfile(string name) => new(
         Guid.NewGuid(),
         name,

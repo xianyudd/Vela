@@ -20,10 +20,33 @@ using Vela.Windows.Storage;
 using Vela.Windows.Wsl;
 using CoreProfile = Vela.Core.Models.Profile;
 
+// Command-line routing is strict: only an exact "--worker" first argument
+// enters worker mode. Accepting anything non-empty would let a typo start a
+// headless elevated worker instead of the interactive shell.
 if (args.Length != 0)
 {
-    var workerResult = await CreateWorkerMode().RunAsync(args, CancellationToken.None);
-    return workerResult.ExitCode;
+    if (string.Equals(args[0], "--worker", StringComparison.Ordinal))
+    {
+        var workerResult = await CreateWorkerMode().RunAsync(args, CancellationToken.None);
+        return workerResult.ExitCode;
+    }
+
+    if (args.Length == 1 && args[0] is "--help" or "-h" or "/?")
+    {
+        Console.Out.WriteLine(BuildUsageText());
+        return 0;
+    }
+
+    if (args.Length == 1 && args[0] is "--version" or "-v")
+    {
+        Console.Out.WriteLine(BuildVersionText());
+        return 0;
+    }
+
+    Console.Error.WriteLine("无法识别的命令行参数。");
+    Console.Error.WriteLine(BuildUsageText());
+    // 64 keeps usage errors distinct from every worker terminal-result code.
+    return 64;
 }
 
 var paths = AppPaths.CreateDefault();
@@ -99,17 +122,19 @@ if (!startupInspection.IsComplete)
             startupInspection.PendingDirectoryExists,
             startupInspection.LogsDirectoryExists)
         : MainMenu.CreateFirstRunConfirmation(paths);
-    var firstRunFrame = new TuiFrameViewModel(
-        new MainMenu().ViewModel,
-        DashboardViewModel.CreateInitial(startupProfile),
-        new RunProgressViewModel(
-            RunProgressState.AwaitingConfirmation,
-            confirmation.Prompt,
-            Percent: null));
-
     if (Console.IsInputRedirected)
     {
-        frameRenderer.RenderRedirected(ansiConsole, firstRunFrame);
+        // Only the non-interactive path renders a frame here; the interactive
+        // one goes straight into Terminal.Gui so the screen is painted once.
+        frameRenderer.RenderRedirected(
+            ansiConsole,
+            new TuiFrameViewModel(
+                new MainMenu().ViewModel,
+                DashboardViewModel.CreateInitial(startupProfile),
+                new RunProgressViewModel(
+                    RunProgressState.AwaitingConfirmation,
+                    confirmation.Prompt,
+                    Percent: null)));
         return 2;
     }
 
@@ -187,9 +212,10 @@ static ConfirmationInputResult RunStartupConfirmation(
 }
 
 var profileService = new ProfileService(profileStore);
+var logRetentionDays = JsonProfileStore.DefaultLogRetentionDays;
 try
 {
-    await profileService.LoadAsync().ConfigureAwait(false);
+    logRetentionDays = (await profileService.LoadAsync().ConfigureAwait(false)).LogRetentionDays;
 }
 catch (InvalidDataException)
 {
@@ -208,22 +234,42 @@ catch (Exception)
     return 2;
 }
 
+// Housekeeping before the shell opens. A crashed worker leaves a compaction
+// gate and a pending request behind; reclaiming them here means the operator
+// never meets a spurious "a compaction is already running" much later.
+var startupReclaim = new CompactRunGate(paths).ReconcileStaleGate();
+var startupPrune = new RunLogRetention(paths).Prune(logRetentionDays);
+
+// app.manifest requests requireAdministrator, so this normally holds. It is a
+// defensive check for the cases where the manifest is not in effect, such as
+// running through `dotnet run`, where compaction would fail much later instead.
+var startupIsElevated = TryDetectAdministrator();
+
+var startupNotices = BuildStartupNotices(
+    startupReclaim,
+    startupPrune,
+    startupIsElevated,
+    logRetentionDays);
+
 var profile = profileService.CurrentProfile;
 var menu = new MainMenu();
 var preflightSource = CreatePreflightViewModelSource();
 var impactEstimator = new WslCompactionImpactEstimator();
+// Used only to refresh the running inventory when a confirmation is raised, so
+// the disclosed blast radius reflects the machine's current state.
+var interactiveWslClient = new WslClient();
 var runLogReader = new RunLogReader(paths);
 var runHistoryReader = new RunHistoryReader(paths);
 var dashboardViewModel = DashboardViewModel.CreateInitial(profile);
-var progressViewModel = new RunProgressViewModel(
-    RunProgressState.Idle,
-    "预检尚未运行。",
-    Percent: null);
-var initialFrame = new TuiFrameViewModel(menu.ViewModel, dashboardViewModel, progressViewModel);
 
 if (Console.IsInputRedirected)
 {
-    frameRenderer.RenderRedirected(ansiConsole, initialFrame);
+    frameRenderer.RenderRedirected(
+        ansiConsole,
+        new TuiFrameViewModel(
+            menu.ViewModel,
+            dashboardViewModel,
+            new RunProgressViewModel(RunProgressState.Idle, "预检尚未运行。", Percent: null)));
     return 0;
 }
 
@@ -341,16 +387,17 @@ using (var terminalApplication = Application.Create())
                     break;
                 }
 
-                pendingCompactionRequest = request;
-                shell.ShowConfirmation(MainMenu.CreateExecuteConfirmation(
-                    request.Profile,
-                    shell.Overview.InstalledDistros,
-                    paths.RootDirectory));
+                _ = ShowExecuteConfirmationAsync(request);
                 break;
             default:
                 break;
         }
     };
+    foreach (var notice in startupNotices)
+    {
+        shell.ShowStatus(notice);
+    }
+
     _ = terminalHost.Start(profileService.CurrentProfile);
     terminalApplication.Run(shell);
     executionCancellation.Cancel();
@@ -421,6 +468,56 @@ using (var terminalApplication = Application.Create())
 
             shell.ShowLogArchive(history);
         });
+    }
+
+    async Task ShowExecuteConfirmationAsync(OperationRequest request)
+    {
+        // The overview snapshot dates from the last preflight, so the blast
+        // radius it would show may already be wrong. Re-read the running
+        // inventory here and fall back to the snapshot only if that fails.
+        var runningDistros = shell.Overview.InstalledDistros;
+        try
+        {
+            var inventory = await interactiveWslClient
+                .GetRunningInventoryAsync(executionCancellation.Token)
+                .ConfigureAwait(false);
+            if (!inventory.Distributions.IsDefault)
+            {
+                runningDistros = inventory.Distributions;
+            }
+        }
+        catch (OperationCanceledException) when (executionCancellation.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception)
+        {
+            // Keep the stale snapshot rather than blocking the confirmation.
+        }
+
+        var mismatch = CompactionTargetProfileFactory.IsTargetMismatch(
+            profileService.CurrentProfile,
+            shell.LockedTarget);
+
+        try
+        {
+            terminalApplication.Invoke(() =>
+            {
+                pendingCompactionRequest = request;
+                shell.ShowConfirmation(MainMenu.CreateExecuteConfirmation(
+                    request.Profile,
+                    runningDistros,
+                    paths.RootDirectory,
+                    mismatch,
+                    profileService.CurrentProfile.DistroName));
+            });
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        catch (InvalidOperationException) when (executionCancellation.IsCancellationRequested)
+        {
+        }
     }
 
     async Task ShowCompactionImpactAsync(long revision)
@@ -639,6 +736,74 @@ using (var terminalApplication = Application.Create())
 
 return 0;
 
+static bool? TryDetectAdministrator()
+{
+    try
+    {
+        return new WindowsAdministratorProbe().IsAdministrator();
+    }
+    catch (Exception)
+    {
+        // An unavailable probe must not block startup; the worker re-checks.
+        return null;
+    }
+}
+
+static ImmutableArray<string> BuildStartupNotices(
+    CompactGateReconcileResult reclaim,
+    RunLogRetentionResult prune,
+    bool? isElevated,
+    int logRetentionDays)
+{
+    var notices = ImmutableArray.CreateBuilder<string>();
+
+    if (reclaim.ReclaimedAnything)
+    {
+        notices.Add(
+            $"已清理上次异常退出残留的压缩锁与请求（锁 {reclaim.ReclaimedGates} 个，请求 {reclaim.ReclaimedPendingRequests} 个）。");
+    }
+
+    if (prune.RemovedAnything)
+    {
+        notices.Add($"已按 {logRetentionDays} 天留存清理 {prune.RemovedRunDirectories} 条过期运行记录。");
+    }
+
+    if (isElevated == false)
+    {
+        notices.Add("当前进程未以管理员身份运行：只读预检可用，压缩将无法执行。");
+    }
+
+    return notices.ToImmutable();
+}
+
+static string BuildUsageText() =>
+    string.Join(
+        Environment.NewLine,
+        "Vela — WSL2 虚拟磁盘压缩工具",
+        string.Empty,
+        "用法：",
+        "  Vela                     启动交互式界面（默认）",
+        "  Vela --help              显示本帮助",
+        "  Vela --version           显示版本",
+        "  Vela --worker --run-id <GUID>",
+        "                           内部提权工作进程；请勿手动调用",
+        string.Empty,
+        "压缩操作必须由界面发起，以便完成确认与审计记录。");
+
+static string BuildVersionText()
+{
+    var assembly = System.Reflection.Assembly.GetEntryAssembly();
+    var informational = assembly?
+        .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+        .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+        .FirstOrDefault()?
+        .InformationalVersion;
+    var version = string.IsNullOrWhiteSpace(informational)
+        ? assembly?.GetName().Version?.ToString()
+        : informational;
+    return $"Vela {version ?? "未知版本"}";
+}
+
 static IPreflightViewModelSource CreatePreflightViewModelSource()
 {
     var paths = AppPaths.CreateDefault();
@@ -665,7 +830,7 @@ static WorkerMode CreateWorkerMode()
     var wslClient = new WslClient();
     var lxssProfileResolver = new LxssProfileResolver();
     var vhdxInspector = new VhdxInspector();
-    var diskPartClient = new DiskPartClient();
+    var diskPartClient = new DiskPartClient(journal);
     var compactionWorkflow = new CompactionWorkflow(
         wslClient,
         lxssProfileResolver,

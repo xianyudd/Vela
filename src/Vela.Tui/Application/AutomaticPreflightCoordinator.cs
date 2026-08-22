@@ -1,3 +1,4 @@
+using System.Globalization;
 using Vela.Core.Models;
 
 namespace Vela.Tui.Application;
@@ -12,13 +13,19 @@ public enum AutomaticPreflightStatus
     Stale
 }
 
+/// <param name="Elapsed">
+/// How long the in-flight check has been running, refreshed while the status is
+/// <see cref="AutomaticPreflightStatus.Checking"/>. Null means "not tracked",
+/// which is what every terminal state carries.
+/// </param>
 public sealed record AutomaticPreflightState(
     Guid ProfileId,
     long Generation,
     long Revision,
     AutomaticPreflightStatus Status,
     DashboardViewModel? Dashboard,
-    string? Message)
+    string? Message,
+    TimeSpan? Elapsed = null)
 {
     public static AutomaticPreflightState Idle { get; } = new(
         Guid.Empty,
@@ -33,6 +40,8 @@ public sealed record AutomaticPreflightState(
 
 public sealed class AutomaticPreflightCoordinator : IDisposable
 {
+    private const string CheckingMessage = "正在进行只读预检。";
+
     private readonly Func<Profile, CancellationToken, Task<DashboardViewModel>> _createDashboardAsync;
     private readonly object _sync = new();
     private CancellationTokenSource? _activeCancellation;
@@ -80,7 +89,8 @@ public sealed class AutomaticPreflightCoordinator : IDisposable
                 ++_revision,
                 AutomaticPreflightStatus.Checking,
                 Dashboard: null,
-                Message: "正在进行只读预检。");
+                CheckingMessage,
+                Elapsed: TimeSpan.Zero);
             _current = checking;
         }
 
@@ -116,6 +126,36 @@ public sealed class AutomaticPreflightCoordinator : IDisposable
         }
 
         Notify(stale);
+    }
+
+    /// <summary>
+    /// Republishes the in-flight check with a refreshed elapsed time so the shell
+    /// can show that a slow read-only preflight is still alive rather than wedged.
+    /// Returns false when no check is in flight, which is the caller's stop signal.
+    /// </summary>
+    public bool TryRefreshChecking(TimeSpan elapsed)
+    {
+        AutomaticPreflightState next;
+        lock (_sync)
+        {
+            // Never throws when disposed: the caller is a background ticker that
+            // races with shutdown by design and only needs the stop signal.
+            if (_disposed || _current.Status != AutomaticPreflightStatus.Checking)
+            {
+                return false;
+            }
+
+            next = _current with
+            {
+                Revision = ++_revision,
+                Message = BuildCheckingMessage(elapsed),
+                Elapsed = elapsed < TimeSpan.Zero ? TimeSpan.Zero : elapsed
+            };
+            _current = next;
+        }
+
+        Notify(next);
+        return true;
     }
 
     public void Dispose()
@@ -191,6 +231,14 @@ public sealed class AutomaticPreflightCoordinator : IDisposable
         }
 
         Notify(next);
+    }
+
+    private static string BuildCheckingMessage(TimeSpan elapsed)
+    {
+        var seconds = (long)elapsed.TotalSeconds;
+        return seconds <= 0
+            ? CheckingMessage
+            : $"正在进行只读预检（已用 {seconds.ToString(CultureInfo.InvariantCulture)} 秒）。";
     }
 
     private void Notify(AutomaticPreflightState state)
