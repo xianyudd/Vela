@@ -37,8 +37,12 @@ public sealed class TuiServicesTests
         await File.WriteAllLinesAsync(
             paths.GetRunLogFilePath(newer),
             Enumerable.Range(1, 30).Select(index => $"line-{index}"));
+        // RunLogReader 按 run.log 文件的 mtime 排序 (不是目录的)，两个文件在同一瞬间写出
+        // 时会撞在时间戳精度里，稳定排序就退化成枚举顺序 —— 必须显式把文件时间拉开。
         Directory.SetLastWriteTimeUtc(paths.GetRunDirectory(older), DateTime.UtcNow.AddMinutes(-2));
         Directory.SetLastWriteTimeUtc(paths.GetRunDirectory(newer), DateTime.UtcNow);
+        File.SetLastWriteTimeUtc(paths.GetRunLogFilePath(older), DateTime.UtcNow.AddMinutes(-2));
+        File.SetLastWriteTimeUtc(paths.GetRunLogFilePath(newer), DateTime.UtcNow);
 
         var result = await new RunLogReader(paths).ReadLatestAsync(maxLines: 12);
 
