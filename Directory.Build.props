@@ -6,6 +6,21 @@
     <AnalysisLevel>latest</AnalysisLevel>
     <Deterministic>true</Deterministic>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <!--
+      Pin the runtime identifier for every project. Vela only ever ships
+      win-x64, and CI restores with the win-x64 RID in locked mode, so the lock
+      files carry win-x64 sections. Without this property a restore that omits
+      the RID flag (any bare "dotnet build" or "dotnet test") regenerates those
+      lock files and drops the win-x64 sections, after which the CI restore
+      fails with NU1004 until someone notices the lock files in the diff.
+      Declaring the RID here makes every restore produce the sections CI
+      expects. SelfContained stays false (framework-dependent, as before) and
+      the RID is kept out of the output path so artifacts\build paths do not
+      move.
+    -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     <BaseOutputPath>$(MSBuildThisFileDirectory)artifacts\build\$(MSBuildProjectName)\</BaseOutputPath>
     <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)artifacts\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
   </PropertyGroup>
