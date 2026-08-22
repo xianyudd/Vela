@@ -81,7 +81,15 @@ public enum ElevatedWorkerLaunchStatus
     Rejected
 }
 
-public sealed record ElevatedWorkerLaunchResult(ElevatedWorkerLaunchStatus Status);
+/// <summary>
+/// Outcome of a worker launch attempt. <paramref name="FailureReason"/> is a
+/// short, path-free sentence recorded in the run journal when the launch failed
+/// for a reason worth telling the operator; it is null for a successful launch
+/// and for failures that carry no useful detail.
+/// </summary>
+public sealed record ElevatedWorkerLaunchResult(
+    ElevatedWorkerLaunchStatus Status,
+    string? FailureReason = null);
 
 public interface IElevatedWorkerLauncher
 {
