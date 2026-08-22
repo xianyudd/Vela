@@ -177,8 +177,18 @@ public sealed class WorkerModeHardeningTests
         Assert.Contains(journal.Events, item => item.OperationName == "WorkerRequestConsumeFailed");
         Assert.Equal(TerminalResult.ValidationFailed, Assert.Single(journal.Summaries).TerminalResult);
         Assert.Equal(runId, Assert.Single(store.ConsumedRunIds));
+        // The lifecycle breadcrumbs precede the terminal event: they exist so a
+        // worker that dies mid-run still shows how far it got.
         Assert.Equal(
-            new[] { "open", "append:WorkerFailed", "summary", "append:WorkerRequestConsumeFailed" },
+            new[]
+            {
+                "open",
+                "append:WorkerRequestClaimed",
+                "append:WorkerTargetResolved",
+                "append:WorkerFailed",
+                "summary",
+                "append:WorkerRequestConsumeFailed"
+            },
             journal.Operations);
     }
 
@@ -218,6 +228,38 @@ public sealed class WorkerModeHardeningTests
         Assert.Equal(runId, Assert.Single(journal.Summaries).RunId);
         Assert.Equal(runId, Assert.Single(store.ConsumedRunIds));
     }
+    [Fact]
+    public async Task RunAsync_WritesLifecycleBreadcrumbsAsTraceEventsWithoutRawOutput()
+    {
+        using var root = TestRoot.Create();
+        var paths = new AppPaths(root.RootDirectory);
+        var runId = Guid.Parse("b6c1f2a3-7d8e-4f90-8a1b-2c3d4e5f6a7b");
+        var request = CreateRequest(runId);
+        var journal = new RecordingJournal();
+        var mode = new WorkerMode(
+            paths,
+            new RecordingStore(request, paths.GetPendingRequestFilePath(runId)),
+            journal,
+            new FixedAdministratorProbe(true),
+            new FixedResolver(),
+            new FixedExecutor(CreateWorkflow(request, TerminalResult.Succeeded)),
+            new FixedClock());
+
+        await mode.RunAsync(["--worker", "--run-id", runId.ToString("D")], CancellationToken.None);
+
+        foreach (var operationName in new[] { "WorkerRequestClaimed", "WorkerTargetResolved" })
+        {
+            var breadcrumb = Assert.Single(journal.Events, item => item.OperationName == operationName);
+            Assert.Equal(RunEventLevel.Trace, breadcrumb.Level);
+            Assert.Equal(RunPhase.Validation, breadcrumb.Phase);
+            Assert.Equal(runId, breadcrumb.RunId);
+            Assert.Contains($"distro={request.Profile.DistroName}", breadcrumb.Arguments);
+            // Breadcrumbs carry no process output and never a stack trace.
+            Assert.Null(breadcrumb.Output);
+            Assert.Null(breadcrumb.TerminalResult);
+        }
+    }
+
     private static OperationRequest CreateRequest(Guid runId) =>
         new(
             runId,

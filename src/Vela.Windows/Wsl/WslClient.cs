@@ -11,6 +11,11 @@ namespace Vela.Windows.Wsl;
 public sealed class WslClient : IWslClient
 {
     private static readonly Regex ColumnSeparator = new(@"\s{2,}", RegexOptions.CultureInvariant);
+
+    // Read-only inventory queries must not hang the UI: wsl.exe can stall while
+    // the utility VM starts or a distro is wedged. Destructive commands keep
+    // Timeout: null because their deadline is the profile's shutdown timeout.
+    private static readonly TimeSpan InventoryTimeout = TimeSpan.FromSeconds(30);
     private readonly NativeToolPaths _nativeToolPaths;
     private readonly IProcessRunner _processRunner;
     private readonly ILxssRegistryReader _registryReader;
@@ -91,7 +96,7 @@ public sealed class WslClient : IWslClient
         CancellationToken cancellationToken)
     {
         var result = await _processRunner.RunAsync(
-            CreateInvocation(arguments),
+            CreateInvocation(arguments, InventoryTimeout),
             output: null,
             cancellationToken).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
@@ -104,8 +109,10 @@ public sealed class WslClient : IWslClient
         return result;
     }
 
-    private ProcessInvocation CreateInvocation(ImmutableArray<string> arguments) =>
-        new(_nativeToolPaths.WslExePath, arguments, Timeout: null, OutputEncoding: Encoding.Unicode);
+    private ProcessInvocation CreateInvocation(
+        ImmutableArray<string> arguments,
+        TimeSpan? timeout = null) =>
+        new(_nativeToolPaths.WslExePath, arguments, timeout, OutputEncoding: Encoding.Unicode);
 
     private async Task<ImmutableArray<LxssRegistryProfile>> ReadRegistryProfilesAsync(
         CancellationToken cancellationToken)

@@ -174,6 +174,95 @@ public sealed class VelaTerminalHostTests
         Assert.Equal(AutomaticPreflightStatus.Ready, shell.PreflightState.Status);
     }
 
+    [Fact]
+    public async Task Checking_progress_is_written_to_the_status_line_with_the_elapsed_time()
+    {
+        var profile = CreateProfile();
+        var completion = new TaskCompletionSource<DashboardViewModel>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var coordinator = new AutomaticPreflightCoordinator((_, _) => completion.Task);
+        var dispatcher = new QueuedDispatcher();
+        using var shell = new VelaTerminalShell(new MainMenu().ViewModel, DashboardViewModel.CreateInitial(profile));
+        // A very long interval keeps the host's own ticker out of this assertion,
+        // so the refresh below is the only progress publication in play.
+        using var host = new VelaTerminalHost(shell, coordinator, dispatcher, TimeSpan.FromMinutes(10));
+
+        var running = host.Start(profile);
+        Assert.True(coordinator.TryRefreshChecking(TimeSpan.FromSeconds(7)));
+        dispatcher.RunAll();
+
+        Assert.Equal(AutomaticPreflightStatus.Checking, shell.PreflightState.Status);
+        Assert.Contains("已用 7 秒", shell.StatusText, StringComparison.Ordinal);
+
+        completion.SetResult(DashboardViewModel.CreateInitial(profile));
+        await running;
+        dispatcher.RunAll();
+
+        // A terminal state restores the navigation hint: the progress text is
+        // transient and must not survive the check it described.
+        Assert.Equal(AutomaticPreflightStatus.Ready, shell.PreflightState.Status);
+        Assert.DoesNotContain("已用 7 秒", shell.StatusText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Checking_progress_ticker_runs_while_the_preflight_is_in_flight_and_stops_after_it()
+    {
+        var profile = CreateProfile();
+        var completion = new TaskCompletionSource<DashboardViewModel>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var coordinator = new AutomaticPreflightCoordinator((_, _) => completion.Task);
+        var dispatcher = new QueuedDispatcher();
+        using var shell = new VelaTerminalShell(new MainMenu().ViewModel, DashboardViewModel.CreateInitial(profile));
+        using var host = new VelaTerminalHost(shell, coordinator, dispatcher, TimeSpan.FromMilliseconds(15));
+
+        var running = host.Start(profile);
+        await WaitForRevisionAsync(coordinator, atLeast: 3);
+
+        Assert.True(coordinator.Current.Revision >= 3, "An in-flight check must keep publishing progress.");
+        Assert.True(coordinator.Current.Elapsed > TimeSpan.Zero);
+
+        completion.SetResult(DashboardViewModel.CreateInitial(profile));
+        await running;
+        var revisionAtCompletion = coordinator.Current.Revision;
+        await Task.Delay(TimeSpan.FromMilliseconds(150));
+
+        // The ticker stops itself the moment the status leaves Checking.
+        Assert.Equal(revisionAtCompletion, coordinator.Current.Revision);
+        Assert.Equal(AutomaticPreflightStatus.Ready, coordinator.Current.Status);
+    }
+
+    [Fact]
+    public async Task Dispose_stops_the_checking_progress_ticker()
+    {
+        var profile = CreateProfile();
+        var completion = new TaskCompletionSource<DashboardViewModel>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var coordinator = new AutomaticPreflightCoordinator((_, _) => completion.Task);
+        var dispatcher = new QueuedDispatcher();
+        using var shell = new VelaTerminalShell(new MainMenu().ViewModel, DashboardViewModel.CreateInitial(profile));
+        var host = new VelaTerminalHost(shell, coordinator, dispatcher, TimeSpan.FromMilliseconds(15));
+
+        var running = host.Start(profile);
+        await WaitForRevisionAsync(coordinator, atLeast: 2);
+        host.Dispose();
+        // Let a tick that was already awake finish before the baseline is taken,
+        // so the assertion measures the stopped ticker and not that last tick.
+        await Task.Delay(TimeSpan.FromMilliseconds(80));
+        var revisionAtDisposal = coordinator.Current.Revision;
+        await Task.Delay(TimeSpan.FromMilliseconds(200));
+
+        Assert.Equal(revisionAtDisposal, coordinator.Current.Revision);
+
+        completion.SetResult(DashboardViewModel.CreateInitial(profile));
+        await running;
+    }
+
+    private static async Task WaitForRevisionAsync(AutomaticPreflightCoordinator coordinator, long atLeast)
+    {
+        var deadline = Environment.TickCount64 + 10_000;
+        while (coordinator.Current.Revision < atLeast && Environment.TickCount64 < deadline)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(10));
+        }
+    }
+
     private static Profile CreateProfile(string name = "Ubuntu 24.04") => new(
         Guid.NewGuid(),
         name,

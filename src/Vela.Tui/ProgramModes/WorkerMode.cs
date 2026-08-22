@@ -259,6 +259,15 @@ public sealed class WorkerMode
                 .ConfigureAwait(false);
         }
 
+        // Lifecycle breadcrumbs: without them a worker that dies later leaves a
+        // journal that cannot answer "did it even claim the request?".
+        await AppendLifecycleTraceAsync(
+                runId,
+                "WorkerRequestClaimed",
+                ImmutableArray.Create($"distro={request.Profile.DistroName}", $"intent={request.Intent}"),
+                cancellationToken)
+            .ConfigureAwait(false);
+
         LxssProfileResolution resolution;
         try
         {
@@ -293,6 +302,13 @@ public sealed class WorkerMode
                     cancellationToken)
                 .ConfigureAwait(false);
         }
+
+        await AppendLifecycleTraceAsync(
+                runId,
+                "WorkerTargetResolved",
+                ImmutableArray.Create($"distro={request.Profile.DistroName}", "lxss-match=strict"),
+                cancellationToken)
+            .ConfigureAwait(false);
 
         try
         {
@@ -657,6 +673,41 @@ public sealed class WorkerMode
                     cancellationToken)
                 .ConfigureAwait(false);
             return CreateResult(terminalResult);
+        }
+    }
+
+    /// <summary>
+    /// Records a best-effort lifecycle breadcrumb. Diagnostics never alter the
+    /// worker's outcome, so every failure to write one is swallowed.
+    /// </summary>
+    private async Task AppendLifecycleTraceAsync(
+        Guid runId,
+        string operationName,
+        ImmutableArray<string> arguments,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _journal.AppendAsync(
+                    new RunEventDraft(
+                        _clock.UtcNow,
+                        runId,
+                        RunPhase.Validation,
+                        RunEventLevel.Trace,
+                        operationName,
+                        arguments,
+                        ExitCode: null,
+                        Duration: null,
+                        Output: null),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
         }
     }
 
