@@ -99,8 +99,12 @@ public sealed class WindowsObjectSecurityVerifierTests
 
         // 2) 异常路径：让带标签的读取抛，依然必须 Restore
         adapter.FailLabelRead = true;
+        var scopesBeforeFailure = adapter.PrivilegeScopes;
         Assert.Throws<InvalidOperationException>(() =>
             verifier.AssertProtectedDirectory(TrustedPath, TrustedPrefix));
+        // 抛出的那次读取本身也必须发生在一个 scope 里, 否则下面的等式就只是
+        // 「没进过 scope, 也就没什么要还原」, 恒真而验不到任何东西。
+        Assert.True(adapter.PrivilegeScopes > scopesBeforeFailure);
         Assert.Equal(adapter.PrivilegeScopes, adapter.PrivilegeScopesRestored);
         Assert.False(adapter.IsSecurityPrivilegeEnabled());
     }
@@ -116,6 +120,8 @@ public sealed class WindowsObjectSecurityVerifierTests
 
         Assert.True(adapter.SawBasicRead, "verifier must read owner/group/DACL first.");
         Assert.True(adapter.SawLabelRead, "verifier must re-read including the integrity label.");
+        // 先钉住「确实进过 scope」: 只有 0 == 0 的等式不能证明 token 状态被还原过。
+        Assert.True(adapter.PrivilegeScopes >= 1, "标签读取必须发生在提权 scope 内。");
         Assert.Equal(adapter.PrivilegeScopes, adapter.PrivilegeScopesRestored);
     }
 
