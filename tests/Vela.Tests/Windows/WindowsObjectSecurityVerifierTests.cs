@@ -97,8 +97,8 @@ public sealed class WindowsObjectSecurityVerifierTests
         Assert.Equal(adapter.PrivilegeScopes, adapter.PrivilegeScopesRestored);
         Assert.False(adapter.IsSecurityPrivilegeEnabled());
 
-        // 2) 异常路径：让 includeSacl 读取抛，依然必须 Restore
-        adapter.FailSaclRead = true;
+        // 2) 异常路径：让带标签的读取抛，依然必须 Restore
+        adapter.FailLabelRead = true;
         Assert.Throws<InvalidOperationException>(() =>
             verifier.AssertProtectedDirectory(TrustedPath, TrustedPrefix));
         Assert.Equal(adapter.PrivilegeScopes, adapter.PrivilegeScopesRestored);
@@ -106,7 +106,7 @@ public sealed class WindowsObjectSecurityVerifierTests
     }
 
     [Fact]
-    public void AssertProtectedFileHandle_VerifiesBothBasicAndSaclPasses()
+    public void AssertProtectedFileHandle_VerifiesBothBasicAndLabelPasses()
     {
         var (adapter, verifier) = CreateVerifier();
         adapter.Configure(TrustedPath, CompliantSddl, Identity);
@@ -115,7 +115,7 @@ public sealed class WindowsObjectSecurityVerifierTests
         verifier.AssertProtectedFileHandle(handle, TrustedPath, Identity);
 
         Assert.True(adapter.SawBasicRead, "verifier must read owner/group/DACL first.");
-        Assert.True(adapter.SawSaclRead, "verifier must read SACL inside privilege scope.");
+        Assert.True(adapter.SawLabelRead, "verifier must re-read including the integrity label.");
         Assert.Equal(adapter.PrivilegeScopes, adapter.PrivilegeScopesRestored);
     }
 
@@ -129,12 +129,12 @@ public sealed class WindowsObjectSecurityVerifierTests
         private readonly Dictionary<string, (string Sddl, FileIdentity Identity)> _byPath = new(StringComparer.OrdinalIgnoreCase);
         public HashSet<string> ReparsePaths { get; } = new(StringComparer.OrdinalIgnoreCase);
         public bool FailPrivilegeAcquire { get; set; }
-        public bool FailSaclRead { get; set; }
+        public bool FailLabelRead { get; set; }
         public bool CurrentlyInPrivilegeScope { get; set; }
         public int PrivilegeScopes { get; private set; }
         public int PrivilegeScopesRestored { get; private set; }
         public bool SawBasicRead { get; private set; }
-        public bool SawSaclRead { get; private set; }
+        public bool SawLabelRead { get; private set; }
 
         public void Configure(string path, string sddl, FileIdentity identity)
         {
@@ -187,23 +187,19 @@ public sealed class WindowsObjectSecurityVerifierTests
         public string GetFinalPathName(SafeFileHandle handle)
             => _handlePaths.TryGetValue(handle, out var pair) ? pair.Path : throw new InvalidOperationException("unknown handle");
 
-        public string ReadSecurityDescriptorSddl(SafeFileHandle handle, bool includeSacl)
+        public string ReadSecurityDescriptorSddl(SafeFileHandle handle, bool includeIntegrityLabel)
         {
             if (!_handlePaths.TryGetValue(handle, out var pair))
             {
                 throw new InvalidOperationException("unknown handle");
             }
-            if (includeSacl)
+            if (includeIntegrityLabel)
             {
-                if (FailSaclRead)
+                if (FailLabelRead)
                 {
-                    throw new InvalidOperationException("simulated sacl read failure");
+                    throw new InvalidOperationException("simulated integrity-label read failure");
                 }
-                if (!CurrentlyInPrivilegeScope)
-                {
-                    throw new InvalidOperationException("SACL read outside privilege scope.");
-                }
-                SawSaclRead = true;
+                SawLabelRead = true;
             }
             else
             {
@@ -214,7 +210,9 @@ public sealed class WindowsObjectSecurityVerifierTests
             {
                 throw new InvalidOperationException("path not configured");
             }
-            return includeSacl ? cfg.Sddl : StripSacl(cfg.Sddl);
+
+            // 关键: 回读要经过真机规范化, 不能逐字回显。
+            return WindowsSddlNormalization.AsReadBack(cfg.Sddl, includeIntegrityLabel);
         }
 
         public bool IsPrivilegedDescriptorCompliant(string sddl, bool requireHighIntegrity)
@@ -224,12 +222,6 @@ public sealed class WindowsObjectSecurityVerifierTests
 
         public bool TryDeleteFile(string path) => true;
         public bool TryDeleteDirectory(string path) => true;
-
-        private static string StripSacl(string sddl)
-        {
-            var idx = sddl.IndexOf("S:", StringComparison.Ordinal);
-            return idx < 0 ? sddl : sddl[..idx];
-        }
 
         private readonly Dictionary<SafeFileHandle, (string Path, string TmpFile)> _handlePaths = new();
 

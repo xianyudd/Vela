@@ -72,10 +72,18 @@ public interface INativeSecurityAdapter
 
     /// <summary>
     /// Reads the SDDL for the object behind <paramref name="handle"/>, requesting
-    /// owner+group+DACL always, and SACL/access-audit sections when <paramref name="includeSacl"/>
-    /// is true (caller must hold the SeSecurityPrivilege scope for the latter).
+    /// owner+group+DACL always, plus the mandatory integrity label when
+    /// <paramref name="includeIntegrityLabel"/> is true.
     /// </summary>
-    string ReadSecurityDescriptorSddl(SafeFileHandle handle, bool includeSacl);
+    /// <remarks>
+    /// The returned string is whatever the OS renders from the stored binary
+    /// descriptor, which differs from the SDDL that was authored — see
+    /// <see cref="WindowsSecurityDescriptorFactory.IsPrivilegedDescriptorCompliant"/>
+    /// for the normalisations callers must tolerate. Implementations must read the
+    /// label through the label view rather than the audit view so the read stays
+    /// possible with plain READ_CONTROL.
+    /// </remarks>
+    string ReadSecurityDescriptorSddl(SafeFileHandle handle, bool includeIntegrityLabel);
 
     /// <summary>
     /// Returns true when the supplied SDDL conforms to the Vela privileged shape:

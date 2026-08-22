@@ -28,6 +28,17 @@ internal static class NativeSecurityMethods
     public const uint FileAttributeTemporary = 0x100;
     public const int AccessSystemSecurity = 0x01000000;
     public const int ReadControl = 0x00020000;
+
+    // SECURITY_INFORMATION bits. LABEL is the mandatory-integrity-label view of
+    // the system ACL: unlike SACL_SECURITY_INFORMATION it is readable with plain
+    // READ_CONTROL and does NOT require SeSecurityPrivilege.
+    public const uint OwnerSecurityInformation = 0x00000001;
+    public const uint GroupSecurityInformation = 0x00000002;
+    public const uint DaclSecurityInformation = 0x00000004;
+    public const uint LabelSecurityInformation = 0x00000010;
+
+    // SE_OBJECT_TYPE.SE_FILE_OBJECT
+    public const int SeFileObject = 1;
     public const int GenericWrite = 0x40000000;
     public const int GenericRead = unchecked((int)0x80000000);
 
@@ -139,6 +150,26 @@ internal static class NativeSecurityMethods
         uint sddlRevision,
         out IntPtr securityDescriptor,
         out uint securityDescriptorSize);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    public static extern uint GetSecurityInfo(
+        SafeFileHandle handle,
+        int objectType,
+        uint securityInformation,
+        IntPtr owner,
+        IntPtr group,
+        IntPtr dacl,
+        IntPtr sacl,
+        out IntPtr securityDescriptor);
+
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool ConvertSecurityDescriptorToStringSecurityDescriptorW(
+        IntPtr securityDescriptor,
+        uint sddlRevision,
+        uint securityInformation,
+        out IntPtr stringSecurityDescriptor,
+        out uint stringLength);
 
     [DllImport("kernel32.dll")]
     public static extern IntPtr LocalFree(IntPtr hMem);
@@ -305,11 +336,17 @@ public sealed class WindowsNativeSecurityAdapter : INativeSecurityAdapter
 
     public SafeFileHandle OpenDirectoryByHandle(string path)
     {
-        // Open with minimal rights — just enough to query identity, reparse
-        // status and security descriptor.
+        // READ_CONTROL only — enough to check reparse status, resolve the
+        // canonical path and read owner/group/DACL. Deliberately NOT
+        // ACCESS_SYSTEM_SECURITY: that access right demands SeSecurityPrivilege
+        // be *enabled* at open time, but an elevated token holds that privilege
+        // disabled by default, so requesting it here fails the open outright with
+        // ERROR_PRIVILEGE_NOT_HELD (1314). The SACL is read separately, by path,
+        // inside a WindowsTokenPrivilegeScope (see the verifier), which is where
+        // the privilege actually needs to be live.
         var handle = NativeSecurityMethods.CreateFileW(
             path,
-            NativeSecurityMethods.ReadControl | (uint)NativeSecurityMethods.AccessSystemSecurity,
+            NativeSecurityMethods.ReadControl,
             FileShare.Read | FileShare.Write | FileShare.Delete,
             IntPtr.Zero,
             3 /* OPEN_EXISTING */,
@@ -409,33 +446,107 @@ public sealed class WindowsNativeSecurityAdapter : INativeSecurityAdapter
 
     public string GetFinalPathName(SafeFileHandle handle)
     {
-        var sb = new StringBuilder(512);
-        var length = NativeSecurityMethods.GetFinalPathNameByHandleW(handle, sb, (uint)sb.Capacity, 0);
+        var buffer = new StringBuilder(512);
+        var length = NativeSecurityMethods.GetFinalPathNameByHandleW(handle, buffer, (uint)buffer.Capacity, 0);
         if (length == 0)
         {
             throw new InvalidOperationException(
                 $"GetFinalPathNameByHandle failed: {new Win32Exception(Marshal.GetLastWin32Error()).Message}");
         }
 
+        // When the buffer is too small the return value is the required length
+        // *excluding* the terminating null and nothing is written, so grow and retry.
+        // Without this the method would hand back a truncated path and the
+        // canonical-prefix check would compare against garbage.
+        if (length >= buffer.Capacity)
+        {
+            buffer = new StringBuilder((int)length + 1);
+            length = NativeSecurityMethods.GetFinalPathNameByHandleW(handle, buffer, (uint)buffer.Capacity, 0);
+            if (length == 0 || length >= buffer.Capacity)
+            {
+                throw new InvalidOperationException(
+                    $"GetFinalPathNameByHandle failed after growing the buffer to {buffer.Capacity} characters.");
+            }
+        }
+
         // VOLUME_NAME_DOS gives "\\?\C:\..." — strip the "\\?\" prefix.
-        var raw = sb.ToString();
+        var raw = buffer.ToString();
         return raw.StartsWith("\\\\?\\", StringComparison.Ordinal) ? raw[4..] : raw;
     }
 
-    public string ReadSecurityDescriptorSddl(SafeFileHandle handle, bool includeSacl)
+    /// <summary>
+    /// Reads the descriptor straight off <paramref name="handle"/> with
+    /// <c>GetSecurityInfo</c> and renders it back to SDDL.
+    /// </summary>
+    /// <remarks>
+    /// Two deliberate choices here, both learned the hard way:
+    /// <list type="bullet">
+    /// <item>The integrity label is requested through
+    /// <c>LABEL_SECURITY_INFORMATION</c>, not <c>SACL_SECURITY_INFORMATION</c>.
+    /// The label view is readable with plain <c>READ_CONTROL</c>; the audit view
+    /// demands SeSecurityPrivilege be enabled and returns audit ACEs rather than
+    /// the mandatory label. The managed equivalent
+    /// (<c>FileInfo.GetAccessControl(AccessControlSections.Audit)</c>) throws
+    /// <c>PrivilegeNotHeldException</c> for exactly that reason.</item>
+    /// <item>The read is done <em>by handle</em>. Resolving the handle back to a
+    /// path and re-opening it by name would hand an attacker a window to swap the
+    /// object between the checks the verifier is performing — the handle is the
+    /// thing we have already established is the object we care about.</item>
+    /// </list>
+    /// </remarks>
+    public string ReadSecurityDescriptorSddl(SafeFileHandle handle, bool includeIntegrityLabel)
     {
-        var sections = AccessControlSections.Owner | AccessControlSections.Group | AccessControlSections.Access;
-        if (includeSacl)
+        var securityInformation =
+            NativeSecurityMethods.OwnerSecurityInformation |
+            NativeSecurityMethods.GroupSecurityInformation |
+            NativeSecurityMethods.DaclSecurityInformation;
+        if (includeIntegrityLabel)
         {
-            sections |= AccessControlSections.Audit;
+            securityInformation |= NativeSecurityMethods.LabelSecurityInformation;
         }
 
-        // Use FileSecurity via FileSystemAclExtensions — but they need a path, not handle.
-        // Get handle path then call GetAccessControl.
-        var finalPath = GetFinalPathName(handle);
-        var info = new FileInfo(finalPath);
-        var fs = info.GetAccessControl(sections);
-        return fs.GetSecurityDescriptorSddlForm(sections);
+        var error = NativeSecurityMethods.GetSecurityInfo(
+            handle,
+            NativeSecurityMethods.SeFileObject,
+            securityInformation,
+            IntPtr.Zero,
+            IntPtr.Zero,
+            IntPtr.Zero,
+            IntPtr.Zero,
+            out var descriptor);
+        if (error != 0)
+        {
+            throw new InvalidOperationException(
+                $"GetSecurityInfo failed: {new Win32Exception((int)error).Message} (code {error})");
+        }
+
+        try
+        {
+            if (!NativeSecurityMethods.ConvertSecurityDescriptorToStringSecurityDescriptorW(
+                    descriptor,
+                    SecurityDescriptorSddlRevision,
+                    securityInformation,
+                    out var sddlPointer,
+                    out _))
+            {
+                throw new InvalidOperationException(
+                    $"ConvertSecurityDescriptorToStringSecurityDescriptor failed: {new Win32Exception(Marshal.GetLastWin32Error()).Message}");
+            }
+
+            try
+            {
+                return Marshal.PtrToStringUni(sddlPointer)
+                    ?? throw new InvalidOperationException("The rendered security descriptor was empty.");
+            }
+            finally
+            {
+                NativeSecurityMethods.LocalFree(sddlPointer);
+            }
+        }
+        finally
+        {
+            NativeSecurityMethods.LocalFree(descriptor);
+        }
     }
 
     public bool IsPrivilegedDescriptorCompliant(string sddl, bool requireHighIntegrity) =>

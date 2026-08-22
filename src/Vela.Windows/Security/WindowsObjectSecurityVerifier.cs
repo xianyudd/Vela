@@ -117,7 +117,7 @@ public sealed class WindowsObjectSecurityVerifier
         bool requireHighIntegrity)
     {
         // First pass: owner+group+DACL only (READ_CONTROL suffices).
-        var sddlBasic = _adapter.ReadSecurityDescriptorSddl(handle, includeSacl: false);
+        var sddlBasic = _adapter.ReadSecurityDescriptorSddl(handle, includeIntegrityLabel: false);
         if (!WindowsSecurityDescriptorFactory.IsPrivilegedDescriptorCompliant(sddlBasic, requireHighIntegrity: false))
         {
             throw new InvalidOperationException(
@@ -129,15 +129,16 @@ public sealed class WindowsObjectSecurityVerifier
             return;
         }
 
-        // Second pass: requires SACL read; bracket with the security privilege scope
-        // so the token mutation is always restored, even on failure.
+        // Second pass: re-read including the mandatory integrity label. The label
+        // view needs no privilege, but the scope is kept so that the token state is
+        // provably restored around every system-ACL read this class performs.
         using (WindowsTokenPrivilegeScope.Acquire(_adapter))
         {
-            var sddlWithSacl = _adapter.ReadSecurityDescriptorSddl(handle, includeSacl: true);
-            if (!WindowsSecurityDescriptorFactory.IsPrivilegedDescriptorCompliant(sddlWithSacl, requireHighIntegrity: true))
+            var sddlWithLabel = _adapter.ReadSecurityDescriptorSddl(handle, includeIntegrityLabel: true);
+            if (!WindowsSecurityDescriptorFactory.IsPrivilegedDescriptorCompliant(sddlWithLabel, requireHighIntegrity: true))
             {
                 throw new InvalidOperationException(
-                    $"Object security descriptor '{sddlWithSacl}' is missing the required high-integrity label.");
+                    $"Object security descriptor '{sddlWithLabel}' is missing the required high-integrity label.");
             }
         }
 
