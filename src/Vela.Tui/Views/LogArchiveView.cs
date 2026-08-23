@@ -8,7 +8,7 @@ using Vela.Tui.Rendering;
 namespace Vela.Tui.Views;
 
 /// <summary>
-/// The design稿's LOG_LIST surface: a compact, keyboard-first history table.
+/// The LOG_LIST surface from the design: a compact, keyboard-first history table.
 /// The view owns only layout and selection visuals; reading a selected run is
 /// kept in the program coordinator so the log surface remains read-only.
 /// </summary>
