@@ -405,7 +405,7 @@ public sealed class VelaTerminalShellTests
         var dockerPath = @"D:\Docker\wsl\data\ext4.vhdx";
         var dashboard = CreateReadyDashboard(profile) with
         {
-            MappingState = TargetMappingState.NotFound,
+            MappingState = LxssResolutionStatus.NotFound,
             Notices = ImmutableArray.Create("目标发行版未安装"),
             ErrorMessage = "目标发行版未安装",
             InstalledDistros = ImmutableArray.Create(
@@ -423,7 +423,7 @@ public sealed class VelaTerminalShellTests
             ProfileTitle = "档案：docker-desktop",
             DistroName = "docker-desktop",
             TargetConfigured = true,
-            MappingState = TargetMappingState.Matched,
+            MappingState = LxssResolutionStatus.Matched,
             InspectionState = TargetInspectionState.Available,
             VhdxEvidence = new VhdxEvidenceViewModel(
                 10L * PreflightOverviewFormatter.Gibibyte,
@@ -1320,7 +1320,7 @@ public sealed class VelaTerminalShellTests
                 "档案：Ubuntu 24.04",
                 "Ubuntu-24.04",
                 TargetConfigured: true,
-                TargetMappingState.NotChecked,
+                MappingState: null,
                 TargetInspectionState.Available,
                 VhdxEvidence: null,
                 RunningDistros: System.Collections.Immutable.ImmutableArray.Create("Ubuntu-24.04"),
@@ -1527,7 +1527,7 @@ public sealed class VelaTerminalShellTests
         var profile = CreateProfile();
         var dashboard = DashboardViewModel.CreateInitial(profile) with
         {
-            MappingState = TargetMappingState.Matched,
+            MappingState = LxssResolutionStatus.Matched,
             InspectionState = TargetInspectionState.Available,
             VhdxEvidence = new VhdxEvidenceViewModel(
                 1_610_612_736,
@@ -1561,7 +1561,7 @@ public sealed class VelaTerminalShellTests
             ProfileTitle = "档案：docker-desktop",
             DistroName = "docker-desktop",
             TargetConfigured = true,
-            MappingState = TargetMappingState.Matched,
+            MappingState = LxssResolutionStatus.Matched,
             InspectionState = TargetInspectionState.Available,
             VhdxEvidence = new VhdxEvidenceViewModel(
                 65L * PreflightOverviewFormatter.Gibibyte,
@@ -1798,7 +1798,7 @@ public sealed class VelaTerminalShellTests
                 "档案：Ubuntu 24.04",
                 "Ubuntu-24.04",
                 true,
-                TargetMappingState.Mismatched,
+                LxssResolutionStatus.Mismatched,
                 TargetInspectionState.Available,
                 new VhdxEvidenceViewModel(
                     1610612736,
@@ -1892,7 +1892,7 @@ public sealed class VelaTerminalShellTests
                 "档案：Ubuntu 24.04",
                 "Ubuntu-24.04",
                 true,
-                TargetMappingState.Matched,
+                LxssResolutionStatus.Matched,
                 TargetInspectionState.Available,
                 new VhdxEvidenceViewModel(
                     1_610_612_736,
@@ -1949,7 +1949,7 @@ public sealed class VelaTerminalShellTests
                     "档案：Ubuntu 24.04",
                     "Ubuntu-24.04",
                     true,
-                    TargetMappingState.NotChecked,
+                    MappingState: null,
                     TargetInspectionState.Available,
                     new VhdxEvidenceViewModel(
                         1_610_612_736,
@@ -1999,7 +1999,7 @@ public sealed class VelaTerminalShellTests
         $"档案：{profile.DisplayName}",
         profile.DistroName,
         TargetConfigured: true,
-        TargetMappingState.Matched,
+        LxssResolutionStatus.Matched,
         TargetInspectionState.Available,
         new VhdxEvidenceViewModel(
             124L * PreflightOverviewFormatter.Gibibyte,

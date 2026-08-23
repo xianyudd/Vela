@@ -257,15 +257,16 @@ public sealed record PreflightOverviewViewModel(
     {
         var status = dashboard.MappingState switch
         {
-            TargetMappingState.Matched => PreflightGateStatus.Matched,
-            TargetMappingState.Mismatched or TargetMappingState.NotFound => PreflightGateStatus.Attention,
-            TargetMappingState.Failed => PreflightGateStatus.Failed,
+            LxssResolutionStatus.Matched => PreflightGateStatus.Matched,
+            LxssResolutionStatus.Mismatched or
+                LxssResolutionStatus.NotFound => PreflightGateStatus.Attention,
+            LxssResolutionStatus.Failed => PreflightGateStatus.Failed,
             _ => PreflightGateStatus.NotChecked
         };
         return new PreflightGateViewModel(
             MappingGate,
             status,
-            TuiDisplayText.LabelForMapping(dashboard.MappingState));
+            DisplayTextSanitizer.FormatMappingStatus(dashboard.MappingState));
     }
 
     private static PreflightGateViewModel CreateVhdxGate(

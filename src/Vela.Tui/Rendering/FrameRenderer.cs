@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Spectre.Console;
 using Spectre.Console.Rendering;
+using Vela.Application.Display;
 using Vela.Application.Profiles;
 using Vela.Core.Models;
 using Vela.Tui.Application;
@@ -249,7 +250,7 @@ public sealed class FrameRenderer
             BuildLabelValueRow("VHDX", viewModel.TargetConfigured ? "已配置" : "未配置"),
             BuildLabelValueRow(
                 "映射",
-                Safe(TuiDisplayText.LabelForMapping(viewModel.MappingState), 48)),
+                Safe(DisplayTextSanitizer.FormatMappingStatus(viewModel.MappingState), 48)),
             BuildLabelValueRow("快照", Safe(snapshotText, 96)),
             BuildLabelValueRow("驱动器", Safe(driveText, 96)),
             BuildLabelValueRow("稀疏", Safe(sparseText, 16)),
@@ -279,7 +280,7 @@ public sealed class FrameRenderer
             $"[bold {VelaTheme.Section}]目标[/] " +
             $"{Safe(viewModel.DistroName, 48)} · " +
             $"VHDX {(viewModel.TargetConfigured ? "已配置" : "未配置")} · " +
-            $"{Safe(TuiDisplayText.LabelForMapping(viewModel.MappingState), 32)}",
+            $"{Safe(DisplayTextSanitizer.FormatMappingStatus(viewModel.MappingState), 32)}",
             BuildLabelValueRow(
                 "状态",
                 $"[bold {statusStyle}]{Safe(status, 32)}[/] " +
