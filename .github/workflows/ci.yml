@@ -17,6 +17,12 @@ jobs:
   verify:
     name: Restore, build, test, coverage
     runs-on: windows-latest
+    # The job normally finishes in under two minutes. Without a limit GitHub
+    # waits six hours, so a test host that fails to exit -- the coverage step
+    # once sat on one for 29 minutes before it was cancelled by hand -- burns a
+    # runner all afternoon and leaves the pull request reporting "pending"
+    # rather than failing. Twenty minutes is far above any healthy run.
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
