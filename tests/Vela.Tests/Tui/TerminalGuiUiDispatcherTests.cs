@@ -8,6 +8,8 @@ namespace Vela.Tests.Tui;
 
 public sealed class TerminalGuiUiDispatcherTests
 {
+    private const int PumpDeadlineMilliseconds = 30_000;
+
     [Fact]
     public void Constructor_rejects_null_application() =>
         Assert.Throws<ArgumentNullException>(() => new TerminalGuiUiDispatcher(null!));
@@ -27,7 +29,13 @@ public sealed class TerminalGuiUiDispatcherTests
             try
             {
                 ready.TrySetResult((new TerminalGuiUiDispatcher(app), app.MainThreadId!.Value));
-                while (!invoked.Task.IsCompleted)
+
+                // The pump cannot key its exit on `invoked` alone: whenever one of the
+                // waits below times out that task stays pending forever, and the loop
+                // would spin for the life of the process. The deadline is several times
+                // the waits, so a healthy run completes long before it matters.
+                var deadline = Environment.TickCount64 + PumpDeadlineMilliseconds;
+                while (!invoked.Task.IsCompleted && Environment.TickCount64 < deadline)
                 {
                     app.TimedEvents!.RunTimers();
                     Thread.Sleep(1);
@@ -37,14 +45,21 @@ public sealed class TerminalGuiUiDispatcherTests
             {
                 app.End(session!);
             }
-        });
+        })
+        {
+            // Nothing joins this thread on the failure paths above, so it must not own
+            // the process lifetime: a background thread can never outlive the run,
+            // whichever host executes the assembly. VSTest tears its own test host down
+            // regardless, so this is belt-and-braces rather than a hang fix.
+            IsBackground = true
+        };
         uiThread.Start();
 
         var ui = await ready.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await Task.Run(() => ui.Dispatcher.Post(() => invoked.TrySetResult(Environment.CurrentManagedThreadId)));
         var executedOnThread = await invoked.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        await Task.Run(uiThread.Join);
 
+        Assert.True(await Task.Run(() => uiThread.Join(PumpDeadlineMilliseconds)));
         Assert.Equal(ui.ThreadId, executedOnThread);
     }
 }
