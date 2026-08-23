@@ -1,5 +1,4 @@
 using Vela.Application.Display;
-using Vela.Core.Contracts;
 using Vela.Core.Models;
 using Vela.Core.Workflows;
 using Vela.Tui.ProgramModes;
@@ -124,23 +123,6 @@ internal static class TuiDisplayText
         WorkflowDiagnosticCode.DiskPartCompactFailed => "压缩失败",
         WorkflowDiagnosticCode.JournalFailure => "运行日志不可用",
         _ => "运行状态异常"
-    };
-
-    /// <summary>
-    /// Localizes the mapping state. The wording lives in
-    /// <see cref="DisplayTextSanitizer.FormatMappingStatus"/>; this only
-    /// re-encodes the view state back to the resolution status it came from.
-    /// </summary>
-    public static string LabelForMapping(TargetMappingState state) =>
-        DisplayTextSanitizer.FormatMappingStatus(ToResolutionStatus(state));
-
-    private static LxssResolutionStatus? ToResolutionStatus(TargetMappingState state) => state switch
-    {
-        TargetMappingState.Matched => LxssResolutionStatus.Matched,
-        TargetMappingState.Mismatched => LxssResolutionStatus.Mismatched,
-        TargetMappingState.NotFound => LxssResolutionStatus.NotFound,
-        TargetMappingState.Failed => LxssResolutionStatus.Failed,
-        _ => null
     };
 
     public static string LabelForInspection(TargetInspectionState state) => state switch

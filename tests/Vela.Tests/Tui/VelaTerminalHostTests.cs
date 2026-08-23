@@ -105,7 +105,7 @@ public sealed class VelaTerminalHostTests
         };
         var baseDashboard = DashboardViewModel.CreateInitial(baseProfile) with
         {
-            MappingState = TargetMappingState.Matched,
+            MappingState = LxssResolutionStatus.Matched,
             InspectionState = TargetInspectionState.Available,
             VhdxEvidence = new VhdxEvidenceViewModel(
                 10L * PreflightOverviewFormatter.Gibibyte,
@@ -127,7 +127,7 @@ public sealed class VelaTerminalHostTests
         };
         var targetDashboard = DashboardViewModel.CreateInitial(targetProfile) with
         {
-            MappingState = TargetMappingState.Matched,
+            MappingState = LxssResolutionStatus.Matched,
             InspectionState = TargetInspectionState.Available,
             VhdxEvidence = baseDashboard.VhdxEvidence,
             InstalledDistros = baseDashboard.InstalledDistros,

@@ -28,7 +28,7 @@ public sealed class WorkflowPreflightViewModelSourceTests
 
         Assert.Equal("Ubuntu-24.04", dashboard.DistroName);
         Assert.True(dashboard.TargetConfigured);
-        Assert.Equal(TargetMappingState.Matched, dashboard.MappingState);
+        Assert.Equal(LxssResolutionStatus.Matched, dashboard.MappingState);
         Assert.Equal(TargetInspectionState.Available, dashboard.InspectionState);
         Assert.Equal(true, dashboard.VhdxEvidence?.IsSparse);
         Assert.Equal(500_000L, dashboard.VhdxEvidence?.DriveAvailableFreeSpaceBytes);
@@ -68,7 +68,7 @@ public sealed class WorkflowPreflightViewModelSourceTests
         Assert.Contains(
             "稀疏状态未知",
             dashboard.Notices);
-        Assert.Equal(TargetMappingState.Mismatched, dashboard.MappingState);
+        Assert.Equal(LxssResolutionStatus.Mismatched, dashboard.MappingState);
         Assert.Equal(TargetInspectionState.Available, dashboard.InspectionState);
         Assert.Null(dashboard.VhdxEvidence?.IsSparse);
         Assert.Equal("Ubuntu-24.04", Assert.Single(dashboard.RunningDistros));

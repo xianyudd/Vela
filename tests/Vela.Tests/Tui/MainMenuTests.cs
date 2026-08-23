@@ -104,7 +104,7 @@ public sealed class MainMenuTests
         var dashboard = DashboardViewModel.CreateInitial(profile) with
         {
             ProfileTitle = "Profile [test]",
-            MappingState = TargetMappingState.Matched,
+            MappingState = LxssResolutionStatus.Matched,
             InspectionState = TargetInspectionState.Available,
             VhdxEvidence = new VhdxEvidenceViewModel(
                 1024,

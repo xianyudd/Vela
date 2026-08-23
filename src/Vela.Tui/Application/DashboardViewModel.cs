@@ -7,15 +7,6 @@ using Profile = Vela.Core.Models.Profile;
 
 namespace Vela.Tui.Application;
 
-public enum TargetMappingState
-{
-    NotChecked,
-    Matched,
-    Mismatched,
-    NotFound,
-    Failed
-}
-
 public enum TargetInspectionState
 {
     NotChecked,
@@ -44,7 +35,7 @@ public sealed record DashboardViewModel(
     string ProfileTitle,
     string DistroName,
     bool TargetConfigured,
-    TargetMappingState MappingState,
+    LxssResolutionStatus? MappingState,
     TargetInspectionState InspectionState,
     VhdxEvidenceViewModel? VhdxEvidence,
     ImmutableArray<string> RunningDistros,
@@ -65,7 +56,7 @@ public sealed record DashboardViewModel(
             "档案：" + profile.DisplayName,
             profile.DistroName,
             !string.IsNullOrWhiteSpace(profile.VhdxPath),
-            TargetMappingState.NotChecked,
+            MappingState: null,
             TargetInspectionState.NotChecked,
             null,
             ImmutableArray<string>.Empty,
@@ -140,18 +131,24 @@ public sealed record DashboardViewModel(
             workflowResult.Summary.Profile.VhdxPath);
     }
 
-    private static TargetMappingState MapMappingState(
+    /// <summary>
+    /// Passes the resolution status through untouched, with one exception: a
+    /// failed installed-inventory read leaves the status null even though the
+    /// mapping could not be trusted, so that case reads as a failure instead of
+    /// as "not checked yet". Unrecognized values stay fail-closed.
+    /// </summary>
+    private static LxssResolutionStatus? MapMappingState(
         LxssResolutionStatus? status,
         ImmutableArray<WorkflowDiagnostic> diagnostics) => status switch
     {
         null when HasDiagnostic(
             diagnostics,
-            WorkflowDiagnosticCode.InstalledInventoryFailed) => TargetMappingState.Failed,
-        null => TargetMappingState.NotChecked,
-        LxssResolutionStatus.Matched => TargetMappingState.Matched,
-        LxssResolutionStatus.Mismatched => TargetMappingState.Mismatched,
-        LxssResolutionStatus.NotFound => TargetMappingState.NotFound,
-        _ => TargetMappingState.Failed
+            WorkflowDiagnosticCode.InstalledInventoryFailed) => LxssResolutionStatus.Failed,
+        null => null,
+        LxssResolutionStatus.Matched or
+            LxssResolutionStatus.Mismatched or
+            LxssResolutionStatus.NotFound => status,
+        _ => LxssResolutionStatus.Failed
     };
 
     private static TargetInspectionState MapInspectionState(VhdxInspectionStatus? status) => status switch

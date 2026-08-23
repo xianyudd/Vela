@@ -1,3 +1,4 @@
+using Vela.Core.Contracts;
 using Vela.Core.Models;
 using Vela.Tui.Application;
 using Vela.Tui.Menu;
@@ -15,7 +16,7 @@ public sealed class PreflightOverviewViewModelTests
             "档案：Ubuntu 24.04",
             "Ubuntu-24.04",
             TargetConfigured: true,
-            TargetMappingState.Matched,
+            LxssResolutionStatus.Matched,
             TargetInspectionState.Available,
             new VhdxEvidenceViewModel(
                 FileLengthBytes: 1_610_612_736,
@@ -96,7 +97,7 @@ public sealed class PreflightOverviewViewModelTests
         var profile = CreateProfile();
         var dashboard = DashboardViewModel.CreateInitial(profile) with
         {
-            MappingState = TargetMappingState.Mismatched,
+            MappingState = LxssResolutionStatus.Mismatched,
             InspectionState = TargetInspectionState.Failed,
             RunningInventoryState = PreflightDataState.Failed,
             LogAvailabilityState = PreflightDataState.Failed,
@@ -136,7 +137,7 @@ public sealed class PreflightOverviewViewModelTests
             "档案：Ubuntu 24.04",
             "Ubuntu-24.04",
             TargetConfigured: true,
-            TargetMappingState.NotChecked,
+            MappingState: null,
             TargetInspectionState.Available,
             new VhdxEvidenceViewModel(
                 FileLengthBytes: 1_610_612_736,
@@ -181,7 +182,7 @@ public sealed class PreflightOverviewViewModelTests
         var profile = CreateProfile();
         var dashboard = DashboardViewModel.CreateInitial(profile) with
         {
-            MappingState = TargetMappingState.Matched,
+            MappingState = LxssResolutionStatus.Matched,
             InspectionState = TargetInspectionState.Available,
             VhdxEvidence = new VhdxEvidenceViewModel(
                 1_610_612_736,
@@ -221,7 +222,7 @@ public sealed class PreflightOverviewViewModelTests
             "档案：Ubuntu 24.04",
             "Ubuntu-24.04",
             TargetConfigured: true,
-            TargetMappingState.NotChecked,
+            MappingState: null,
             TargetInspectionState.Available,
             new VhdxEvidenceViewModel(
                 1_610_612_736,
@@ -277,7 +278,7 @@ public sealed class PreflightOverviewViewModelTests
         var profile = CreateProfile();
         var dashboard = DashboardViewModel.CreateInitial(profile) with
         {
-            MappingState = TargetMappingState.Matched,
+            MappingState = LxssResolutionStatus.Matched,
             InspectionState = TargetInspectionState.Available,
             VhdxEvidence = new VhdxEvidenceViewModel(
                 1_610_612_736,
@@ -312,7 +313,7 @@ public sealed class PreflightOverviewViewModelTests
         var profile = CreateProfile();
         var dashboard = DashboardViewModel.CreateInitial(profile) with
         {
-            MappingState = TargetMappingState.Matched,
+            MappingState = LxssResolutionStatus.Matched,
             InspectionState = TargetInspectionState.Available,
             VhdxEvidence = new VhdxEvidenceViewModel(
                 1_610_612_736,
@@ -407,7 +408,7 @@ public sealed class PreflightOverviewViewModelTests
         var profile = CreateProfile();
         var dashboard = DashboardViewModel.CreateInitial(profile) with
         {
-            MappingState = TargetMappingState.Matched,
+            MappingState = LxssResolutionStatus.Matched,
             InspectionState = TargetInspectionState.Available,
             VhdxEvidence = new VhdxEvidenceViewModel(
                 1_610_612_736,
@@ -465,7 +466,7 @@ public sealed class PreflightOverviewViewModelTests
         var profile = CreateProfile();
         var dashboard = DashboardViewModel.CreateInitial(profile) with
         {
-            MappingState = TargetMappingState.Matched,
+            MappingState = LxssResolutionStatus.Matched,
             InspectionState = TargetInspectionState.Available,
             VhdxEvidence = new VhdxEvidenceViewModel(
                 1_610_612_736,
@@ -519,7 +520,7 @@ public sealed class PreflightOverviewViewModelTests
         var profile = CreateProfile();
         var dashboard = DashboardViewModel.CreateInitial(profile) with
         {
-            MappingState = TargetMappingState.NotFound,
+            MappingState = LxssResolutionStatus.NotFound,
             InspectionState = TargetInspectionState.Available,
             InstalledDistros = ImmutableArray.Create(
                 new Vela.Core.Contracts.WslDistribution(
@@ -570,17 +571,17 @@ public sealed class PreflightOverviewViewModelTests
     }
 
     [Theory]
-    [InlineData(TargetMappingState.Matched, "已匹配")]
-    [InlineData(TargetMappingState.Mismatched, "不匹配")]
-    [InlineData(TargetMappingState.NotFound, "未找到")]
-    [InlineData(TargetMappingState.Failed, "解析失败")]
-    [InlineData(TargetMappingState.NotChecked, "尚未检查")]
-    public void Create_labels_every_mapping_state_with_the_shared_wording(
-        TargetMappingState mappingState,
+    [InlineData(LxssResolutionStatus.Matched, "已匹配")]
+    [InlineData(LxssResolutionStatus.Mismatched, "不匹配")]
+    [InlineData(LxssResolutionStatus.NotFound, "未找到")]
+    [InlineData(LxssResolutionStatus.Failed, "解析失败")]
+    [InlineData(null, "尚未检查")]
+    public void Create_labels_every_mapping_status_with_the_shared_wording(
+        LxssResolutionStatus? mappingStatus,
         string expected)
     {
         var profile = CreateProfile();
-        var dashboard = DashboardViewModel.CreateInitial(profile) with { MappingState = mappingState };
+        var dashboard = DashboardViewModel.CreateInitial(profile) with { MappingState = mappingStatus };
         var state = new AutomaticPreflightState(
             profile.Id,
             1,
