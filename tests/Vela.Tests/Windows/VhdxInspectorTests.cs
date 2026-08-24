@@ -9,6 +9,10 @@ namespace Vela.Tests.Windows;
 
 public sealed class VhdxInspectorTests
 {
+    // 这个等待只是为了让坏掉的实现失败而不是永远挂住，所以给得宽松：
+    // CI runner 负载高时连进程内的调度也可能被推迟数秒，卡得紧只会换来偶发失败。
+    private static readonly TimeSpan HandshakeBudget = TimeSpan.FromMinutes(1);
+
     [Theory]
     [InlineData("This file is set as sparse.", true)]
     [InlineData("This file is NOT set as sparse.", false)]
@@ -91,7 +95,7 @@ public sealed class VhdxInspectorTests
     {
         using var testFile = TestVhdxFile.Create(length: 256);
         using var cancellation = new CancellationTokenSource();
-        using var invocationTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var invocationTimeout = new CancellationTokenSource(HandshakeBudget);
         var runner = new CoordinatedProcessRunner();
         var inspector = new VhdxInspector(runner, new NativeToolPaths());
 

@@ -8,7 +8,14 @@ namespace Vela.Tests.Tui;
 
 public sealed class TerminalGuiUiDispatcherTests
 {
-    private const int PumpDeadlineMilliseconds = 30_000;
+    // The handshake waits exist only so a broken dispatcher fails instead of hanging.
+    // Terminal.Gui start-up is cold-JIT work that a loaded CI runner can stretch out,
+    // so a tight wait buys flakes rather than a faster signal. The pump deadline stays
+    // above twice the wait, since the test spends two of them back to back and the
+    // pump has to outlive both.
+    private static readonly TimeSpan HandshakeBudget = TimeSpan.FromSeconds(30);
+
+    private const int PumpDeadlineMilliseconds = 120_000;
 
     [Fact]
     public void Constructor_rejects_null_application() =>
@@ -55,9 +62,9 @@ public sealed class TerminalGuiUiDispatcherTests
         };
         uiThread.Start();
 
-        var ui = await ready.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var ui = await ready.Task.WaitAsync(HandshakeBudget);
         await Task.Run(() => ui.Dispatcher.Post(() => invoked.TrySetResult(Environment.CurrentManagedThreadId)));
-        var executedOnThread = await invoked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var executedOnThread = await invoked.Task.WaitAsync(HandshakeBudget);
 
         Assert.True(await Task.Run(() => uiThread.Join(PumpDeadlineMilliseconds)));
         Assert.Equal(ui.ThreadId, executedOnThread);

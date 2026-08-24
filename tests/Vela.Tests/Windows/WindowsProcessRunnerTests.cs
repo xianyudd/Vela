@@ -14,6 +14,20 @@ public sealed class WindowsProcessRunnerTests
         "v1.0",
         "powershell.exe");
 
+    // 等待与超时的预算。它只是为了让坏掉的实现失败而不是永远挂住，所以给得宽松：
+    // WindowsProcessRunner 的秒表在 Process.Start 之前就起跑，而 CI runner 上
+    // PowerShell 冷启动可能要好几秒，预算卡得紧只会换来偶发失败，换不来更快的信号。
+    private static readonly TimeSpan Budget = TimeSpan.FromMinutes(1);
+
+    // 脚本没被打断的话会睡这么久。
+    private const int UninterruptedSleepSeconds = 300;
+
+    // 耗时断言的上界，必须维持 Budget < DurationCeiling < UninterruptedSleepSeconds：
+    // 左半边保证凡是熬过了等待的运行不会再被这个断言判失败，
+    // 右半边保证「睡眠被提前打断」仍然是一句真断言。
+    private static readonly TimeSpan DurationCeiling =
+        TimeSpan.FromSeconds(UninterruptedSleepSeconds / 2);
+
     [Fact]
     public async Task RunAsync_CapturesOutputExitCodeAndProgress()
     {
@@ -28,7 +42,7 @@ public sealed class WindowsProcessRunnerTests
         var runner = new WindowsProcessRunner();
 
         var result = await runner.RunAsync(
-            CreateInvocation(helper.ScriptPath, TimeSpan.FromSeconds(10)),
+            CreateInvocation(helper.ScriptPath, Budget),
             progress,
             CancellationToken.None);
 
@@ -63,7 +77,7 @@ public sealed class WindowsProcessRunnerTests
         var result = await runner.RunAsync(
             CreateInvocation(
                 helper.ScriptPath,
-                TimeSpan.FromSeconds(10),
+                Budget,
                 "alpha beta",
                 "literal&value",
                 "three words"),
@@ -90,20 +104,20 @@ public sealed class WindowsProcessRunnerTests
         var runner = new WindowsProcessRunner();
 
         var result = await runner.RunAsync(
-            CreateInvocation(helper.ScriptPath, TimeSpan.FromSeconds(10)),
+            CreateInvocation(helper.ScriptPath, Budget),
             output: null,
             CancellationToken.None);
 
         Assert.Equal(ProcessExecutionStatus.Succeeded, result.Status);
-        Assert.InRange(result.Duration, TimeSpan.FromMilliseconds(150), TimeSpan.FromSeconds(10));
+        Assert.InRange(result.Duration, TimeSpan.FromMilliseconds(150), DurationCeiling);
     }
 
     [Fact]
     public async Task RunAsync_WhenTimeoutExpires_ReturnsTimedOut()
     {
         using var helper = HelperScript.Create(
-            """
-            Start-Sleep -Seconds 10
+            $"""
+            Start-Sleep -Seconds {UninterruptedSleepSeconds}
             exit 0
             """);
         var runner = new WindowsProcessRunner();
@@ -115,20 +129,20 @@ public sealed class WindowsProcessRunnerTests
 
         Assert.Equal(ProcessExecutionStatus.TimedOut, result.Status);
         Assert.Null(result.ExitCode);
-        Assert.InRange(result.Duration, TimeSpan.Zero, TimeSpan.FromSeconds(8));
+        Assert.InRange(result.Duration, TimeSpan.Zero, DurationCeiling);
     }
 
     [Fact]
     public async Task RunAsync_WhenCancelledAfterOutput_ReturnsCancelled()
     {
         using var helper = HelperScript.Create(
-            """
+            $"""
             [Console]::Out.WriteLine("ready")
-            Start-Sleep -Seconds 10
+            Start-Sleep -Seconds {UninterruptedSleepSeconds}
             exit 0
             """);
         using var cancellation = new CancellationTokenSource();
-        using var readinessTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var readinessTimeout = new CancellationTokenSource(Budget);
         var progress = new RecordingProgress();
         var runner = new WindowsProcessRunner();
 
@@ -143,7 +157,7 @@ public sealed class WindowsProcessRunnerTests
 
         Assert.Equal(ProcessExecutionStatus.Cancelled, result.Status);
         Assert.Null(result.ExitCode);
-        Assert.InRange(result.Duration, TimeSpan.Zero, TimeSpan.FromSeconds(10));
+        Assert.InRange(result.Duration, TimeSpan.Zero, DurationCeiling);
     }
 
     [Fact]
