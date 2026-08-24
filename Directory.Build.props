@@ -21,7 +21,17 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>false</SelfContained>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
-    <BaseOutputPath>$(MSBuildThisFileDirectory)artifacts\build\$(MSBuildProjectName)\</BaseOutputPath>
+    <!--
+      A publish profile overrides AssemblyName (Vela.Tui -> Vela), so letting
+      publish share artifacts\build would drop a Vela.exe there and leave the
+      ordinary build output, Vela.Tui.exe, deleted. scripts\open-vela-tui.cmd
+      launches Vela.Tui.exe, so that turns a publish into a broken launcher and
+      risks running a stale Vela.exe from an earlier publish. Give publish its
+      own tree instead: PublishProfile is a global property, so it is already
+      set here, and the isolation cannot be forgotten at the command line.
+    -->
+    <BaseOutputPath Condition="'$(PublishProfile)' == ''">$(MSBuildThisFileDirectory)artifacts\build\$(MSBuildProjectName)\</BaseOutputPath>
+    <BaseOutputPath Condition="'$(PublishProfile)' != ''">$(MSBuildThisFileDirectory)artifacts\publish-build\$(MSBuildProjectName)\</BaseOutputPath>
     <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)artifacts\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
   </PropertyGroup>
 </Project>
