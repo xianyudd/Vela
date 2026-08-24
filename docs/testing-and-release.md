@@ -173,6 +173,15 @@ dotnet publish .\src\Vela.Tui\Vela.Tui.csproj -c Release --no-restore -p:Publish
 artifacts\publish\win-x64\Vela.exe
 ~~~
 
+publish profile 把 `AssemblyName` 从 `Vela.Tui` 覆写为 `Vela`。若让 publish 与普通构建共用 `artifacts\build\`，它会在那里留下一个 `Vela.exe` 并使普通构建产物 `Vela.Tui.exe` 消失——而 `scripts\open-vela-tui.cmd` 启动的正是 `Vela.Tui.exe`，于是一次 publish 就会打断启动脚本，更糟的是可能让人跑到上一次 publish 留下的陈旧 `Vela.exe`。因此 `Directory.Build.props` 按全局属性 `PublishProfile` 分流输出目录：
+
+~~~text
+artifacts\build\<Project>\          普通 build 与 test
+artifacts\publish-build\<Project>\  仅 publish 的中间产物
+~~~
+
+隔离写在 props 里而不是命令行参数上，所以上面的发布命令无需附加任何参数，也不存在“忘了加”的情况。
+
 发布候选的重定向 smoke check（不触发预检动作或 WSL 停止）：
 
 ~~~powershell
