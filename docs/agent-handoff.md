@@ -55,6 +55,8 @@ D:\Jason\Documents\Workspace\vs2022\repo\Vela\
 - Compact worker 只接受 --worker --run-id <D 格式 GUID>，并根据 Distro 重新解析 Lxss VHDX；已解析路径与请求路径严格相等后才进入动作阶段。
 - 运行目录固定为 %LocalAppData%\Vela\logs\<RunId>。父 TUI 创建首个事件并轮询；worker 只追加同一日志流。
 - worker 跳过主菜单、ReadLine 和确认提示；父 TUI 是唯一交互与进度界面。Global 使用 %SystemRoot%\System32\wsl.exe --shutdown 并等待 running 清单为空；Distro 使用 %SystemRoot%\System32\wsl.exe --terminate <Distro> 并等待目标离开 running 清单。
+- **WSL2 磁盘挂载限制（压缩成败的决定性前提）**：vhdx 在发行版启动时挂载到共享工具 VM，只有该 VM 销毁才卸载。`--terminate` 不释放文件句柄，所以「running 清单已达目标」只是必要条件；**Distro 范围无法压缩任何在当前工具 VM 生命周期内启动过的发行版**。详见 docs/architecture.md 5.3。
+- diskpart 之前必须经过 IVhdxHandleProbe 的只读独占打开探测：Held 则终止为 DiskPartPreflightFailed 并给出 TargetVhdxInUse 诊断；Free 与 Unknown 一律放行（fail-open），Unknown 表示无结论而非证据。
 - 开发自动化验证只使用 fake adapter、无害 helper process 和只读预检。真实动作阶段留给最终人工验收，由用户在影响面板确认后发起。
 - 开发 agent 的所有新文件都写入项目根或其 artifacts 子目录；项目外写入走上方确认记录。
 

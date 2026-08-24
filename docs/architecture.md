@@ -182,6 +182,7 @@ TUI 展示共同预检与影响范围
   → worker 重跑完整预检
   → Global：%SystemRoot%\System32\wsl.exe --shutdown，轮询直到 running 清单为空
   → Distro：%SystemRoot%\System32\wsl.exe --terminate <Distro>，轮询直到目标发行版离开 running 清单
+  → IVhdxHandleProbe: 独占打开目标 VHDX 做只读探测；被占用（Held）则终止于压缩条件检查并给出可执行诊断
   → IDiskPartClient: detail vdisk
   → IDiskPartClient: compact vdisk
   → 重新采集 VhdxSnapshot 与 DriveSnapshot
@@ -190,6 +191,35 @@ TUI 展示共同预检与影响范围
 ~~~
 
 测试、开发调试和文档验证采用 fake IProcessRunner、fake IWslClient、fake IDiskPartClient。压缩阶段是最终人工验收项目，由用户在影响面板确认后自行发起。
+
+### 5.3 WSL2 磁盘挂载模型与 Distro 范围的真实限制
+
+这是压缩能否成功的决定性前提，必须在设计与排查时优先考虑。
+
+WSL2 的所有发行版共享**同一个工具 VM**。一个发行版的 ext4.vhdx 在该发行版**启动时**挂载到这个共享 VM，并一直保持挂载状态直到**该 VM 本身被销毁**：
+
+| 操作 | 停止 init 与卸载文件系统 | 从工具 VM 卸载磁盘（释放文件句柄） |
+| --- | --- | --- |
+| wsl.exe --terminate \<Distro\> | 是 | **否** |
+| wsl.exe --shutdown | 是（全部） | 是 |
+| 所有发行版空闲超过 vmIdleTimeout（默认 60000 ms） | 是 | 是 |
+
+由此得到两个必须写进文档的结论：
+
+1. `--terminate` **不释放 vhdx 文件句柄**。运行中清单已经不含目标发行版（通常在 terminate 后约 150 ms 就满足），但文件仍被共享 VM 独占持有。因此「运行中清单已达目标」只是压缩的**必要而非充分**条件。
+2. **Distro 范围因此无法压缩任何在当前工具 VM 生命周期内启动过的发行版。** 它只在目标发行版自上次 `wsl --shutdown` 以来从未启动过时才会成功——而在那种情况下 `--terminate` 本身就是空操作，Distro 范围并未带来任何额外作用。这解释了历史上偶发的 Distro 成功记录。
+
+微软官方文档对所有 VHD 级操作（`--manage --resize`、手工 diskpart 扩容、`--mount` 与 e2fsck 修复）一律要求先执行 `wsl.exe --shutdown`；`--terminate` 从未被列为任何 VHD 操作的前置条件。
+
+为了让这一限制**可见而非表现为神秘的 diskpart 报错**，worker 在 diskpart 之前插入一次只读的独占打开探测（见 5.2 流程中的 `IVhdxHandleProbe`）：
+
+- 探测以 `FileShare.None` 打开目标 vhdx 后立即释放，不做任何写入。独占打开成功等价于 diskpart 能拿到它需要的独占句柄。
+- 仅当 Win32 错误码为 `ERROR_SHARING_VIOLATION`(32) 或 `ERROR_LOCK_VIOLATION`(33) 时判定为 Held。文件不存在、ACL 拒绝等一律为 Unknown。
+- **Held 之外的任何结论都放行**（fail-open）。Unknown 表示「探测不出结论」，不是证据；该闸门只能把原本晦涩的共享冲突转成明确诊断，绝不能让原本能成功的运行失败。
+
+Held 时结果为 `DiskPartPreflightFailed`，并附带 `TargetVhdxInUse` 诊断（TUI 显示为「目标 VHDX 仍被占用」），诊断正文按范围给出不同的可执行建议：Distro 范围提示改用 Global 范围或先执行 `wsl --shutdown`；Global 范围提示占用者在 WSL 之外（杀毒、备份代理、资源管理器预览等）。
+
+两者都会提及 WSL 原生的替代路径 `wsl --manage <Distro> --set-sparse true --allow-unsafe`。Vela **不自动执行**它：实测该开关默认被禁用，必须显式附加 `--allow-unsafe`，且微软为其标注了数据损坏风险，因此它只作为建议出现在诊断与文档中，由用户自行决定。相对地，`.wslconfig` 的 `[experimental] sparseVhd=true` 只对**新创建**的 VHD 生效，属于预防性手段而非对既有 vhdx 的补救。
 
 ## 6. Windows 原生适配层
 
@@ -323,6 +353,7 @@ worker 退出码固定为：0 = Succeeded 或 CompletedWithNoReclaim，2 = Valid
 | WSL 停止超时 | 记录仍在运行的发行版，结果为 ShutdownTimedOut。 |
 | Global 范围 | 调用 %SystemRoot%\System32\wsl.exe --shutdown，轮询到 running 清单为空。 |
 | Distro 范围 | 调用 %SystemRoot%\System32\wsl.exe --terminate <Distro>，轮询到目标发行版离开 running 清单。 |
+| 目标 VHDX 仍被占用（句柄探测为 Held） | 跳过 diskpart，结果为 DiskPartPreflightFailed，诊断 TargetVhdxInUse 说明占用原因与替代方案。 |
 | DiskPart 预检异常 | 跳过 compact，保留 detail 输出。 |
 | compact 完成但长度未变 | 标记 CompletedWithNoReclaim，展示 0 B。 |
 | 日志目录不可写 | 执行阶段以日志可写为前置条件，写入可用诊断。 |

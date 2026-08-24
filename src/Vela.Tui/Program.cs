@@ -831,11 +831,13 @@ static WorkerMode CreateWorkerMode()
     var lxssProfileResolver = new LxssProfileResolver();
     var vhdxInspector = new VhdxInspector();
     var diskPartClient = new DiskPartClient(journal);
+    var vhdxHandleProbe = new VhdxHandleProbe();
     var compactionWorkflow = new CompactionWorkflow(
         wslClient,
         lxssProfileResolver,
         vhdxInspector,
         diskPartClient,
+        vhdxHandleProbe,
         journal,
         clock);
 

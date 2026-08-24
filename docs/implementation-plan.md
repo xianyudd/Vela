@@ -314,6 +314,8 @@ git commit -m "feat: validate Vela target profiles"
 
 至少定义 IWslClient、ILxssProfileResolver、IVhdxInspector、IRunJournal、IDiskPartClient、IProcessRunner、IClock。IWslClient 显式声明 ShutdownAllAsync（对应 %SystemRoot%\System32\wsl.exe --shutdown 并等待 running 清单为空）和 TerminateDistroAsync（对应 %SystemRoot%\System32\wsl.exe --terminate <Distro> 并等待目标离开 running 清单）。契约分开只读 inventory、snapshot 与执行阶段操作。
 
+另外定义 IVhdxHandleProbe（返回 Free / Held / Unknown）。它回答 diskpart 唯一在意的问题：目标 vhdx 能否被独占打开。注意 `--terminate` 不会把 vhdx 从共享工具 VM 卸载，因此 TerminateDistroAsync 完成、running 清单达标之后目标仍可能被独占持有——详见 docs/architecture.md 5.3。
+
 - [ ] **Step 3：实现预检工作流**
 
 顺序为 validate → distro inventory → registry mapping → VHDX snapshot → running inventory → journal summary。Preflight 在此返回。
@@ -507,11 +509,11 @@ git commit -m "feat: add elevated Vela worker handoff"
 
 - [ ] **Step 2：写 workflow 失败测试**
 
-覆盖成功、Global 的 --shutdown 与空 running 清单等待、Distro 的 --terminate <Distro> 与目标离开 running 清单等待、shutdown timeout、detail error、compact error、0 B 回收、提升后 mapping 改变、journal 最终收尾和异常。每个真实执行端口用 fake adapter，所有 action 只在路径严格校验通过后发生。
+覆盖成功、Global 的 --shutdown 与空 running 清单等待、Distro 的 --terminate <Distro> 与目标离开 running 清单等待、shutdown timeout、**句柄探测为 Held（终止为 DiskPartPreflightFailed 且 diskpart 调用数为零）**、**Free / Unknown / 探测抛异常时一律放行**、detail error、compact error、0 B 回收、提升后 mapping 改变、journal 最终收尾和异常。每个真实执行端口用 fake adapter，所有 action 只在路径严格校验通过后发生。
 
 - [ ] **Step 3：实现 orchestration**
 
-worker 顺序为：重新验证 → before snapshot → action request → wait state → detail vdisk → compact → after snapshot → final result。每一阶段写 journal event，任何异常产生 summary。
+worker 顺序为：重新验证 → before snapshot → action request → wait state → **handle probe** → detail vdisk → compact → after snapshot → final result。每一阶段写 journal event，任何异常产生 summary。
 
 - [ ] **Step 4：运行全量测试并提交**
 
