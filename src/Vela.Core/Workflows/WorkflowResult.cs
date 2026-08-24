@@ -32,6 +32,7 @@ public enum WorkflowDiagnosticCode
     SparseStateUnknown,
     RunningInventoryFailed,
     ShutdownTimedOut,
+    TargetVhdxInUse,
     DiskPartPreflightFailed,
     DiskPartCompactFailed,
     JournalFailure

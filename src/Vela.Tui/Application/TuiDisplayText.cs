@@ -119,6 +119,7 @@ internal static class TuiDisplayText
         WorkflowDiagnosticCode.SparseStateUnknown => "稀疏状态未知",
         WorkflowDiagnosticCode.RunningInventoryFailed => "无法读取运行中发行版",
         WorkflowDiagnosticCode.ShutdownTimedOut => "停止发行版超时",
+        WorkflowDiagnosticCode.TargetVhdxInUse => "目标 VHDX 仍被占用",
         WorkflowDiagnosticCode.DiskPartPreflightFailed => "压缩条件检查失败",
         WorkflowDiagnosticCode.DiskPartCompactFailed => "压缩失败",
         WorkflowDiagnosticCode.JournalFailure => "运行日志不可用",

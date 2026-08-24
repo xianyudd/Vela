@@ -20,7 +20,8 @@ Manual acceptance  真实 Win11 / WSL 环境下的只读预检与用户确认后
 | ProfileValidator | 空名称、相对路径、后缀、控制字符、ASCII、timeout 边界、有效路径 | 返回明确且可呈现的验证结果。 |
 | Profile / OperationRequest | 值相等、RunId、不可变复制、无映射 override | 业务对象没有共享可变状态。 |
 | PreflightWorkflow | 成功、映射不一致、发行版缺失、检查异常 | 执行阶段计数为 0。 |
-| CompactionWorkflow | 成功、超时、detail 异常、compact 异常、0 B 回收 | 每个退出点写最终 summary。 |
+| CompactionWorkflow | 成功、超时、detail 异常、compact 异常、0 B 回收、句柄探测 Held / Free / Unknown / 抛异常 | 每个退出点写最终 summary；Held 时 diskpart 调用数为零，其余一律放行。 |
+| VhdxHandleProbe | 无占用、独占占用、共享读占用、探测后立即释放、文件不存在、路径不可探测、取消 | 只有 Win32 32/33 判 Held，其余为 Unknown；探测无副作用。 |
 | NativeToolPaths / ProcessRunner | 三个绝对原生命令路径、参数边界、超时 | 命令由固定路径和 ArgumentList 构造。 |
 | LxssProfileResolver / WslClient | 映射、清单、中英文输出、参数生成 | registry path 与参数数组精确。 |
 | VhdxInspector | 文件快照、盘快照、sparse unknown | 数值与 nullable sparse 语义正确。 |
@@ -117,9 +118,10 @@ pwsh -ExecutionPolicy Bypass -File .\legacy\powershell\wsl.ps1 -WhatIf
 4. 观察父 TUI 轮询的 logs\<RunId>\events.ndjson 持续增加。
 5. 检查 worker 分支跳过主菜单和确认提示，只向同一 journal 追加事件与退出码。
 6. 检查 worker 再次写入管理员身份、映射验证和压缩前快照。
-7. 检查 DiskPart detail 记录与最终 summary。
-8. 对比可信日志中的压缩前后 VHDX 文件长度、宿主盘可用空间与 `reclaimedBytes`。
-9. 在“最近运行记录”页确认 status、elapsed time、reclaimed bytes 和日志可用状态；需要原始路径、RunId 或 native output 时通过受信任日志 capability 追溯。
+7. 若结果为 `DiskPartPreflightFailed` 且诊断为 `TargetVhdxInUse`（TUI 显示「目标 VHDX 仍被占用」）：这是预期的诚实失败，不是缺陷。按诊断正文处理——Distro 范围改用 Global 范围或先执行 `wsl --shutdown`；Global 范围排查 WSL 之外的占用者。参见 docs/architecture.md 5.3。
+8. 检查 DiskPart detail 记录与最终 summary。
+9. 对比可信日志中的压缩前后 VHDX 文件长度、宿主盘可用空间与 `reclaimedBytes`。
+10. 在“最近运行记录”页确认 status、elapsed time、reclaimed bytes 和日志可用状态；需要原始路径、RunId 或 native output 时通过受信任日志 capability 追溯。
 
 一次运行后的结果类别：
 
@@ -218,6 +220,8 @@ D:\DevTools\Vela\
 - [ ] 配置编辑后重启仍保留档案。
 - [ ] UAC worker 完成后留下最终 summary 和退出码。
 - [ ] Global / Distro 的参数与停止条件均由 workflow 测试覆盖。
+- [ ] Distro 范围的真实限制已记录：`--terminate` 不从共享工具 VM 卸载 vhdx，故它只适用于本工具 VM 生命周期内未启动过的发行版（docs/architecture.md 5.3）。
+- [ ] diskpart 之前的句柄探测测试通过：Held 终止且 diskpart 调用数为零，Free / Unknown / 抛异常均放行。
 - [ ] worker 运行时跳过主菜单和确认提示，父 TUI 保持唯一交互入口。
 - [ ] worker 的映射不一致测试证明动作适配器调用数为零。
 - [ ] single-worker gate 的并发 Compact 测试通过。

@@ -326,17 +326,135 @@ public sealed class CompactionWorkflowTests
         Assert.Contains(result.Diagnostics, item => item.Code == WorkflowDiagnosticCode.JournalFailure);
     }
 
+    [Fact]
+    public async Task ExecuteAsync_TargetVhdxStillHeld_FailsPreflightBeforeInvokingDiskPart()
+    {
+        // WSL2 在发行版启动后会把磁盘挂到共享的工具 VM 上,直到该 VM 关闭才卸载;
+        // 因此「运行中列表已达目标」并不代表 diskpart 能拿到独占句柄。
+        var wsl = ReadyWsl();
+        var resolver = new FakeLxssProfileResolver(MatchedResolution());
+        var inspector = new ScriptedInspector(SucceededInspection(10_000), SucceededInspection(8_000));
+        var diskPart = new RecordingDiskPartClient();
+        var journal = new FakeRunJournal();
+        var probe = new FakeVhdxHandleProbe { State = VhdxHandleState.Held };
+        var workflow = CreateWorkflow(wsl, resolver, inspector, diskPart, journal, probe);
+
+        var result = await workflow.ExecuteAsync(Request(ShutdownMode.Distro));
+
+        Assert.Equal(TerminalResult.DiskPartPreflightFailed, result.Summary.TerminalResult);
+        Assert.False(result.IsSuccessful);
+        // 关键:被占用时绝不调用 diskpart,避免把裸的共享冲突当成压缩失败。
+        Assert.Empty(diskPart.DetailPaths);
+        Assert.Empty(diskPart.CompactPaths);
+        Assert.Equal(VhdxPath, Assert.Single(probe.ProbedPaths));
+        var diagnostic = Assert.Single(
+            result.Diagnostics,
+            item => item.Code == WorkflowDiagnosticCode.TargetVhdxInUse);
+        Assert.Equal(RunPhase.DiskPartPreflight, diagnostic.Phase);
+        Assert.Equal(RunEventLevel.Error, diagnostic.Level);
+        Assert.Contains(journal.Events, item => item.OperationName == "Target VHDX handle probe");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_TargetVhdxHeldInDistroMode_ExplainsShutdownScopeAndSparseAlternative()
+    {
+        var journal = new FakeRunJournal();
+        var workflow = CreateWorkflow(
+            ReadyWsl(),
+            new FakeLxssProfileResolver(MatchedResolution()),
+            new ScriptedInspector(SucceededInspection(10_000), SucceededInspection(8_000)),
+            new RecordingDiskPartClient(),
+            journal,
+            new FakeVhdxHandleProbe { State = VhdxHandleState.Held });
+
+        var result = await workflow.ExecuteAsync(Request(ShutdownMode.Distro));
+
+        var message = Assert
+            .Single(result.Diagnostics, item => item.Code == WorkflowDiagnosticCode.TargetVhdxInUse)
+            .Message;
+        // 诚实化的核心:必须点明 Distro 范围不卸载磁盘,并给出可执行的替代路径。
+        Assert.Contains("does not detach the disk", message, StringComparison.Ordinal);
+        Assert.Contains("wsl --shutdown", message, StringComparison.Ordinal);
+        Assert.Contains("--set-sparse true --allow-unsafe", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_TargetVhdxHeldInGlobalMode_PointsAtAnExternalHolder()
+    {
+        var workflow = CreateWorkflow(
+            ReadyWsl(),
+            new FakeLxssProfileResolver(MatchedResolution()),
+            new ScriptedInspector(SucceededInspection(10_000), SucceededInspection(8_000)),
+            new RecordingDiskPartClient(),
+            new FakeRunJournal(),
+            new FakeVhdxHandleProbe { State = VhdxHandleState.Held });
+
+        var result = await workflow.ExecuteAsync(Request(ShutdownMode.Global));
+
+        var message = Assert
+            .Single(result.Diagnostics, item => item.Code == WorkflowDiagnosticCode.TargetVhdxInUse)
+            .Message;
+        // Global 已经执行过 wsl --shutdown,再提示它毫无意义,应指向 WSL 之外的占用者。
+        Assert.Contains("Another process still holds the file", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Distro shutdown mode", message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(VhdxHandleState.Free)]
+    [InlineData(VhdxHandleState.Unknown)]
+    public async Task ExecuteAsync_HandleProbeDoesNotReportHeld_ProceedsToDiskPart(VhdxHandleState state)
+    {
+        var diskPart = new RecordingDiskPartClient();
+        var workflow = CreateWorkflow(
+            ReadyWsl(),
+            new FakeLxssProfileResolver(MatchedResolution()),
+            new ScriptedInspector(SucceededInspection(10_000), SucceededInspection(8_000)),
+            diskPart,
+            new FakeRunJournal(),
+            new FakeVhdxHandleProbe { State = state });
+
+        var result = await workflow.ExecuteAsync(Request(ShutdownMode.Global));
+
+        // Unknown 代表「探测不出结论」,不是证据;必须放行,不能让新闸门拖垮原本能成功的运行。
+        Assert.Equal(TerminalResult.Succeeded, result.Summary.TerminalResult);
+        Assert.Equal(VhdxPath, Assert.Single(diskPart.CompactPaths));
+        Assert.DoesNotContain(result.Diagnostics, item => item.Code == WorkflowDiagnosticCode.TargetVhdxInUse);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_HandleProbeThrows_FailsOpenAndStillCompacts()
+    {
+        var diskPart = new RecordingDiskPartClient();
+        var workflow = CreateWorkflow(
+            ReadyWsl(),
+            new FakeLxssProfileResolver(MatchedResolution()),
+            new ScriptedInspector(SucceededInspection(10_000), SucceededInspection(8_000)),
+            diskPart,
+            new FakeRunJournal(),
+            new FakeVhdxHandleProbe { Failure = new UnauthorizedAccessException("denied") });
+
+        var result = await workflow.ExecuteAsync(Request(ShutdownMode.Global));
+
+        // 探测器抛异常同样只是「无结论」,绝不能变成一次失败的压缩。
+        Assert.Equal(TerminalResult.Succeeded, result.Summary.TerminalResult);
+        Assert.Equal(VhdxPath, Assert.Single(diskPart.CompactPaths));
+        Assert.DoesNotContain(result.Diagnostics, item => item.Code == WorkflowDiagnosticCode.TargetVhdxInUse);
+    }
+
     private static CompactionWorkflow CreateWorkflow(
         IWslClient wsl,
         ILxssProfileResolver resolver,
         IVhdxInspector inspector,
         IDiskPartClient diskPart,
         IRunJournal journal,
+        IVhdxHandleProbe? handleProbe = null,
         TimeSpan? pollInterval = null) => new(
         wsl,
         resolver,
         inspector,
         diskPart,
+        // 默认放行:已有用例不受新增的句柄闸门影响。
+        handleProbe ?? new FakeVhdxHandleProbe(),
         journal,
         new FixedClock(),
         pollInterval);

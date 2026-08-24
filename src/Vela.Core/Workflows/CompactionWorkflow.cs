@@ -11,6 +11,7 @@ public sealed class CompactionWorkflow
     private readonly ILxssProfileResolver _lxssProfileResolver;
     private readonly IVhdxInspector _vhdxInspector;
     private readonly IDiskPartClient _diskPartClient;
+    private readonly IVhdxHandleProbe _vhdxHandleProbe;
     private readonly IRunJournal _runJournal;
     private readonly IClock _clock;
     private readonly TimeSpan _pollInterval;
@@ -20,6 +21,7 @@ public sealed class CompactionWorkflow
         ILxssProfileResolver lxssProfileResolver,
         IVhdxInspector vhdxInspector,
         IDiskPartClient diskPartClient,
+        IVhdxHandleProbe vhdxHandleProbe,
         IRunJournal runJournal,
         IClock clock,
         TimeSpan? pollInterval = null)
@@ -28,6 +30,7 @@ public sealed class CompactionWorkflow
         ArgumentNullException.ThrowIfNull(lxssProfileResolver);
         ArgumentNullException.ThrowIfNull(vhdxInspector);
         ArgumentNullException.ThrowIfNull(diskPartClient);
+        ArgumentNullException.ThrowIfNull(vhdxHandleProbe);
         ArgumentNullException.ThrowIfNull(runJournal);
         ArgumentNullException.ThrowIfNull(clock);
 
@@ -35,6 +38,7 @@ public sealed class CompactionWorkflow
         _lxssProfileResolver = lxssProfileResolver;
         _vhdxInspector = vhdxInspector;
         _diskPartClient = diskPartClient;
+        _vhdxHandleProbe = vhdxHandleProbe;
         _runJournal = runJournal;
         _clock = clock;
         _pollInterval = pollInterval is { } configured && configured > TimeSpan.Zero
@@ -447,6 +451,49 @@ public sealed class CompactionWorkflow
         }
 
         report = report with { RunningInventory = wait.LastInventory };
+
+        // Reaching the target running state is necessary but not sufficient: on WSL 2
+        // the disk stays attached to the shared utility VM even after the distribution
+        // has stopped. Ask the only question diskpart cares about before invoking it,
+        // so a sharing violation is reported as its real cause instead of a bare code.
+        var handleState = await ProbeTargetHandleAsync(resolution.ResolvedVhdxPath!, cancellationToken)
+            .ConfigureAwait(false);
+        if (handleState == VhdxHandleState.Held)
+        {
+            var heldMessage = DescribeHeldTarget(request.Profile);
+            diagnostics = AddDiagnostic(
+                diagnostics,
+                WorkflowDiagnosticCode.TargetVhdxInUse,
+                RunPhase.DiskPartPreflight,
+                RunEventLevel.Error,
+                heldMessage);
+            diagnostics = await AppendOrDiagnoseAsync(
+                    diagnostics,
+                    new RunEventDraft(
+                        _clock.UtcNow,
+                        request.RunId,
+                        RunPhase.DiskPartPreflight,
+                        RunEventLevel.Error,
+                        "Target VHDX handle probe",
+                        ImmutableArray.Create(resolution.ResolvedVhdxPath!),
+                        null,
+                        null,
+                        heldMessage),
+                    journalOpened,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return await CompleteAsync(
+                    request,
+                    startedAtUtc,
+                    report,
+                    diagnostics,
+                    TerminalResult.DiskPartPreflightFailed,
+                    journalOpened,
+                    journalAccessMode,
+                    runDirectory,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         ProcessExecutionResult detailResult;
         try
@@ -886,6 +933,41 @@ public sealed class CompactionWorkflow
         diagnostics.Any(static diagnostic => diagnostic.Code == WorkflowDiagnosticCode.JournalFailure)
             ? diagnostics
             : AddDiagnostic(diagnostics, WorkflowDiagnosticCode.JournalFailure, RunPhase.Failed, RunEventLevel.Error, "Run diagnostics could not be persisted.");
+
+    private async Task<VhdxHandleState> ProbeTargetHandleAsync(
+        string vhdxPath,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _vhdxHandleProbe.ProbeAsync(vhdxPath, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // The probe is advisory. A probe that cannot answer must never block a run
+            // that would otherwise have succeeded, so fail open and let diskpart decide.
+            return VhdxHandleState.Unknown;
+        }
+    }
+
+    private static string DescribeHeldTarget(Profile profile)
+    {
+        // WSL 2 attaches a distribution's disk to the shared utility VM when the
+        // distribution starts, and only detaches it when that VM shuts down. Stopping
+        // the distribution is therefore not enough on its own.
+        var advice = profile.ShutdownMode == ShutdownMode.Distro
+            ? "Distro shutdown mode only stops the distribution; it does not detach the disk from the shared WSL utility VM. Use Global shutdown mode, or run 'wsl --shutdown', and try again."
+            : "Another process still holds the file. Close anything using the distribution, then try again.";
+
+        return
+            "The target VHDX cannot be opened exclusively, so diskpart would fail to compact it. " +
+            advice +
+            " As an alternative, 'wsl --manage <distro> --set-sparse true --allow-unsafe' lets WSL reclaim space on its own, but Microsoft disables it by default because of a data corruption risk.";
+    }
 
     private static ImmutableArray<WorkflowDiagnostic> AddDiagnostic(
         ImmutableArray<WorkflowDiagnostic> diagnostics,
