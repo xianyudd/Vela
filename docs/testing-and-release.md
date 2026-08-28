@@ -51,6 +51,9 @@ dotnet build .\Vela.sln -c Debug
 # 全量测试
 dotnet test .\Vela.sln -c Debug
 
+# 格式与导入顺序校验（空格、using 顺序、IDE 风格规则；CI 同步执行）
+dotnet format .\Vela.sln --verify-no-changes --no-restore
+
 # 预检工作流
 dotnet test .\tests\Vela.Tests --filter FullyQualifiedName~PreflightWorkflowTests
 
@@ -73,6 +76,7 @@ Vela.Core 与 Vela.Windows 的 line coverage ≥ 80%
 所有测试绿色
 零编译警告
 locked restore 成功
+dotnet format --verify-no-changes 无违规
 ~~~
 
 ## 4. TUI 非破坏验收
