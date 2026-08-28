@@ -2,10 +2,10 @@ using Terminal.Gui.App;
 using Terminal.Gui.Configuration;
 using Terminal.Gui.Drivers;
 using Terminal.Gui.Time;
-using Vela.Tui.Rendering;
-using Vela.Tui.Views;
 using Vela.Tui.Application;
 using Vela.Tui.Menu;
+using Vela.Tui.Rendering;
+using Vela.Tui.Views;
 
 namespace Vela.Tests.Tui;
 

@@ -401,8 +401,8 @@ public sealed record PreflightOverviewViewModel(
         string? firstNotice,
         int noticeCount) => state.Status switch
         {
-        AutomaticPreflightStatus.Checking =>
-                $"正在核对目标、快照与运行状态{PreflightOverviewFormatter.FormatCheckingElapsed(state.Elapsed)}。",
+            AutomaticPreflightStatus.Checking =>
+                    $"正在核对目标、快照与运行状态{PreflightOverviewFormatter.FormatCheckingElapsed(state.Elapsed)}。",
             AutomaticPreflightStatus.Ready when noticeCount == 0 => "5 项检查通过，未发现阻断项。",
             AutomaticPreflightStatus.Ready => $"预检完成；{noticeCount} 项需要处理。",
             AutomaticPreflightStatus.Attention when firstNotice is not null =>
