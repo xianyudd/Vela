@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Vela.Core.Contracts;
 using Vela.Core.Models;
 using Vela.Tui.Application;
@@ -127,6 +128,78 @@ public sealed class CompactionTargetProfileFactoryTests
         // that names an empty distro.
         Assert.False(CompactionTargetProfileFactory.IsTargetMismatch(
             CreateProfile(),
+            new WslDistribution("   ", WslDistributionState.Stopped, 2, false)));
+    }
+
+    [Fact]
+    public void FindProfileForTarget_returns_the_profile_whose_distro_matches_case_insensitively()
+    {
+        var profile = CreateProfile();
+        var profiles = ImmutableArray.Create(profile);
+
+        var found = CompactionTargetProfileFactory.FindProfileForTarget(
+            profiles,
+            new WslDistribution(
+                "UBUNTU-24.04",
+                WslDistributionState.Stopped,
+                2,
+                true,
+                profile.VhdxPath));
+
+        Assert.NotNull(found);
+        Assert.Equal(profile.Id, found!.Id);
+    }
+
+    [Fact]
+    public void FindProfileForTarget_returns_the_first_profile_when_multiple_profiles_match()
+    {
+        // Several profiles may share a distro name; store order breaks the tie
+        // because the caller has no basis to disambiguate further.
+        var first = CreateProfile();
+        var second = first with { Id = Guid.NewGuid(), DisplayName = "Second" };
+        var profiles = ImmutableArray.Create(first, second);
+
+        var found = CompactionTargetProfileFactory.FindProfileForTarget(
+            profiles,
+            new WslDistribution(
+                first.DistroName,
+                WslDistributionState.Stopped,
+                2,
+                true,
+                first.VhdxPath));
+
+        Assert.NotNull(found);
+        Assert.Equal(first.Id, found!.Id);
+    }
+
+    [Fact]
+    public void FindProfileForTarget_returns_null_without_a_matching_profile()
+    {
+        var found = CompactionTargetProfileFactory.FindProfileForTarget(
+            ImmutableArray.Create(CreateProfile()),
+            new WslDistribution(
+                "docker-desktop",
+                WslDistributionState.Stopped,
+                2,
+                false,
+                @"D:\Docker\wsl\data\ext4.vhdx"));
+
+        Assert.Null(found);
+    }
+
+    [Fact]
+    public void FindProfileForTarget_returns_null_without_a_locked_target()
+    {
+        Assert.Null(CompactionTargetProfileFactory.FindProfileForTarget(
+            ImmutableArray.Create(CreateProfile()),
+            lockedTarget: null));
+    }
+
+    [Fact]
+    public void FindProfileForTarget_returns_null_for_a_blank_locked_name()
+    {
+        Assert.Null(CompactionTargetProfileFactory.FindProfileForTarget(
+            ImmutableArray.Create(CreateProfile()),
             new WslDistribution("   ", WslDistributionState.Stopped, 2, false)));
     }
 

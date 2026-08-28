@@ -565,59 +565,19 @@ public sealed class MainMenuTests
     }
 
     [Fact]
-    public void CreateExecuteConfirmation_states_a_target_profile_mismatch_before_anything_else()
+    public void CreateExecuteConfirmation_opens_with_the_target_statement()
     {
-        // The locked row addresses Ubuntu-24.04 while the chosen profile was
-        // authored for the test distro: the reassuring profile name must not be
-        // the first thing the operator reads.
-        var lockedTarget = CreateProfile() with
-        {
-            DisplayName = "TEST Vela-Test (Distro, safe)",
-            DistroName = "Ubuntu-24.04",
-            ShutdownMode = ShutdownMode.Distro
-        };
-
-        var confirmation = MainMenu.CreateExecuteConfirmation(
-            lockedTarget,
-            ImmutableArray.Create(
-                new WslDistribution("Ubuntu-24.04", WslDistributionState.Running, 2, true)),
-            dataRootDirectory: null,
-            targetMismatch: true,
-            baseProfileDistroName: "Vela-Test-Ubuntu-24.04");
-
-        Assert.StartsWith("⚠ 目标与档案不一致", confirmation.Prompt, StringComparison.Ordinal);
-        Assert.Contains("Ubuntu-24.04", confirmation.Prompt, StringComparison.Ordinal);
-        Assert.Contains("Vela-Test-Ubuntu-24.04", confirmation.Prompt, StringComparison.Ordinal);
-        Assert.Contains("停止范围与名称标注可能并不适用", confirmation.Prompt, StringComparison.Ordinal);
-        Assert.Equal("Y", confirmation.RequiredInput);
-    }
-
-    [Fact]
-    public void CreateExecuteConfirmation_omits_the_mismatch_warning_for_a_matching_target()
-    {
+        // Mismatched targets never reach this page any more: the lock is either
+        // auto-paired with its owning profile or blocked outright, so the prompt
+        // always starts with the real target.
         var confirmation = MainMenu.CreateExecuteConfirmation(
             CreateProfile(),
             ImmutableArray.Create(
                 new WslDistribution("Ubuntu-24.04", WslDistributionState.Running, 2, true)),
-            dataRootDirectory: null,
-            targetMismatch: false,
-            baseProfileDistroName: "Ubuntu-24.04");
+            dataRootDirectory: null);
 
         Assert.DoesNotContain("⚠", confirmation.Prompt, StringComparison.Ordinal);
         Assert.StartsWith("即将对发行版", confirmation.Prompt, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void CreateExecuteConfirmation_names_an_unspecified_base_distro_in_the_mismatch_warning()
-    {
-        var confirmation = MainMenu.CreateExecuteConfirmation(
-            CreateProfile(),
-            ImmutableArray<WslDistribution>.Empty,
-            dataRootDirectory: null,
-            targetMismatch: true,
-            baseProfileDistroName: "   ");
-
-        Assert.Contains("配置的发行版是 未指定。", confirmation.Prompt, StringComparison.Ordinal);
     }
 
     [Fact]

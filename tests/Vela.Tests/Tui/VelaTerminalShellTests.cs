@@ -399,8 +399,11 @@ public sealed class VelaTerminalShellTests
     }
 
     [Fact]
-    public void Missing_profile_does_not_block_a_locked_installed_target()
+    public void Missing_profile_blocks_a_locked_installed_target_from_execution()
     {
+        // No stored profile owns docker-desktop, so no target preflight can run:
+        // the lock resolves against the current profile's dashboard and every
+        // execution path must stop at the mismatch gate.
         var profile = CreateProfile();
         var dockerPath = @"D:\Docker\wsl\data\ext4.vhdx";
         var dashboard = CreateReadyDashboard(profile) with
@@ -418,31 +421,6 @@ public sealed class VelaTerminalShellTests
                     10L * PreflightOverviewFormatter.Gibibyte))
         };
         using var shell = new VelaTerminalShell(new MainMenu().ViewModel, dashboard);
-        var targetDashboard = dashboard with
-        {
-            ProfileTitle = "档案：docker-desktop",
-            DistroName = "docker-desktop",
-            TargetConfigured = true,
-            MappingState = LxssResolutionStatus.Matched,
-            InspectionState = TargetInspectionState.Available,
-            VhdxEvidence = new VhdxEvidenceViewModel(
-                10L * PreflightOverviewFormatter.Gibibyte,
-                DateTimeOffset.UtcNow,
-                true,
-                2L * PreflightOverviewFormatter.Tebibyte,
-                512L * PreflightOverviewFormatter.Gibibyte,
-                dockerPath),
-            Notices = ImmutableArray<string>.Empty,
-            ErrorMessage = null,
-            ConfiguredVhdxPath = dockerPath
-        };
-        shell.TargetPreflightRequested += () => shell.ApplyPreflight(new AutomaticPreflightState(
-            profile.Id,
-            2,
-            2,
-            AutomaticPreflightStatus.Ready,
-            targetDashboard,
-            "目标预检已完成。"));
         var actions = new List<MainMenuAction>();
         shell.ActionRequested += actions.Add;
         shell.SetCurrentProfile(profile);
@@ -461,14 +439,15 @@ public sealed class VelaTerminalShellTests
 
         shell.NewKeyDownEvent(Key.Enter);
 
-        Assert.Equal(VelaWorkspacePage.ActionPreview, shell.CurrentPage);
+        Assert.Equal(VelaWorkspacePage.TargetDetail, shell.CurrentPage);
+        Assert.Contains("发行版不一致", shell.StatusText, StringComparison.Ordinal);
+        Assert.Equal("docker-desktop", shell.LockedTargetName);
+
         shell.RequestAction(1);
 
-        Assert.Equal([MainMenuAction.ExecuteCompaction], actions);
-        var request = shell.CreateLockedCompactionRequest(profile, Guid.NewGuid());
-        Assert.NotNull(request);
-        Assert.Equal("docker-desktop", request!.Profile.DistroName);
-        Assert.Equal(dockerPath, request.Profile.VhdxPath);
+        Assert.Empty(actions);
+        Assert.Contains("发行版不一致", shell.StatusText, StringComparison.Ordinal);
+        Assert.Equal("docker-desktop", shell.LockedTargetName);
     }
 
     [Fact]

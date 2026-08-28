@@ -33,6 +33,7 @@ Manual acceptance  真实 Win11 / WSL 环境下的只读预检与用户确认后
 | TUI application | `TuiApplication` 单一串行读键所有权、typed page controller、状态变化才重绘、↑↓/Enter/Esc、confirmation Backspace/16 字符上限、exact `YES`、取消前/读键期间 cancellation | 任意时刻最多一个同步 read；无关键 no-op；取消不 dispatch key、不泄漏异常。 |
 | FrameRenderer / display boundary | `<80`、`80–119`、`>=120` 宽度边界，低高度预算，interactive/redirected 同一 composition，CJK/combining/markup/CSI/OSC/control hostile text | 单帧 redirected 不清屏；任何 frame 均不含 raw path、RunId、raw exception、native output 或 raw enum name。 |
 | ProfileService / secondary TUI | Profile 选择、新建、编辑、删除约束；write-only VHDX 编辑；typed ShutdownMode；invariant `5–300` timeout；RecentRuns 最多 20 条、损坏 summary、详情和 TUI 内日志查看；OpenLogs | CRUD 持久化且通过 `ProfileValidator`；执行目标变化必须 exact `YES`；路径不越出 AppPaths 根且不进入 frame。 |
+| 锁定实例与档案配对 | `FindProfileForTarget` 匹配/大小写/多匹配取首个/无匹配返回 null；锁定无档案实例后 Enter、CursorRight 与执行动作均被阻止且锁保持 | 无匹配档案时不 arm 任何压缩请求；有匹配档案时自动切换并保留锁。 |
 | RunJournalPoller | sequence cursor、foreign RunId、gap/duplicate/nonmonotonic、invalid terminal、取消、timeout、连续读取失败及复位、callback exactly-once/order/exception/cancellation | 不排序修复损坏 journal；取消/超时不伪造 worker 终态；ReadFailed 在阈值后确定返回。 |
 | CompactRunGate / coordinator | 同时 Compact、可信活动 RunId、失效 gate、UAC 取消/启动失败 | single-worker gate 阻止第二个 worker；失败路径释放或保留可诊断状态。 |
 
@@ -113,7 +114,7 @@ pwsh -ExecutionPolicy Bypass -File .\legacy\powershell\wsl.ps1 -WhatIf
 最终动作验收由用户在影响面板确认后自行发起。验收顺序：
 
 1. 在 TUI 中选择“执行压缩”。
-2. 核对 Profile 身份、VHDX 已配置状态、Global / Distro 范围、正在运行的发行版与影响提示；原始目标路径只在可信配置/日志中核对，不要求 UI 回显。
+2. 核对 Profile 身份、VHDX 已配置状态、Global / Distro 范围、正在运行的发行版与影响提示；原始目标路径只在可信配置/日志中核对，不要求 UI 回显。锁定已建档案的实例时当前档案应自动切换为匹配档案；锁定无匹配档案的实例（如 docker-desktop）应立即被阻止并提示先创建档案。选择 Distro 范围时注意其成功窗口：仅当工具 VM 已释放目标 vhdx 时压缩才可能成功（参见 docs/architecture.md 5.3）。
 3. 在影响预览按 `Y` 进入确认页，再按 `Y` 确认 UAC worker 启动。
 4. 观察父 TUI 轮询的 logs\<RunId>\events.ndjson 持续增加。
 5. 检查 worker 分支跳过主菜单和确认提示，只向同一 journal 追加事件与退出码。

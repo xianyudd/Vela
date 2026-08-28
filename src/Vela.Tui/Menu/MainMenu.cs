@@ -92,9 +92,7 @@ public sealed class MainMenu
     public static ConfirmationViewModel CreateExecuteConfirmation(
         Profile profile,
         ImmutableArray<WslDistribution> distributions,
-        string? dataRootDirectory = null,
-        bool targetMismatch = false,
-        string? baseProfileDistroName = null)
+        string? dataRootDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(profile);
 
@@ -122,19 +120,7 @@ public sealed class MainMenu
             _ => "影响：执行前会按当前停止范围处理 WSL 发行版。"
         };
 
-        // The stored profile's shutdown scope and display name were authored for
-        // its own distro. When the locked row points elsewhere, that wording can
-        // read as reassuring while the operation targets something else entirely,
-        // so the discrepancy is stated first and in full.
-        var mismatchWarning = targetMismatch
-            ? $"⚠ 目标与档案不一致：锁定实例为 {TuiDisplayText.Sanitize(profile.DistroName, 64)}，" +
-              $"而档案“{TuiDisplayText.Sanitize(profile.DisplayName, 64)}”配置的发行版是 " +
-              $"{TuiDisplayText.Sanitize(string.IsNullOrWhiteSpace(baseProfileDistroName) ? "未指定" : baseProfileDistroName!, 64)}。" +
-              $"{Environment.NewLine}⚠ 档案的停止范围与名称标注可能并不适用于本次目标，请自行确认后再继续。{Environment.NewLine}"
-            : string.Empty;
-
         return new ConfirmationViewModel(
-            mismatchWarning +
             $"即将对发行版“{TuiDisplayText.Sanitize(profile.DistroName, 64)}”执行压缩。{Environment.NewLine}" +
             $"来源档案：{TuiDisplayText.Sanitize(profile.DisplayName, 64)}{Environment.NewLine}" +
             $"停止范围：{GetShutdownModeLabel(profile.ShutdownMode)}{Environment.NewLine}" +
