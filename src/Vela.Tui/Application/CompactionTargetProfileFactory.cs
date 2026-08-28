@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Vela.Core.Contracts;
 using Vela.Core.Models;
 
@@ -45,6 +46,36 @@ public static class CompactionTargetProfileFactory
             lockedTarget.Name,
             baseProfile.DistroName,
             StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Finds the stored profile that owns the locked inventory row.
+    /// </summary>
+    /// <param name="profiles">All stored profiles, in store order.</param>
+    /// <param name="lockedTarget">The WSL instance locked on the target-selection page.</param>
+    /// <returns>
+    /// The first profile whose <see cref="Profile.DistroName"/> equals the locked
+    /// name case-insensitively, or <see langword="null"/> when the locked target
+    /// is absent or no profile matches.
+    /// </returns>
+    /// <remarks>
+    /// When several profiles share a distro name the first one in store order
+    /// wins; the caller has no basis to disambiguate further.
+    /// </remarks>
+    public static Profile? FindProfileForTarget(
+        ImmutableArray<Profile> profiles,
+        WslDistribution? lockedTarget)
+    {
+        if (lockedTarget is null || string.IsNullOrWhiteSpace(lockedTarget.Name))
+        {
+            return null;
+        }
+
+        return profiles.FirstOrDefault(profile =>
+            string.Equals(
+                profile.DistroName,
+                lockedTarget.Name,
+                StringComparison.OrdinalIgnoreCase));
     }
 
     public static Profile? Create(Profile baseProfile, WslDistribution? lockedTarget)

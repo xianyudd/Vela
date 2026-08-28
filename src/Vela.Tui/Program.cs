@@ -337,23 +337,21 @@ using (var terminalApplication = Application.Create())
         }
     };
 
-    shell.TargetPreflightRequested += () =>
-    {
-        var targetProfile = shell.CreateLockedTargetProfile(profileService.CurrentProfile);
-        if (targetProfile is null)
-        {
-            shell.ShowStatus("当前锁定实例缺少可用 VHDX 路径，请返回 01 重新选择");
-            return;
-        }
-
-        _ = terminalHost.Start(targetProfile, preserveTargetSelection: true);
-    };
+    shell.TargetPreflightRequested += () => _ = HandleTargetPreflightAsync();
 
     shell.ActionRequested += action =>
     {
         switch (action)
         {
             case MainMenuAction.Preflight:
+                if (CompactionTargetProfileFactory.IsTargetMismatch(
+                        profileService.CurrentProfile,
+                        shell.LockedTarget))
+                {
+                    _ = HandleTargetPreflightAsync();
+                    break;
+                }
+
                 var targetProfile = shell.CreateLockedTargetProfile(profileService.CurrentProfile);
                 var preserveTargetSelection = shell.LockedTarget is not null && targetProfile is not null;
                 if (!preserveTargetSelection)
@@ -378,6 +376,14 @@ using (var terminalApplication = Application.Create())
                 _ = ShowLogsAsync(shell.NavigationRevision);
                 break;
             case MainMenuAction.ExecuteCompaction:
+                if (CompactionTargetProfileFactory.IsTargetMismatch(
+                        profileService.CurrentProfile,
+                        shell.LockedTarget))
+                {
+                    shell.ShowStatus("锁定实例与当前档案的发行版不一致，已阻止执行压缩：请先锁定与档案匹配的实例");
+                    break;
+                }
+
                 var request = shell.CreateLockedCompactionRequest(
                     profileService.CurrentProfile,
                     Guid.NewGuid());
@@ -413,6 +419,44 @@ using (var terminalApplication = Application.Create())
         "目标档案",
         profileService.Profiles.Select(candidate =>
             $"{(candidate.Id == profileService.CurrentProfile.Id ? "● 当前" : "○       ")}  {TuiDisplayText.Sanitize(candidate.DisplayName, 28)}  {TuiDisplayText.Sanitize(candidate.DistroName, 20)}  VHDX {(string.IsNullOrWhiteSpace(candidate.VhdxPath) ? "待配置" : "已配置")}"));
+
+    // Locking an instance that another profile owns must rebind the session to
+    // that profile; lending the current profile's shutdown scope to a foreign
+    // distro is no longer allowed, so an unmatched lock stops here.
+    async Task HandleTargetPreflightAsync()
+    {
+        // Read on the UI thread, before any await.
+        var lockedTarget = shell.LockedTarget;
+        var matching = CompactionTargetProfileFactory.FindProfileForTarget(
+            profileService.Profiles,
+            lockedTarget);
+        if (matching is null)
+        {
+            shell.ShowStatus(
+                $"锁定实例 {TuiDisplayText.Sanitize(lockedTarget?.Name ?? string.Empty, 32)} 没有发行版匹配的档案，已阻止压缩：请先创建对应的档案或锁定与当前档案匹配的实例。");
+            return;
+        }
+
+        if (matching.Id != profileService.CurrentProfile.Id)
+        {
+            await profileService.SelectAsync(matching.Id).ConfigureAwait(false);
+        }
+
+        try
+        {
+            terminalApplication.Invoke(() =>
+            {
+                shell.ShowStatus($"已自动切换到匹配档案：{TuiDisplayText.Sanitize(matching.DisplayName, 32)}。");
+                _ = terminalHost.Start(matching, preserveTargetSelection: true);
+            });
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        catch (InvalidOperationException) when (executionCancellation.IsCancellationRequested)
+        {
+        }
+    }
 
     async Task ShowRecentRunsAsync(long revision)
     {
@@ -498,6 +542,11 @@ using (var terminalApplication = Application.Create())
         var mismatch = CompactionTargetProfileFactory.IsTargetMismatch(
             profileService.CurrentProfile,
             shell.LockedTarget);
+        if (mismatch)
+        {
+            shell.ShowStatus("锁定实例与当前档案的发行版不一致，已阻止执行压缩：请先锁定与档案匹配的实例");
+            return;
+        }
 
         try
         {
@@ -507,9 +556,7 @@ using (var terminalApplication = Application.Create())
                 shell.ShowConfirmation(MainMenu.CreateExecuteConfirmation(
                     request.Profile,
                     runningDistros,
-                    paths.RootDirectory,
-                    mismatch,
-                    profileService.CurrentProfile.DistroName));
+                    paths.RootDirectory));
             });
         }
         catch (ObjectDisposedException)

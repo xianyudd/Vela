@@ -1127,6 +1127,12 @@ public sealed class VelaTerminalShell : Window
                 return true;
             }
 
+            if (RequiresTargetSpecificPreflight())
+            {
+                ShowStatus("锁定实例与当前档案的发行版不一致，无法进入压缩预览：请先创建对应的档案或锁定匹配的实例");
+                return true;
+            }
+
             if (!CanExecuteLockedTarget)
             {
                 ShowStatus("当前锁定目标的预检尚未通过，先处理检查项或按 R 重扫");
@@ -1213,7 +1219,11 @@ public sealed class VelaTerminalShell : Window
 
         if (key == Key.Enter)
         {
-            if (!CanExecuteLockedTarget)
+            if (RequiresTargetSpecificPreflight())
+            {
+                ShowStatus("锁定实例与当前档案的发行版不一致，无法进入压缩预览：请先创建对应的档案或锁定匹配的实例");
+            }
+            else if (!CanExecuteLockedTarget)
             {
                 ShowStatus("当前锁定目标的预检尚未通过，先处理检查项或按 R 重扫");
             }
@@ -1529,6 +1539,12 @@ public sealed class VelaTerminalShell : Window
             ShowStatus(PreflightState.CanExecuteCompaction
                 ? "请先在 01 预检结果中锁定一个实例"
                 : "执行压缩前需要完成当前档案的只读预检");
+            return;
+        }
+
+        if (action == MainMenuAction.ExecuteCompaction && RequiresTargetSpecificPreflight())
+        {
+            ShowStatus("锁定实例与当前档案的发行版不一致，无法执行压缩：请先创建对应的档案或锁定匹配的实例");
             return;
         }
 

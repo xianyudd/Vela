@@ -135,6 +135,8 @@ public enum RunPhase { Validation, Inventory, Snapshot, AwaitingConfirmation,
 
 首版没有 AllowVhdxMismatch。映射不一致可作为只读预检结果展示；Compact 工作流只接受注册表解析路径与请求路径规范化后严格相等的档案。
 
+选择 `ShutdownMode.Distro` 时注意它的成功窗口很窄：它只在工具 VM 已释放目标 vhdx 时才可能压缩成功（见 5.3 的挂载模型），即目标发行版是当前 VM 生命周期内从未启动过的那一个。
+
 ### 4.2 应用层接口
 
 ~~~csharp
@@ -250,6 +252,7 @@ HKCU\Software\Microsoft\Windows\CurrentVersion\Lxss
 - VHDX 是绝对路径、存在且扩展名为 .vhdx；
 - 路径没有 NUL、CR、LF 等控制字符，并满足 DiskPart 的 ASCII 脚本编码约束；
 - timeout 位于 5–300 秒；
+- 压缩目标必须由 `DistroName` 与锁定实例一致的档案执行：锁定已建档案的实例时 TUI 自动切换到该档案；锁定无匹配档案的实例时阻止执行并提示先创建档案。当前档案的停止范围不再借给其他发行版；
 - Compact worker 将注册表解析路径和请求路径做严格规范化比较；
 - request 文件、运行目录和日志路径都由验证后的 RunId 在 AppPaths 根目录内派生；
 - DiskPart 的目标路径只来自通过严格比较的已解析 VHDX。
