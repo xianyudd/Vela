@@ -1,7 +1,7 @@
+using System.Buffers.Binary;
 using Vela.Core.Contracts;
 using Vela.Windows.Processes;
 using Vela.Windows.Storage;
-using System.Buffers.Binary;
 
 namespace Vela.Tests.Windows;
 

@@ -1,8 +1,8 @@
-using static Terminal.Gui.App.Application;
 using Terminal.Gui.Drivers;
 using Terminal.Gui.Time;
 using Terminal.Gui.Views;
 using Vela.Tui.Application;
+using static Terminal.Gui.App.Application;
 
 namespace Vela.Tests.Tui;
 

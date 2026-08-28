@@ -45,6 +45,10 @@ jobs:
         shell: pwsh
         run: dotnet build .\Vela.sln -c Release --no-restore --nologo
 
+      - name: Verify formatting
+        shell: pwsh
+        run: dotnet format .\Vela.sln --verify-no-changes --no-restore --verbosity minimal
+
       - name: Run tests
         shell: pwsh
         run: >-

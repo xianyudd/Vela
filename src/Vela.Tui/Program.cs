@@ -1,8 +1,8 @@
 using System.Collections.Immutable;
 using Spectre.Console;
+using Terminal.Gui.App;
 using Vela.Application.Profiles;
 using Vela.Core.Contracts;
-using Terminal.Gui.App;
 using Vela.Core.Models;
 using Vela.Core.Workflows;
 using Vela.Tui;

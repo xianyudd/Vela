@@ -140,16 +140,16 @@ public sealed record DashboardViewModel(
     private static LxssResolutionStatus? MapMappingState(
         LxssResolutionStatus? status,
         ImmutableArray<WorkflowDiagnostic> diagnostics) => status switch
-    {
-        null when HasDiagnostic(
-            diagnostics,
-            WorkflowDiagnosticCode.InstalledInventoryFailed) => LxssResolutionStatus.Failed,
-        null => null,
-        LxssResolutionStatus.Matched or
-            LxssResolutionStatus.Mismatched or
-            LxssResolutionStatus.NotFound => status,
-        _ => LxssResolutionStatus.Failed
-    };
+        {
+            null when HasDiagnostic(
+                diagnostics,
+                WorkflowDiagnosticCode.InstalledInventoryFailed) => LxssResolutionStatus.Failed,
+            null => null,
+            LxssResolutionStatus.Matched or
+                LxssResolutionStatus.Mismatched or
+                LxssResolutionStatus.NotFound => status,
+            _ => LxssResolutionStatus.Failed
+        };
 
     private static TargetInspectionState MapInspectionState(VhdxInspectionStatus? status) => status switch
     {

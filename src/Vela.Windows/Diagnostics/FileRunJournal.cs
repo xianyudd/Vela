@@ -349,44 +349,44 @@ public sealed class FileRunJournal : IRunJournal
 
         cancellationToken.ThrowIfCancellationRequested();
 
-            if (!_paths.IsTrustedRootDirectory() ||
-                !_paths.IsTrustedLogsDirectory() ||
-                !Directory.Exists(_paths.LogsDirectoryPath))
+        if (!_paths.IsTrustedRootDirectory() ||
+            !_paths.IsTrustedLogsDirectory() ||
+            !Directory.Exists(_paths.LogsDirectoryPath))
+        {
+            return Task.FromResult(0);
+        }
+
+        var cutoffUtc = DateTime.UtcNow.AddDays(-retentionDays);
+        var deletedRunCount = 0;
+
+        foreach (var runDirectory in Directory.EnumerateDirectories(_paths.LogsDirectoryPath))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            try
             {
-                return Task.FromResult(0);
+                var directoryName = Path.GetFileName(runDirectory);
+                if (!Guid.TryParseExact(directoryName, "D", out var runId) ||
+                    activeRunId == runId ||
+                    Directory.GetLastWriteTimeUtc(runDirectory) >= cutoffUtc ||
+                    !_paths.IsExpectedRunDirectory(runId, runDirectory) ||
+                    !_paths.IsTrustedRunDirectory(runId))
+                {
+                    continue;
+                }
+
+                Directory.Delete(runDirectory, recursive: true);
+                deletedRunCount++;
             }
-
-            var cutoffUtc = DateTime.UtcNow.AddDays(-retentionDays);
-            var deletedRunCount = 0;
-
-            foreach (var runDirectory in Directory.EnumerateDirectories(_paths.LogsDirectoryPath))
+            catch (IOException)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                try
-                {
-                    var directoryName = Path.GetFileName(runDirectory);
-                    if (!Guid.TryParseExact(directoryName, "D", out var runId) ||
-                        activeRunId == runId ||
-                        Directory.GetLastWriteTimeUtc(runDirectory) >= cutoffUtc ||
-                        !_paths.IsExpectedRunDirectory(runId, runDirectory) ||
-                        !_paths.IsTrustedRunDirectory(runId))
-                    {
-                        continue;
-                    }
-
-                    Directory.Delete(runDirectory, recursive: true);
-                    deletedRunCount++;
-                }
-                catch (IOException)
-                {
-                }
-                catch (UnauthorizedAccessException)
-                {
-                }
             }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
 
-            return Task.FromResult(deletedRunCount);
+        return Task.FromResult(deletedRunCount);
     }
 
     private static async Task<FileStream> AcquireProcessLockAsync(

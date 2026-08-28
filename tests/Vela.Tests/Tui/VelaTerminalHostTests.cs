@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
-using Vela.Core.Models;
 using Vela.Core.Contracts;
+using Vela.Core.Models;
 using Vela.Tui.Application;
 using Vela.Tui.Menu;
 using Vela.Tui.Views;
