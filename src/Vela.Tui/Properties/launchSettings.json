@@ -1,0 +1,15 @@
+{
+  "profiles": {
+    "Vela TUI": {
+      "commandName": "Project"
+    },
+    "Vela TUI (--help)": {
+      "commandName": "Project",
+      "commandLineArgs": "--help"
+    },
+    "Vela TUI (--version)": {
+      "commandName": "Project",
+      "commandLineArgs": "--version"
+    }
+  }
+}
