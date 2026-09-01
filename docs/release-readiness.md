@@ -19,7 +19,7 @@
 - [ ] 完成一次真实物理压缩的 Win11 / WSL 人工验收，并补充成功态截图。
 - [x] 创建第一个 GitHub Release，上传 self-contained `Vela.exe`。
 - [x] 为发布物记录 SHA256，并在 README 提供下载入口。
-- [x] 让 Windows CI 完成 restore、Release build、全量 test 和 coverage gate。
+- [x] 让 Windows CI 完成 locked restore、Release build、`dotnet format` 校验、全量 test、coverage gate，并上传测试与覆盖率 artifact。
 - [x] 确定并提交仓库开源许可文件。
 
 ## 仓库质量补齐
@@ -52,7 +52,10 @@
 ```powershell
 dotnet restore .\Vela.sln -r win-x64 --locked-mode --ignore-failed-sources -p:EnableRuntimePackDownload=false -p:DisableTransitiveFrameworkReferenceDownloads=true
 dotnet build .\Vela.sln -c Release --no-restore
+dotnet format .\Vela.sln --verify-no-changes --no-restore
 dotnet test .\Vela.sln -c Release --no-build --no-restore
-dotnet test .\tests\Vela.Tests\Vela.Tests.csproj -c Release --no-restore -p:CollectCoverage=true -p:CoverletOutput=.\..\..\artifacts\coverage\coverage -p:CoverletOutputFormat=cobertura -p:Include="[Vela.Core]*%2C[Vela.Windows]*" -p:ExcludeByFile="**/Program.cs"
+dotnet test .\tests\Vela.Tests\Vela.Tests.csproj -c Release --no-restore -p:CollectCoverage=true -p:CoverletOutput=.\..\..\artifacts\coverage\coverage -p:CoverletOutputFormat=cobertura -p:Include="[Vela.Core]*%2C[Vela.Windows]*%2C[Vela.Application]*%2C[Vela.Tui]*" -p:ExcludeByFile="**/Program.cs"
 pwsh -NoProfile -File .\scripts\Verify-Coverage.ps1
 ```
+
+这六步与 `.github/workflows/ci.yml` 的验证步骤一一对应；`dotnet format` 是独立门禁，缺失会导致 CI 失败。

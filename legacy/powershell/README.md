@@ -107,7 +107,7 @@ JSON 摘要便于后续机器处理或对比多次运行结果。
 
 ```text
 wsl.ps1              主脚本
-logs/                 运行日志与 JSON 摘要
-archive/              历史脚本备份
-tests/                 `-WhatIf` 只读冒烟验证
+tests/               `-WhatIf` 只读冒烟验证
 ```
+
+运行时会在 `-LogDir`（默认为脚本同级的 `logs/`）下生成日志与 JSON 摘要；该目录不纳入版本控制。
