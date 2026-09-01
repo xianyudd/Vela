@@ -30,8 +30,13 @@ Manual acceptance  真实 Win11 / WSL 环境下的只读预检与用户确认后
 | JsonProfileStore | 初始配置、迁移、原子保存 | JSON 完整且替换原子化。 |
 | OperationRequestStore / UacWorkerLauncher | request、固定 worker 参数、UAC 取消 | pending 路径由 RunId 派生。 |
 | WorkerMode | 管理员身份、额外参数、RunId、映射二次校验、非交互分支 | 失败时动作调用数为 0。 |
-| TUI application | `TuiApplication` 单一串行读键所有权、typed page controller、状态变化才重绘、↑↓/Enter/Esc、confirmation Backspace/16 字符上限、exact `YES`、取消前/读键期间 cancellation | 任意时刻最多一个同步 read；无关键 no-op；取消不 dispatch key、不泄漏异常。 |
-| FrameRenderer / display boundary | `<80`、`80–119`、`>=120` 宽度边界，低高度预算，interactive/redirected 同一 composition，CJK/combining/markup/CSI/OSC/control hostile text | 单帧 redirected 不清屏；任何 frame 均不含 raw path、RunId、raw exception、native output 或 raw enum name。 |
+| VelaTerminalShell（生产交互路径） | 参考画布 `160×45`、`120×35`、`100×30`、`80×24`、`60×16`；Enter、Esc、R/r、左右方向键；只读守卫；锁定目标贯穿预检与影响评估 | 固定 action bar 不被内容挤出；只读页面不触发任何执行动作；目标锁定不因重扫丢失。 |
+| TuiReducer / TuiViewProjector | 命令到状态的确定性归约、分支覆盖、投影字段边界 | 相同命令序列得到相同状态；投影不携带原始路径与 RunId。 |
+| DisplayTextSanitizer / display boundary | CJK 与组合字符宽度、markup 转义、CSI/OSC/control 剥离、长度截断 | 任何投影均不含 raw path、RunId、raw exception、native output 或 raw enum name。 |
+| FrameRenderer（redirected / 启动帧） | `<80`、`80–119`、`>=120` 宽度边界，低高度预算，redirected 单帧 | 单帧 redirected 不清屏、不读键。 |
+| TuiApplication（保留组件） | 单一串行读键所有权、typed page controller、状态变化才重绘 | 任意时刻最多一个同步 read。当前生产启动不走该路径，测试用于保持组件契约。 |
+| Windows 安全边界 | `WindowsObjectSecurityVerifier`、`WindowsSecurityDescriptorFactory`、SDDL 规范化、`PrivilegedDiskPartWorkspace`、`OperationRequestClaim` | 特权工作区的 SACL 与完整性标签符合预期；请求认领不可重入。 |
+| 程序集依赖架构 | `Vela.Core` 不引用 Windows/Spectre/Terminal.Gui/进程 API；`Vela.Application` 额外不引用 Terminal.Gui 与 Vela.Windows | 分层约束由测试强制，违反即编译期后的测试失败。 |
 | ProfileService / secondary TUI | Profile 选择、新建、编辑、删除约束；write-only VHDX 编辑；typed ShutdownMode；invariant `5–300` timeout；RecentRuns 最多 20 条、损坏 summary、详情和 TUI 内日志查看；OpenLogs | CRUD 持久化且通过 `ProfileValidator`；执行目标变化必须 exact `YES`；路径不越出 AppPaths 根且不进入 frame。 |
 | 锁定实例与档案配对 | `FindProfileForTarget` 匹配/大小写/多匹配取首个/无匹配返回 null；锁定无档案实例后 Enter、CursorRight 与执行动作均被阻止且锁保持 | 无匹配档案时不 arm 任何压缩请求；有匹配档案时自动切换并保留锁。 |
 | RunJournalPoller | sequence cursor、foreign RunId、gap/duplicate/nonmonotonic、invalid terminal、取消、timeout、连续读取失败及复位、callback exactly-once/order/exception/cancellation | 不排序修复损坏 journal；取消/超时不伪造 worker 终态；ReadFailed 在阈值后确定返回。 |
@@ -63,16 +68,18 @@ dotnet test .\tests\Vela.Tests --filter FullyQualifiedName~CompactionWorkflowTes
 # 配置和日志持久化
 dotnet test .\tests\Vela.Tests --filter 'FullyQualifiedName~JsonProfileStore|FullyQualifiedName~FileRunJournal'
 
-# 强制 80% line coverage gate，分别统计 Core 与 Windows
-# 先生成 Cobertura 报告，再使用独立脚本检查两个程序集
-dotnet test .\tests\Vela.Tests\Vela.Tests.csproj -c Release -p:CollectCoverage=true -p:CoverletOutput=.\..\..\artifacts\coverage\coverage -p:CoverletOutputFormat=cobertura -p:Include="[Vela.Core]*%2C[Vela.Windows]*" -p:ExcludeByFile="**/Program.cs"
+# 强制 80% line coverage gate，逐个统计四个程序集
+# 先生成 Cobertura 报告，再使用独立脚本检查每个程序集
+# Include 过滤必须与 scripts\Verify-Coverage.ps1 的 $required 一致：
+# 少一个程序集，脚本会以 "Coverage package not found" 失败
+dotnet test .\tests\Vela.Tests\Vela.Tests.csproj -c Release -p:CollectCoverage=true -p:CoverletOutput=.\..\..\artifacts\coverage\coverage -p:CoverletOutputFormat=cobertura -p:Include="[Vela.Core]*%2C[Vela.Windows]*%2C[Vela.Application]*%2C[Vela.Tui]*" -p:ExcludeByFile="**/Program.cs"
 pwsh -NoProfile -File .\scripts\Verify-Coverage.ps1
 ~~~
 
 验收线：
 
 ~~~text
-Vela.Core 与 Vela.Windows 的 line coverage ≥ 80%
+Vela.Core、Vela.Windows、Vela.Application、Vela.Tui 的 line coverage 各自 ≥ 80%
 所有测试绿色
 零编译警告
 locked restore 成功
@@ -85,12 +92,12 @@ dotnet format --verify-no-changes 无违规
 
 | 检查项 | 预期 |
 | --- | --- |
-| TUI 启动 | Vela — WSL VHDX Compact 标题和主菜单正确显示。 |
-| 响应式布局 | `<80` 只保留目标/状态/焦点/帮助；`80–119` 纵向堆叠；`>=120` 左导航右工作区；低高度列表有界。 |
-| 输入所有权 | 主菜单、Profile、Recent 和 confirmation 共用一个串行读键入口；快速按键、Esc、Ctrl+C 后无重复消费或 orphan read。 |
-| Profile 编辑 | 旧 VHDX 路径不回显，新路径只显示字符数；ShutdownMode 用方向键选择；timeout 只接受 5–300 整数。 |
-| 确认 | 首启/档案确认只接受精确大写 `YES`；压缩流程使用两次 `Y`；Esc 均取消。 |
-| 安全投影 | frame 不显示 raw VHDX/registry/run/log path、RunId、raw exception、native output 或 raw enum name。 |
+| TUI 启动 | 顶部 header 显示 `VELA` 与当前工作流步骤；左侧导航只有「01 工作区」「02 日志归档」两项。 |
+| 响应式布局 | 宽 ≥80 且高 ≥20 为左右双栏，否则单栏；宽 ≥120 出现证据栏，≥140 出现日志分析栏。参考画布 `160×45`、`120×35`、`100×30`、`80×24`、`60×16` 均不溢出。 |
+| 输入所有权 | 导航列表、工作区页面与 confirmation 共用一个 Terminal.Gui 输入路径；快速按键、Esc、Ctrl+C 后无重复消费或 orphan read。 |
+| 工作流导航 | `↑↓` 选实例，`Enter` 锁定并进入预检详情，`←→` 切换步骤，`R`/`r` 只读重扫，`Esc` 逐层返回。 |
+| 确认 | 首启确认只接受精确大写 `YES`；压缩流程使用两次 `Y`；Esc 均取消。 |
+| 安全投影 | 界面不显示 raw VHDX/registry/run/log path、RunId、raw exception、native output 或 raw enum name。 |
 | 终态标签 | “成功”与“完成但未回收空间”保持不同显示。 |
 | redirected | 只输出一个确定性 frame，不清屏、不读输入。 |
 
@@ -117,7 +124,7 @@ pwsh -ExecutionPolicy Bypass -File .\legacy\powershell\wsl.ps1 -WhatIf
 
 最终动作验收由用户在影响面板确认后自行发起。验收顺序：
 
-1. 在 TUI 中选择“执行压缩”。
+1. 在菜单 01「工作区」中用 `↑↓` 选中目标实例，按 `Enter` 锁定并查看预检详情，再按 `→` 进入影响评估。生产导航没有独立的“执行压缩”入口，压缩始终从锁定目标后的工作流步骤进入。
 2. 核对 Profile 身份、VHDX 已配置状态、Global / Distro 范围、正在运行的发行版与影响提示；原始目标路径只在可信配置/日志中核对，不要求 UI 回显。锁定已建档案的实例时当前档案应自动切换为匹配档案；锁定无匹配档案的实例（如 docker-desktop）应立即被阻止并提示先创建档案。选择 Distro 范围时注意其成功窗口：仅当工具 VM 已释放目标 vhdx 时压缩才可能成功（参见 docs/architecture.md 5.3）。
 3. 在影响预览按 `Y` 进入确认页，再按 `Y` 确认 UAC worker 启动。
 4. 观察父 TUI 轮询的 logs\<RunId>\events.ndjson 持续增加。
@@ -199,11 +206,25 @@ cmd.exe /c .\artifacts\publish\win-x64\Vela.exe < NUL
 
 ## 7. 交付目录
 
-发布候选的稳定入口（完成发布任务后创建）：
+### 7.1 安装脚本
+
+`scripts\Install-Vela.ps1` 是安装到日常目录的唯一入口。它按顺序执行 locked restore、Release 构建、全量测试、profile publish，然后把单文件 `Vela.exe` 装入目标目录：
+
+~~~powershell
+pwsh -NoProfile -File .\scripts\Install-Vela.ps1
+~~~
+
+已在本工作树验证过测试时可用 `-SkipTests`；`-Force` 跳过清理确认；`-Destination` 覆盖默认的 `D:\DevTools\Vela`。
+
+脚本存在的原因是这两种打包形态会互相污染同一个安装目录：profile publish 产出自包含单文件 `Vela.exe`，而普通 `dotnet publish` 产出框架依赖的 `Vela.Tui.exe` 加约 30 个 DLL。两者同时存在时安装目录有两个可运行入口，且 `app.manifest` 声明 `requireAdministrator`，于是过期的那个仍然能提权跑 DiskPart 流程。脚本因此把非单文件产物列出、要求 `YES` 确认后删除，只保留 `Vela.exe` 与交付文件 `README.md`、`logs-link.txt`，并在最后比对安装前后的 SHA256。
+
+### 7.2 目录布局
+
+发布候选的稳定入口：
 
 ~~~text
 D:\DevTools\Vela\
-├─ Vela.exe
+├─ Vela.exe          # 单文件自包含，唯一入口
 ├─ README.md
 └─ logs-link.txt
 ~~~

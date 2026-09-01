@@ -25,51 +25,48 @@ Timeout: 45 seconds
 
 ## 2. 最终 TUI 效果
 
-TUI 采用克制、工业化的中文运维控制台。`TuiApplication` 是唯一输入所有者：每次同步读取一个键，路由到当前 typed page controller，串行执行显式 effect，并只在 `TuiFrameViewModel` 状态变化时交给唯一 `FrameRenderer` 重绘。startup confirmation、主菜单、Profile、recent runs、confirmation、running 与 result 共享这一输入路径；次级页面不运行嵌套读键循环，也不启动无法取消的后台 `ReadKey`。
+TUI 采用克制、工业化的中文运维控制台。交互界面由 Terminal.Gui 承载：`Program.cs` 构造 `VelaTerminalShell` 与 `VelaTerminalHost`，shell 持有唯一一个导航列表，事件驱动重绘。工作区、影响评估、确认、运行进度与日志页共享这一个 shell，不启动嵌套读键循环。
+
+Spectre.Console 与 `FrameRenderer` 只服务两条非交互路径：首启确认帧，以及 `Console.IsInputRedirected` 时的单帧确定性输出（不清屏、不读键）。`TuiApplication` 与 `TuiReducer` 是纯模型层，有完整测试覆盖，但不在生产启动路径上。
 
 ~~~text
-╭──────────────── Vela ────────────────╮
-│ WSL VHDX Compact                      │
-│ Profile: Ubuntu-24.04                 │
-│ VHDX: 已配置                           │
-│ Last result: 预检尚未运行               │
-╰──────────────────────────────────────╯
-
-  › 预检（只读）
-    执行压缩
-    管理目标档案
-    查看最近运行记录
-    日志归档
-    退出
+╭─ Vela ───────────────────────────────────────────────────────────╮
+│ VELA  ·  ✓ Ubuntu-24.04 预检通过  ·  ✔ ① 选择实例 ─ > ② 环境预检   │
+│──────────────────────────────────────────────────────────────────│
+│ 工作区              │ 实例列表（3）                                │
+│ 检查 / 执行 / 追溯   │  发行版          当前体积   状态             │
+│                    │ ▸ Ubuntu-24.04    12.4 GiB  ● 准备就绪       │
+│ > 01  工作区        │   docker-desktop   0.1 GiB  ● 准备就绪       │
+│   02  日志归档      │   Debian           3.2 GiB  ▲ 运行中         │
+╰──────────────────────────────────────────────────────────────────╯
 ~~~
 
-- ↑、↓ 移动选择；Enter 执行动作；Esc 从次级页面返回，主菜单 Esc 退出。
-- 首启确认和会改变执行目标的 Profile 编辑/删除确认逐字符读取，只有精确大写 `YES` 加 Enter 才接受；执行压缩使用两次 `Y`；Esc 取消；输入最多 16 个字符。
-- Profile 管理使用 `N` 新建、`E` 编辑、`D` 删除，Enter 切换当前 Profile；删除至少保留一个且不能直接删除当前 Profile。
-- Profile 的 VHDX 字段为 write-only edit：旧路径永不回显，新输入只显示字符数；Shutdown mode 使用 typed 选项，timeout 只接受 invariant `5–300` 整数秒。
-- 最近运行使用 ↑、↓、Enter、Esc；详情页回到日志归档查看只读日志摘要，renderer-facing state 不携带 RunId 或路径。
-- `FrameRenderer` 对 `<80`、`80–119`、`>=120` 三档宽度分别采用最小、纵向、左右布局；低于 22 行时限制列表证据行，上下文 footer 只显示当前页面有效键位。
-- 交互与 redirected 输出共享同一 composition；redirected 模式只写一个确定性 frame，不清屏、不读键。
+- 导航列表只有两项：`01 工作区`（实例选择、预检、影响评估、执行）和 `02 日志归档`。`MainMenu` 仍定义 6 个 `MainMenuAction`，但 `VelaTerminalShell` 把可见项过滤为 `Preflight` 与 `OpenLogs`；`ManageProfiles`、`RecentRuns` 与 `ExecuteCompaction` 当前在生产界面没有入口。
+- ↑、↓ 在导航与实例列表内移动；←、→ 切换工作流步骤；Enter 锁定目标或进入下一步；Esc 返回上一层；`R` / `r` 重新运行只读预检。
+- 首启确认逐字符读取，只有精确大写 `YES` 加 Enter 才接受，输入最多 16 个字符。压缩流程使用两次 `Y`（`AcceptsSingleKey`，忽略大小写），不要求输入 YES。
+- 布局按 `VelaLayoutMetrics` 决策：宽 ≥ 80 且高 ≥ 20 为双栏，否则单栏；宽 ≥ 120 显示证据栏，≥ 140 显示日志分析栏。参考尺寸 `160×45`、`120×35`、`100×30`、`80×24`、`60×16` 均有测试覆盖。
 - 预检结果只呈现 mapped/configured/resolved 状态、文件与宿主盘数值证据、运行中的发行版和受控提示。
-- “执行压缩”先显示档案身份、VHDX 已配置状态与影响摘要，第一次 `Y` 进入确认页，第二次 `Y` 执行。
+- 影响评估显示当前物理体积、预计压缩后体积和预计可回收空间；第一次 `Y` 进入确认页，第二次 `Y` 执行。
 - 普通权限 TUI 保持打开并轮询确定的运行目录；提升权限 worker 只追加该目录的事件流。
 - 结束时显示安全结果投影；`Succeeded` 与 `CompletedWithNoReclaim` 分别显示为“成功”和“完成但未回收空间”。
 
-renderer-facing state 不包含 raw VHDX/registry/run/log path、RunId、raw exception、native command output 或 raw enum name。内部 service/controller 可保留可信路径和 RunId 用于 I/O；`TuiDisplayText` 负责中文标签、ANSI CSI/OSC/control stripping、Spectre markup escaping 与 Unicode display-cell 截断。详细原始证据只在 journal/log 中追溯。
-
-Spectre.Console 用于布局、面板与文本渲染，不建立第二套 UI framework。
+renderer-facing state 不包含 raw VHDX/registry/run/log path、RunId、raw exception、native command output 或 raw enum name。内部 service/controller 可保留可信路径和 RunId 用于 I/O；`TuiDisplayText` 与 `DisplayTextSanitizer` 负责中文标签、ANSI CSI/OSC/control stripping、Spectre markup escaping 与 Unicode display-cell 截断。详细原始证据只在 journal/log 中追溯。
 
 ## 3. 解决方案结构与依赖方向
 
 ~~~text
 Vela.sln
 ├─ src/
-│  ├─ Vela.Core/                    # 纯业务模型、验证、工作流
+│  ├─ Vela.Core/                    # 纯业务模型、验证、工作流（net10.0）
 │  │  ├─ Models/
 │  │  ├─ Contracts/
 │  │  ├─ Validation/
-│  │  ├─ Workflows/
-│  │  └─ Diagnostics/
+│  │  └─ Workflows/
+│  ├─ Vela.Application/             # 平台无关的展示投影与状态编排
+│  │  ├─ Display/                     # display-safe projection 与清洗
+│  │  ├─ Profiles/                    # 档案服务与 IProfileStore 契约
+│  │  ├─ Startup/                     # 首启初始化结果
+│  │  └─ Tui/                         # 不可变 TUI 模型、reducer、effect
 │  ├─ Vela.Windows/                 # Win11 原生适配器
 │  │  ├─ Processes/
 │  │  ├─ Wsl/
@@ -77,21 +74,30 @@ Vela.sln
 │  │  ├─ Registry/
 │  │  ├─ Storage/
 │  │  ├─ Configuration/
-│  │  └─ Elevation/
-│  └─ Vela.Tui/                     # 可执行项目与 Spectre.Console
-│     ├─ Application/                 # frame、状态、服务与输入循环
+│  │  ├─ Elevation/
+│  │  ├─ Security/                    # SDDL、token 特权、对象安全校验
+│  │  └─ Diagnostics/                 # AppPaths、日志 journal、保留策略
+│  └─ Vela.Tui/                     # 可执行项目（Terminal.Gui 生产路径）
+│     ├─ Views/                       # VelaTerminalShell 与各页面视图
+│     ├─ Application/                 # view model、服务与协调器
 │     ├─ Menu/                        # 菜单与确认 view model 工厂
-│     ├─ Rendering/                   # 唯一 FrameRenderer 路径
+│     ├─ Rendering/                   # 主题与 redirected FrameRenderer
+│     ├─ ProgramModes/                # worker 模式与 journal 轮询
+│     ├─ Properties/                  # launchSettings 与 publish profile
 │     └─ Program.cs
 └─ tests/
-   └─ Vela.Tests/                   # Core、Windows adapter、TUI 测试
+   └─ Vela.Tests/                   # Core、Application、Windows、TUI 测试
 ~~~
 
 ~~~text
 Vela.Tui ─────────► Vela.Core
-    │
-    └─────────────► Vela.Windows ───► Vela.Core
+    │                   ▲
+    ├─────────────► Vela.Application ──┘
+    │                   ▲
+    └─────────────► Vela.Windows ──────┘
 ~~~
+
+即 `Vela.Application → Vela.Core`；`Vela.Windows → Vela.Core, Vela.Application`；`Vela.Tui → Vela.Core, Vela.Application, Vela.Windows`。`Vela.Application` 不引用 Terminal.Gui、Spectre.Console、注册表或进程 API，该约束由 `ApplicationAssemblyDependencyTests` 强制。
 
 TUI 内部依赖方向为：可信 service/controller 持有路径和 RunId capability，display-safe projection 将其转换为 typed page state，`FrameRenderer` 只消费该投影。原始 native output 直接保留在 journal/log，不进入 `RunProgressViewModel`。
 
@@ -139,20 +145,40 @@ public enum RunPhase { Validation, Inventory, Snapshot, AwaitingConfirmation,
 
 ### 4.2 应用层接口
 
+`Vela.Core/Contracts` 定义全部平台无关端口：
+
 ~~~csharp
-public interface IProcessRunner;
-public interface IWslClient;
-public interface IDiskPartClient;
-public interface ILxssProfileResolver;
-public interface IVhdxInspector;
-public interface IProfileStore;
-public interface IRunJournal;
-public interface IElevatedWorkerLauncher;
-public interface IOperationRequestStore;
 public interface IClock;
+public interface ICompactionImpactEstimator;
+public interface IDiskPartClient;
+public interface IElevatedWorkerLauncher;
+public interface ILxssProfileResolver;
+public interface IOperationRequestStore;
+public interface IProcessRunner;
+public interface IRunJournal;
+public interface IVhdxHandleProbe;
+public interface IVhdxInspector;
+public interface IWslClient;          // : IWslInventoryReader
+public interface IWslInventoryReader;
 ~~~
 
-CompactionWorkflow 依赖这些端口。Preflight 在采集摘要后完成；Compact 仅在 worker 的二次验证完成后进入执行阶段。
+`IProfileStore` 是例外：它描述档案持久化，属于应用层关注点，因此定义在 `Vela.Application/Profiles/IProfileStore.cs`，而不在 `Vela.Core/Contracts`。
+
+`CompactionWorkflow` 只依赖其中 7 个端口：
+
+~~~csharp
+CompactionWorkflow(
+    IWslClient,
+    ILxssProfileResolver,
+    IVhdxInspector,
+    IDiskPartClient,
+    IVhdxHandleProbe,
+    IRunJournal,
+    IClock,
+    TimeSpan? pollInterval = null)
+~~~
+
+`IProcessRunner` 由 `Vela.Windows` 的适配器内部使用；`IElevatedWorkerLauncher` 与 `IOperationRequestStore` 由 TUI 的提权编排调用；`IProfileStore` 属于档案服务。它们都不是工作流的构造依赖。Preflight 在采集摘要后完成；Compact 仅在 worker 的二次验证完成后进入执行阶段。
 
 ## 5. 运行数据流
 
@@ -173,7 +199,7 @@ TUI 选择档案
 
 ~~~text
 TUI 展示共同预检与影响范围
-  → 用户输入 YES
+  → 用户按 Y 进入二次确认，再按 Y 启动（单键，OrdinalIgnoreCase）
   → 父进程创建 logs\<RunId> 并写入 RunCreated 事件
   → IOperationRequestStore 原子写入 pending\<RunId>.json
   → IElevatedWorkerLauncher 以 runas 启动同一 Vela.exe

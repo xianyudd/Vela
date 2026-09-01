@@ -50,7 +50,8 @@ D:\Jason\Documents\Workspace\vs2022\repo\Vela\
 ## 强制架构约束
 
 - Vela.Core 使用 net10.0，且不引用 Windows API、Spectre.Console 或进程 API。
-- Vela.Windows、Vela.Tui、Vela.Tests 使用 net10.0-windows。
+- Vela.Application、Vela.Windows、Vela.Tui、Vela.Tests 使用 net10.0-windows。
+- Vela.Application 是平台无关的展示投影与状态层，不引用 Terminal.Gui、Spectre.Console、注册表或进程 API；该约束由 `tests/Vela.Tests/Architecture/ApplicationAssemblyDependencyTests.cs` 强制。
 - 真实原生命令仅封装在 Vela.Windows，全部由固定绝对路径与 ArgumentList 调用。
 - Compact worker 只接受 --worker --run-id <D 格式 GUID>，并根据 Distro 重新解析 Lxss VHDX；已解析路径与请求路径严格相等后才进入动作阶段。
 - 运行目录固定为 %LocalAppData%\Vela\logs\<RunId>。父 TUI 创建首个事件并轮询；worker 只追加同一日志流。
@@ -70,9 +71,11 @@ D:\Jason\Documents\Workspace\vs2022\repo\Vela\
 
 ~~~powershell
 Set-Location 'D:\Jason\Documents\Workspace\vs2022\repo\Vela'
-dotnet restore .\Vela.sln
-dotnet build .\Vela.sln -c Debug
-dotnet test .\Vela.sln -c Debug
+dotnet restore .\Vela.sln -r win-x64 --locked-mode --ignore-failed-sources -p:EnableRuntimePackDownload=false -p:DisableTransitiveFrameworkReferenceDownloads=true
+dotnet build .\Vela.sln -c Debug --no-restore
+dotnet test .\Vela.sln -c Debug --no-build --no-restore
 ~~~
 
-发布、coverage gate 和人工验收以 testing-and-release.md 的完整命令为准。
+还原始终带 `-r win-x64 --locked-mode`，与 CI 保持同一形式；理由见[开发环境说明](development-environment.md)第 3.3 节。
+
+发布、`dotnet format` 门禁、coverage gate 和人工验收以 testing-and-release.md 的完整命令为准。
