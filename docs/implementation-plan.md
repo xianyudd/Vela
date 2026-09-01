@@ -1,14 +1,36 @@
 # Vela 实施计划
 
-> **历史记录说明：** 本计划以 .NET 9 为初始基线。当前源码已经迁移到 .NET 10；执行命令、目标框架和发布参数以 `global.json`、各项目文件、根目录 README 与 `docs/release-readiness.md` 为准。
+> **这是历史实施记录，不是现状描述。**
+>
+> 本文保留首版从空白解决方案到可发布 EXE 的原始计划与当时真实执行的命令。命令中的
+> `.NET 9`、`net9.0` 等参数按当时基线原样保留，不回填为当前值——改写会让这份记录
+> 失去追溯价值。
+>
+> 阅读时按下表换算。任何与当前仓库有关的判断都以右列为准。
+>
+> | 本文写的 | 当前实际 | 事实来源 |
+> | --- | --- | --- |
+> | .NET 9 / `net9.0` / `net9.0-windows` | .NET 10 / `net10.0` / `net10.0-windows` | `global.json`、各 `.csproj` |
+> | SDK `9.0.305` | SDK `10.0.302`（`latestPatch`） | `global.json` |
+> | 四项目解决方案 | 五项目：另有 `Vela.Application` | `Vela.sln` |
+> | Spectre.Console 承载交互 TUI | Terminal.Gui 承载交互；Spectre 只渲染 redirected / 启动静态帧 | `src/Vela.Tui/Program.cs` |
+> | 覆盖率门槛针对 Core 与 Windows | 四个程序集均 ≥80% | `scripts/Verify-Coverage.ps1` |
+>
+> 当前基线文档：[架构设计](architecture.md)、[开发环境](development-environment.md)、
+> [测试与发布](testing-and-release.md)、[发布准备清单](release-readiness.md)。
+> `Vela.Application` 的引入决策见
+> [model-first TUI 重构计划](superpowers/plans/2026-08-13-model-first-tui-refactor.md)。
 
-> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development（有 subagent 时）或 superpowers:executing-plans 实施本计划。复选框用于持续记录进度。
+> **给 agent 的说明：不要执行本计划。** 下面的 61 个 `- [ ]` 复选框从未被回勾，但对应产物
+> 已全部存在（`Vela.sln`、五个项目、`legacy/powershell` 归档、publish profile 等）。未勾选
+> 表示记录没维护，不表示工作待办。按本文重跑 `dotnet new` 或把 TFM 改回 `net9.0` 会破坏
+> 当前仓库。需要实施新工作时，另写计划。
 
 **目标：** 构建单入口 C# Spectre.Console TUI “Vela”。它覆盖现有 PowerShell 工具的诊断、日志、WSL 盘点、VHDX 检查、确认、UAC worker 与 DiskPart 工作流，并以发行版注册表映射作为 Compact 目标的严格来源。
 
-**架构：** 四项目解决方案：纯 Core、Windows 适配器、Spectre.Console 可执行项目、xUnit 测试项目。TUI 以普通权限运行预检；父进程按 RunId 创建持久日志，提升权限 worker 重新校验映射后追加同一日志流。
+**架构（首版计划）：** 四项目解决方案：纯 Core、Windows 适配器、Spectre.Console 可执行项目、xUnit 测试项目。TUI 以普通权限运行预检；父进程按 RunId 创建持久日志，提升权限 worker 重新校验映射后追加同一日志流。
 
-**技术栈：** C# / .NET 9、Visual Studio 2022 17.14、Spectre.Console、System.Text.Json、Microsoft.Win32.Registry、xUnit、coverlet、Git、self-contained 单文件 win-x64 发布。
+**技术栈（首版计划）：** C# / .NET 9、Visual Studio 2022 17.14、Spectre.Console、System.Text.Json、Microsoft.Win32.Registry、xUnit、coverlet、Git、self-contained 单文件 win-x64 发布。
 
 ---
 

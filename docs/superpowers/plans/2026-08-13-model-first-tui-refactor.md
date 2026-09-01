@@ -1,6 +1,15 @@
 # Model-First Terminal.Gui TUI Refactor Implementation Plan
 
-> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Completed plan — historical record.** The refactor described here has shipped:
+> `src/Vela.Application/` exists with `TuiSessionState`, `TuiCommand`, `TuiReducer`,
+> `TuiEffect` and the display-safe projections, and
+> `tests/Vela.Tests/Architecture/ApplicationAssemblyDependencyTests.cs` enforces the
+> boundary. The `- [ ]` checkboxes below were never ticked off during execution and do
+> **not** indicate outstanding work — do not re-run these steps.
+>
+> The goal, architecture, and tech stack stated below still match the current
+> repository. For current baselines see [architecture.md](../../architecture.md) and
+> [testing-and-release.md](../../testing-and-release.md).
 
 **Goal:** Rebuild Vela's interactive TUI as a model-first Terminal.Gui adapter with immutable session state, typed commands, pure reducer, explicit effects, and safety-first worker/DiskPart hardening.
 

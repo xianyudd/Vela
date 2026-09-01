@@ -2,6 +2,8 @@
 
 来源：本轮交接计划《菜单 01「状态总览 / 预检」信息规划》。
 
+> 本文是该轮实施的**时点证据**，记录当时的测试清单与运行结果，不随后续变更同步刷新。下方「验证记录」的数字属于历史快照；当前的门禁命令与覆盖率口径以[测试与发布手册](../testing-and-release.md)第 3 节为准。表格中引用的测试方法名仍然有效。
+
 | 保证 | 测试 | 类型 |
 |---|---|---|
 | 五项门禁按固定顺序投影，容量使用 GiB/TiB，稀疏状态本地化 | `PreflightOverviewViewModelTests` | 单元 |
@@ -16,17 +18,19 @@
 
 宽屏首页采用「执行目标选择」结构：顶部只保留扫描结果和下一步说明，下面以实例表展示发行版、当前体积、VHDX 路径状态和 READY/RUNNING/BLOCKED 状态。实例数据来自只读预检返回的已安装发行版清单；目标发行版缺失时在提示中明确说明，实例数量仍以实际清单为准。
 96 列以上显示体积和 VHDX 状态，72–95 列隐藏详细容量，72 列以下只保留当前目标与核心状态。表格选择、Enter 锁定目标、Tab 切换到左侧菜单、R 重跑预检均走 Terminal.Gui 事件链，底部操作条保持固定。
-VHDX 原始路径不进入首页投影，只展示「已配置 / 未读取」状态；容量仍统一使用 GiB/TiB 格式化。状态使用文字与符号同时表达，不依赖颜色单独传达风险。
+容量统一使用 GiB/TiB 格式化。状态使用文字与符号同时表达，不依赖颜色单独传达风险。
+
+> 后续变更：首页 VHDX 列当时只显示「已配置 / 未读取」状态，现已改为经 `PreflightOverviewFormatter.FormatVhdxPath` 中间省略的路径摘要（保留盘符与文件名，按列宽收缩）。清洗与长度限制仍然生效，RunId、异常堆栈和 native output 依旧不进入展示投影。
 
 影响预览的估算口径为：`max(0, 当前 VHDX 文件长度 - ext4 根文件系统已用字节)`。估算器优先读取停止状态下仍可读的 VHDX 元数据与 ext4 superblock，不挂载、不启动发行版；格式不匹配时回退到只读 `wsl df`。执行完成页仍以 worker 的压缩前后快照差值作为实际回收空间。
 
 验证记录：
 
-- `dotnet test Vela.sln --no-restore --nologo`：432/432 通过。
+- `dotnet test Vela.sln --no-restore --nologo`：432/432 通过（当时的用例总数；此后测试持续增加，当前为 746）。
 - `dotnet test tests/Vela.Tests/Vela.Tests.csproj --no-restore --filter FullyQualifiedName~WslCompactionImpactEstimatorTests`：4/4 通过。
 - `dotnet.exe test tests/Vela.Tests/Vela.Tests.csproj -c Release --no-restore --nologo -p:CollectCoverage=true -p:CoverletOutput=./../../artifacts/coverage/coverage -p:CoverletOutputFormat=cobertura`：全量测试与 coverage gate 以当前仓库结果为准。
 - `dotnet restore Vela.sln --locked-mode --nologo`：所有项目均是最新的。
-- Release Cobertura：`Vela.Core` 80.31%、`Vela.Windows` 82.05%；`scripts/Verify-Coverage.ps1` 通过。
+- Release Cobertura：`Vela.Core` 80.31%、`Vela.Windows` 82.05%；`scripts/Verify-Coverage.ps1` 通过。这是当时的两程序集口径；门槛此后扩展到 `Vela.Core`、`Vela.Windows`、`Vela.Application`、`Vela.Tui` 四个程序集，当前实测分别为 84.37%、83.42%、89.70%、85.78%。
 
 核心流程审查追加保证：锁定目标的预检快照优先于清单旧体积；停止目标缺少离线 ext4 用量时不启动 WSL；worker/UAC 先发布 canonical terminal event，再写 summary；summary 持久化异常不会重写已发布终态；日志入口保留在 TUI 的“日志归档”，不启动外部目录查看器。
 
