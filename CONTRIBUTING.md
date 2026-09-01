@@ -19,10 +19,13 @@
    ```powershell
    dotnet restore .\Vela.sln -r win-x64 --locked-mode --ignore-failed-sources -p:EnableRuntimePackDownload=false -p:DisableTransitiveFrameworkReferenceDownloads=true
    dotnet build .\Vela.sln -c Release --no-restore
+   dotnet format .\Vela.sln --verify-no-changes --no-restore
    dotnet test .\Vela.sln -c Release --no-build --no-restore
    ```
 
-5. 变更 TUI 时，补充对应的窄屏、宽屏、Enter、Esc、R/r 和只读守卫验证。
+   `dotnet format` 是 CI 的独立门禁步骤，漏跑会在 CI 失败。
+
+5. 变更 TUI 时，补充对应的窄屏、宽屏、Enter、Esc、R/r、左右方向键、Tab 焦点切换、`1`/`2` 模块跳转和只读守卫验证。
 6. 使用 Conventional Commits，例如 `fix: preserve locked compaction target`。
 
 ## TUI 与执行边界

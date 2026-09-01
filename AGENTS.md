@@ -87,7 +87,7 @@ public Task<CompactionImpactEstimate> EstimateAsync(
 
 - 菜单 01 负责实例选择和目标级只读预检。
 - 选中的目标必须贯穿预检、影响评估、确认和执行链路。
-- `Enter` 用于确认当前步骤；`Esc` 返回上一步；`R` 和 `r` 都触发只读重扫；左右方向键切换工作流步骤。
+- `Enter` 用于确认当前步骤；`Esc` 返回上一步；`R` 和 `r` 都触发只读重扫；左右方向键切换工作流步骤；`Tab` 在工作区首页切换导航栏与主列表焦点；`1` 和 `2` 直接跳转对应模块。
 - 执行压缩前必须显示具体的预计可回收空间、停止范围和目标 VHDX 摘要。
 - 压缩流程使用两次 `Y/y` 确认；运行期间锁定导航输入。
 - 日志必须在 Vela TUI 内查看，不通过打开日志目录替代日志页面。
@@ -115,7 +115,7 @@ dotnet test .\Vela.sln -c Release --no-build --no-restore
 
 变更执行流程时，补充成功、超时、DiskPart 阶段、取消、日志终态和目标隔离测试。
 
-覆盖率门槛：`Vela.Core` 和 `Vela.Windows` 的 line coverage 均保持在 80% 以上。
+覆盖率门槛：`Vela.Core`、`Vela.Application`、`Vela.Windows`、`Vela.Tui` 四个程序集的 line coverage 均保持在 80% 以上。覆盖率过滤必须同时包含这四个程序集，否则 `scripts/Verify-Coverage.ps1` 会因缺少 package 而失败。
 
 ## Git 与交付
 

@@ -197,15 +197,18 @@ Vela 的输入由单一 TUI 入口串行处理，页面之间不启动嵌套读�
 
 | 按键 | 作用 |
 | --- | --- |
-| ↑ / ↓ | 移动菜单、实例或列表选择 |
-| ← / → | 在支持横向工作流的页面切换视图 |
-| Enter | 执行当前菜单项、锁定目标、打开详情或进入下一步 |
+| ↑ / ↓ | 移动侧栏导航、实例或列表选择 |
+| ← / → | 在支持横向工作流的页面切换步骤 |
+| Tab | 在工作区首页切换侧栏导航与主列表的焦点 |
+| 1 / 2 | 直接跳转到对应侧栏模块 |
+| Enter | 执行当前导航项、锁定目标、打开详情或进入下一步 |
 | R / r | 重新运行只读预检 |
-| Esc | 返回上一层、取消确认；主菜单退出 |
-| Y → Y | 影响预览进入确认，再启动压缩 worker |
-| N / E / D | 新建、编辑、删除目标档案 |
+| Esc | 返回上一层、取消确认 |
+| Y → Y | 影响预览进入确认，再启动压缩 worker（大小写均可） |
 
-首启和会改变执行目标的档案编辑 / 删除确认使用精确的大写 YES 加 Enter。压缩流程只使用两次 Y，不要求输入 YES。
+侧栏导航当前只暴露两项：`01 工作区` 和 `02 日志归档`。目标档案管理暂无 TUI 入口，配置以 `%LocalAppData%\Vela\config.json` 为准。
+
+首启数据目录确认使用精确的大写 YES 加 Enter。压缩流程只使用两次 Y，不要求输入 YES。
 
 ## 快速开始
 
@@ -260,6 +263,18 @@ artifacts\publish\win-x64\Vela.exe
 
 开发、测试和发布输出统一留在项目内 artifacts\，不会直接写入日常安装目录。
 
+### 安装到日常使用目录
+
+`scripts\Install-Vela.ps1` 串起 restore、build、test、单文件 publish 和安装，并保证安装目录只有一个入口 `Vela.exe`：
+
+~~~powershell
+pwsh -NoProfile -File .\scripts\Install-Vela.ps1
+~~~
+
+默认目标是 `D:\DevTools\Vela`，可用 `-Destination` 覆盖。脚本结束时打印安装路径、文件大小和 SHA256，并校验它与 publish 产物一致。
+
+不要用普通 `dotnet publish`（不带 profile）写入安装目录：publish profile 把 `AssemblyName` 从 `Vela.Tui` 覆写为 `Vela`，所以带 profile 得到单文件 `Vela.exe`，不带 profile 得到 `Vela.Tui.exe` 加一批依赖 DLL。两种形态混在同一目录会留下两个都能运行、但代码版本不同的入口，而 `app.manifest` 声明了 `requireAdministrator`，陈旧的那个仍会跑提权的 diskpart 流程。脚本会列出并清除这类残留，同时保留 `README.md` 和 `logs-link.txt`。
+
 ## 运行记录
 
 发布版默认使用 %LocalAppData%\Vela：
@@ -294,37 +309,47 @@ artifacts\publish\win-x64\Vela.exe
 ~~~text
 Vela/
 ├─ src/
-│  ├─ Vela.Core/        # 不依赖 Windows API 的模型、验证与工作流
-│  ├─ Vela.Windows/     # WSL、注册表、VHDX、DiskPart、UAC 与日志适配器
-│  └─ Vela.Tui/         # Terminal.Gui 外壳、页面、状态投影与渲染
+│  ├─ Vela.Core/          # 不依赖 Windows API 的模型、验证与工作流
+│  ├─ Vela.Application/   # 展示投影、档案服务与 TUI 状态模型（平台无关）
+│  ├─ Vela.Windows/       # WSL、注册表、VHDX、DiskPart、UAC 与日志适配器
+│  └─ Vela.Tui/           # Terminal.Gui 外壳、视图、状态投影与渲染
 ├─ tests/
-│  └─ Vela.Tests/       # Core、Windows adapter 与 TUI 测试
-├─ docs/                # 架构、环境、测试与发布手册
-├─ scripts/             # 覆盖率与只读 TUI 验收脚本
+│  └─ Vela.Tests/         # Core、Application、Windows adapter 与 TUI 测试
+├─ docs/                  # 架构、环境、测试发布手册、TDD 证据与素材
+├─ scripts/               # 安装、覆盖率门禁、TUI 启动器与只读验收脚本
+├─ legacy/powershell/     # 旧 PowerShell 工具的行为对照归档
+├─ artifacts/             # 构建、发布与测试输出，Git 忽略
+├─ .github/workflows/     # Windows CI
 ├─ Directory.Build.props
 ├─ Directory.Packages.props
+├─ global.json            # SDK 版本锁定
+├─ dotnet-tools.json      # 本地 dotnet 工具清单
 └─ Vela.sln
 ~~~
 
 依赖方向保持单向：
 
 ~~~text
-Vela.Tui ─────► Vela.Core
-    │
-    └──────────► Vela.Windows ─────► Vela.Core
+Vela.Tui ──────► Vela.Application ──────► Vela.Core
+    │                    ▲                    ▲
+    │                    │                    │
+    └──► Vela.Windows ────┘────────────────────┘
 ~~~
+
+`Vela.Core` 不引用其他 Vela 项目；`Vela.Application` 只引用 `Vela.Core`，不引用 Terminal.Gui、Spectre.Console 或 Windows API。这两条约束由 `tests/Vela.Tests/Architecture/` 下的程序集引用测试守卫。
 
 ## 开发与质量门禁
 
 ~~~powershell
 dotnet restore .\Vela.sln -r win-x64 --locked-mode --ignore-failed-sources -p:EnableRuntimePackDownload=false -p:DisableTransitiveFrameworkReferenceDownloads=true
 dotnet build .\Vela.sln -c Release --no-restore
-dotnet test .\Vela.sln -c Release --no-build
-dotnet test .\tests\Vela.Tests\Vela.Tests.csproj -c Release --no-restore -p:CollectCoverage=true -p:CoverletOutput=.\..\..\artifacts\coverage\coverage -p:CoverletOutputFormat=cobertura -p:Include="[Vela.Core]*%2C[Vela.Windows]*" -p:ExcludeByFile="**/Program.cs"
+dotnet format .\Vela.sln --verify-no-changes --no-restore --verbosity minimal
+dotnet test .\Vela.sln -c Release --no-build --no-restore
+dotnet test .\tests\Vela.Tests\Vela.Tests.csproj -c Release --no-build --no-restore -p:CollectCoverage=true -p:CoverletOutput=.\..\..\artifacts\coverage\coverage -p:CoverletOutputFormat=cobertura -p:Include="[Vela.Core]*%2C[Vela.Windows]*%2C[Vela.Application]*%2C[Vela.Tui]*" -p:ExcludeByFile="**/Program.cs"
 pwsh -NoProfile -File .\scripts\Verify-Coverage.ps1
 ~~~
 
-质量基线：锁定依赖恢复成功、全量测试通过、零编译警告，且 Vela.Core 与 Vela.Windows 的 line coverage 各自不低于 80%。详细验收矩阵和真实 Win11 / WSL 验收边界见[测试与发布手册](docs/testing-and-release.md)。
+质量基线：锁定依赖恢复成功、`dotnet format` 无待改动、全量测试通过、零编译警告，且 `Vela.Core`、`Vela.Application`、`Vela.Windows`、`Vela.Tui` 四个程序集的 line coverage 各自不低于 80%。覆盖率过滤必须包含这四个程序集，否则 `Verify-Coverage.ps1` 会因缺少 package 而失败。详细验收矩阵和真实 Win11 / WSL 验收边界见[测试与发布手册](docs/testing-and-release.md)。
 
 ## 当前边界
 
