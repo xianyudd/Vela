@@ -184,6 +184,9 @@ public sealed class FakeRunJournal : IRunJournal
 
     public bool ThrowOnWriteSummary { get; init; }
 
+    /// <summary>Optional callback invoked inside AppendAsync before the event is stored.</summary>
+    public Action<RunEventDraft>? OnAppend { get; set; }
+
     public int AppendCalls { get; private set; }
 
     public int OpenExistingRunCalls { get; private set; }
@@ -227,6 +230,7 @@ public sealed class FakeRunJournal : IRunJournal
     public Task<JournalAppendResult> AppendAsync(RunEventDraft eventDraft, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        OnAppend?.Invoke(eventDraft);
         AppendCalls++;
         _operations.Add($"append:{eventDraft.OperationName}");
         _onInvoked?.Invoke("journal.append");

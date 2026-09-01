@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text;
+using System.Threading.Channels;
 using Vela.Core.Contracts;
 using Vela.Core.Models;
 using Vela.Windows.Processes;
@@ -140,16 +141,44 @@ public sealed class DiskPartClient : IDiskPartClient
 
         await lease.VerifyAsync(cancellationToken).ConfigureAwait(false);
 
-        var result = await _processRunner
-            .RunAsync(
-                new ProcessInvocation(
-                    _nativeToolPaths.DiskPartExePath,
-                    ImmutableArray.Create("/s", lease.ScriptPath),
-                    Timeout: null,
-                    OutputEncoding: WindowsConsoleEncoding),
-                output: null,
-                cancellationToken)
-            .ConfigureAwait(false);
+        var (progress, writer, consumerTask) = operation == DiskPartOperation.Compact
+            ? CreateCompactProgressWriter(runId, cancellationToken)
+            : (null, null, null);
+
+        ProcessExecutionResult result;
+        try
+        {
+            result = await _processRunner
+                .RunAsync(
+                    new ProcessInvocation(
+                        _nativeToolPaths.DiskPartExePath,
+                        ImmutableArray.Create("/s", lease.ScriptPath),
+                        Timeout: null,
+                        OutputEncoding: WindowsConsoleEncoding),
+                    output: progress,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            if (writer is not null)
+            {
+                writer.TryComplete();
+                if (consumerTask is not null)
+                {
+                    try
+                    {
+                        await consumerTask.ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                    }
+                    catch (Exception)
+                    {
+                    }
+                }
+            }
+        }
 
         await lease.VerifyAsync(cancellationToken).ConfigureAwait(false);
 
@@ -160,6 +189,101 @@ public sealed class DiskPartClient : IDiskPartClient
         await LogClassificationAsync(runId, operation, result, classified, decision, cancellationToken)
             .ConfigureAwait(false);
         return classified;
+    }
+
+    /// <summary>
+    /// Creates an <see cref="IProgress{ProcessOutput}"/> that writes every
+    /// diskpart stdout line as a live <c>DiskPartCompactProgress</c> journal
+    /// event so the TUI poller can show incremental progress. Only the first
+    /// <see cref="MaxLiveProgressLines"/> lines are recorded to bound the journal;
+    /// once the cap is reached subsequent lines are silently dropped. The
+    /// classified tail event from <see cref="LogClassificationAsync"/> is still
+    /// written regardless.
+    /// </summary>
+    /// <returns>
+    /// A tuple of (progress, writer, consumer). The caller must
+    /// <c>TryComplete()</c> the writer then await the consumer task so all
+    /// progress events are flushed to the journal before the classified event.
+    /// </returns>
+    private (IProgress<ProcessOutput>? Progress, ChannelWriter<RunEventDraft>? Writer, Task? Consumer) CreateCompactProgressWriter(
+        Guid runId,
+        CancellationToken cancellationToken)
+    {
+        if (_journal is null)
+        {
+            return (null, null, null);
+        }
+
+        const int maxLiveProgressLines = 20;
+        var linesWritten = 0;
+        var channel = Channel.CreateBounded<RunEventDraft>(
+            new BoundedChannelOptions(32)
+            {
+                FullMode = BoundedChannelFullMode.DropWrite,
+                SingleWriter = false,
+                SingleReader = true
+            });
+
+        // Single consumer: drains the channel sequentially, preserving stdout order.
+        var consumer = Task.Run(async () =>
+        {
+            await foreach (var draft in channel.Reader.ReadAllAsync(cancellationToken)
+                .ConfigureAwait(false))
+            {
+                try
+                {
+                    var appended = await _journal
+                        .AppendAsync(draft, cancellationToken)
+                        .ConfigureAwait(false);
+                    if (appended.Succeeded)
+                    {
+                        Interlocked.Increment(ref linesWritten);
+                    }
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (Exception)
+                {
+                }
+            }
+        }, cancellationToken);
+
+        return (new Progress<ProcessOutput>(output =>
+        {
+            if (output.Stream != ProcessOutputStream.StandardOutput)
+            {
+                return;
+            }
+
+            var text = output.Text?.Replace("\0", string.Empty, StringComparison.Ordinal) ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return;
+            }
+
+            if (Interlocked.CompareExchange(ref linesWritten, 0, 0) >= maxLiveProgressLines)
+            {
+                return;
+            }
+
+            var safeText = text.Length > 160 ? text[..160] + "…" : text;
+            var draft = new RunEventDraft(
+                output.OccurredAtUtc,
+                runId,
+                RunPhase.Compacting,
+                RunEventLevel.Trace,
+                "DiskPartCompactProgress",
+                ImmutableArray<string>.Empty,
+                ExitCode: null,
+                Duration: null,
+                Output: safeText);
+
+            // Non-blocking: the channel buffer absorbs bursts without stalling
+            // the stdout capture thread.
+            channel.Writer.TryWrite(draft);
+        }), channel.Writer, consumer);
     }
 
     private static ProcessExecutionResult Classify(
