@@ -1751,8 +1751,38 @@ public sealed class VelaTerminalShell : Window
         }
 
         var bounded = Math.Clamp(value, 0, 100);
-        var filled = bounded / 10;
-        return $"{new string('█', filled)}{new string('░', 10 - filled)}  {bounded,3}%";
+        const int slots = 10;
+        var fullEighths = bounded * slots * 8 / 100;
+        var fullBlocks = fullEighths / 8;
+        var remainder = fullEighths % 8;
+
+        var bar = new System.Text.StringBuilder(slots);
+        bar.Append('█', fullBlocks);
+        if (fullBlocks < slots)
+        {
+            if (remainder > 0)
+            {
+                var fractionChar = remainder switch
+                {
+                    1 => '▏',
+                    2 => '▎',
+                    3 => '▍',
+                    4 => '▌',
+                    5 => '▋',
+                    6 => '▊',
+                    7 => '▉',
+                    _ => ' '
+                };
+                bar.Append(fractionChar);
+                fullBlocks++;
+            }
+            if (slots - fullBlocks > 0)
+            {
+                bar.Append('░', slots - fullBlocks);
+            }
+        }
+
+        return $"{bar}  {bounded,3}%";
     }
 
     private string[] BuildProfilePreview() =>

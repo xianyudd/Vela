@@ -169,8 +169,38 @@ public sealed class RunProgressView : View
     {
         var bounded = Math.Clamp(percent ?? 0, 0, 100);
         var slots = Math.Max(10, width - 10);
-        var filled = bounded * slots / 100;
-        return $"{new string('█', filled)}{new string('░', slots - filled)}  {bounded,3}%";
+        var fullEighths = bounded * slots * 8 / 100;
+        var fullBlocks = fullEighths / 8;
+        var remainder = fullEighths % 8;
+
+        var bar = new System.Text.StringBuilder(slots);
+        bar.Append('█', fullBlocks);
+        if (fullBlocks < slots)
+        {
+            if (remainder > 0)
+            {
+                // Fractional block runes: ▏(1), ▎(2), ▍(3), ▌(4), ▋(5), ▊(6), ▉(7)
+                var fractionChar = remainder switch
+                {
+                    1 => '▏',
+                    2 => '▎',
+                    3 => '▍',
+                    4 => '▌',
+                    5 => '▋',
+                    6 => '▊',
+                    7 => '▉',
+                    _ => ' '
+                };
+                bar.Append(fractionChar);
+                fullBlocks++;
+            }
+            if (slots - fullBlocks > 0)
+            {
+                bar.Append('░', slots - fullBlocks);
+            }
+        }
+
+        return $"{bar}  {bounded,3}%";
     }
 
     private static string FormatTerminalTitle(RunProgressState state) => state switch

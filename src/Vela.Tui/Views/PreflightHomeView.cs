@@ -331,7 +331,7 @@ public sealed class PreflightHomeView : View
             Size.Text = row.CurrentSize;
             _pathValue = row.VhdxPath;
             Path.Text = _pathValue;
-            Status.Text = row.StatusText;
+            Status.Text = FormatStatusBadge(row.Status, row.StatusText);
             _isSelected = row.IsSelected;
             SelectionBand.Visible = row.IsSelected && Distro.Visible;
             SelectionBand.SchemeName = VelaTerminalTheme.Selection;
@@ -346,6 +346,15 @@ public sealed class PreflightHomeView : View
 
         public void SetPathWidth(int width) =>
             Path.Text = PreflightOverviewFormatter.FormatVhdxPath(_pathValue, width);
+
+        private static string FormatStatusBadge(PreflightTargetRowStatus status, string statusText) => status switch
+        {
+            PreflightTargetRowStatus.Ready => $"● {statusText}",
+            PreflightTargetRowStatus.Running => $"▲ {statusText}",
+            PreflightTargetRowStatus.Attention => $"! {statusText}",
+            PreflightTargetRowStatus.Failed => $"× {statusText}",
+            _ => $"○ {statusText}"
+        };
 
         private static string SchemeFor(PreflightTargetRowStatus status) => status switch
         {
