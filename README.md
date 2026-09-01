@@ -10,7 +10,7 @@ Windows 11 · WSL2 · Keyboard-first TUI
 [![.NET](https://img.shields.io/badge/.NET-10-512bd4?style=flat-square&logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![CI](https://github.com/xianyudd/Vela/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/xianyudd/Vela/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-58a6ff?style=flat-square)](LICENSE)
-[![Stage](https://img.shields.io/badge/stage-public%20preview-d29922?style=flat-square)](https://github.com/xianyudd/Vela)
+[![Stage](https://img.shields.io/badge/stage-v1.0.0--stable-2ea44f?style=flat-square)](https://github.com/xianyudd/Vela)
 
 [快速开始](#快速开始) · [Product Tour](#product-tour) · [发布准备](#发布准备) · [键盘交互](#键盘交互) · [许可证](#许可证) · [工程文档](#工程文档)
 
@@ -214,11 +214,11 @@ Vela 的输入由单一 TUI 入口串行处理，页面之间不启动嵌套读�
 
 ### 发布状态
 
-当前版本为 `v0.1.0-preview.1`，源码与 Windows CI 已公开；self-contained 二进制、SHA256 和执行态产品截图随本版本 Release 提供。
+当前版本为 `v1.0.0`，源码与 Windows CI 已公开；self-contained 二进制、SHA256 和执行态产品截图随本版本 Release 提供。
 
-下载：[Vela v0.1.0-preview.1 · GitHub Release](https://github.com/xianyudd/Vela/releases/tag/v0.1.0-preview.1)
+下载：[Vela v1.0.0 · GitHub Release](https://github.com/xianyudd/Vela/releases/tag/v1.0.0)
 
-校验：下载 Release 中的 `SHA256SUMS.txt`，对 `Vela-v0.1.0-preview.1-win-x64.exe` 执行 `Get-FileHash -Algorithm SHA256` 后比对。
+校验：下载 Release 中的 `SHA256SUMS.txt`，对 `Vela-v1.0.0-win-x64.exe` 执行 `Get-FileHash -Algorithm SHA256` 后比对。
 
 ### 发布准备
 
@@ -371,7 +371,7 @@ Vela 采用 [Apache License 2.0](LICENSE)。该协议允许使用、修改、分
 
 ## 项目状态
 
-Vela 目前处于 public preview：核心 TUI 流程、目标锁定、只读预检、预计可回收空间、双重 Y 确认、UAC worker、TUI 日志归档和自动化测试已接入；真实 WSL / DiskPart 压缩仍应在明确影响范围后进行最终人工验收。
+Vela 已经过真实物理压缩验收。核心 TUI 流程、目标锁定、只读预检、预计可回收空间、双重 Y 确认、UAC worker、TUI 日志归档、故障锁定保护和自动化测试均已接入并经过人工验收。
 
 <div align="center">
 

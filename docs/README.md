@@ -4,7 +4,7 @@ Vela 是一个面向 Win11 的单入口终端界面工具。它盘点 WSL 发行
 
 ## 文档体系一览
 
-全部 17 份 markdown 按可信度分三层。`[现]` 是当前事实来源，断言均可回溯到代码或配置；`[证]` 是时点验收证据；`[史]` 是历史决策记录，不描述现状。行数便于判断篇幅，不随小改动更新。
+全部 18 份 markdown 按可信度分三层。`[现]` 是当前事实来源，断言均可回溯到代码或配置；`[证]` 是时点验收证据；`[史]` 是历史决策记录，不描述现状。行数便于判断篇幅，不随小改动更新。
 
 ~~~text
 Vela/
@@ -14,14 +14,14 @@ Vela/
 ├─ SECURITY.md                       29  [现] 报告入口、脱敏要求、安全边界
 │
 ├─ docs/
-│  ├─ README.md                     119  [现] 本文；文档索引与阅读顺序
+│  ├─ README.md                     123  [现] 本文；文档索引与阅读顺序
 │  ├─ architecture.md               393  [现] 分层、数据流、worker 协议、日志
 │  ├─ testing-and-release.md        266  [现] 测试矩阵、覆盖率 gate；第 8 节是
 │  │                                     每次发布逐条执行的交付检查表模板
 │  ├─ development-environment.md    206  [现] VS 2022 / SDK / 目录与写入边界
 │  ├─ agent-handoff.md               81  [现] 实施边界与强制架构约束
-│  ├─ release-readiness.md           61  [现] 发布前剩余事项；当前仅剩 1 项
-│  │                                     （真实物理压缩人工验收）
+│  ├─ release-readiness.md           62  [现] 发布待办清单；v1.0.0 已发布，
+│  │                                     仅剩物理压缩成功态截图待补
 │  ├─ implementation-plan.md        662  [史] 首版实施清单；61 个空复选框非待办
 │  │
 │  ├─ testing/
@@ -37,9 +37,13 @@ Vela/
 │  │                                 563  [史] 架构整改设计；「当前」指 08-13
 │  │
 │  ├─ assets/tui/                        19 张截图 + 1 个只读 Demo GIF
-│  └─ releases/v0.1.0-preview.1/
-│     ├─ RELEASE_NOTES.md            24  [证] 该 tag 的发布说明
-│     └─ SHA256SUMS.txt                   对应 tag 发布物，非本地构建产物
+│  └─ releases/
+│     ├─ v1.0.0/
+│     │  ├─ RELEASE_NOTES.md         34  [证] 正式版发布说明
+│     │  └─ SHA256SUMS.txt               对应 tag 发布物，非本地构建产物
+│     └─ v0.1.0-preview.1/
+│        ├─ RELEASE_NOTES.md         24  [证] preview 发布说明
+│        └─ SHA256SUMS.txt               对应 tag 发布物，非本地构建产物
 │
 └─ legacy/powershell/README.md      113  [史] 旧 PowerShell 工具行为对照
 ~~~
@@ -57,7 +61,7 @@ Vela/
 | [development-environment.md](development-environment.md) | 已验证的 Win11 / Visual Studio / .NET 环境、依赖版本、VS 启动调试与目录约定。 |
 | [architecture.md](architecture.md) | 产品范围、TUI、分层、数据流、UAC worker、日志与原生命令设计。 |
 | [testing-and-release.md](testing-and-release.md) | 自动化测试、覆盖率 gate、人工验收、单文件发布与交付清单。 |
-| [release-readiness.md](release-readiness.md) | 公开仓库、真实截图、CI 和首个 Release 的剩余清单。 |
+| [release-readiness.md](release-readiness.md) | 公开仓库、真实截图、CI 和 Release 的交付清单；v1.0.0 已全部完成。 |
 | [agent-handoff.md](agent-handoff.md) | 实施边界、写入范围与强制架构约束。 |
 
 ### 验收证据

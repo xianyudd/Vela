@@ -1,0 +1,1 @@
+b917eab7a3a742a994396d00b1f987cdf067b15755ffa75baed1b32cb1cc9f89  Vela-v1.0.0-win-x64.exe

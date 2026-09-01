@@ -1,6 +1,6 @@
 # Vela 发布准备清单
 
-这份清单记录公开仓库、真实 TUI 展示和首个二进制 Release 的交付状态。当前源码与 `v0.1.0-preview.1` 已推送到 `origin/main`；下面的状态以仓库现状为准。
+这份清单记录公开仓库、真实 TUI 展示和 Release 的交付状态。当前源码与 `v1.0.0` 已推送到 `origin/main`；下面的状态以仓库现状为准。
 
 ## 已完成
 
@@ -16,7 +16,8 @@
 - [x] 捕获真实影响评估页，展示目标发行版、当前体积、访客已用空间和“预计可回收空间”数值。
 - [x] 捕获第二次 `Y` 确认页，确认页面只展示当前锁定目标和影响范围。
 - [x] 导出当前 Release 的运行进度页和完成结果状态帧；真实物理压缩验收另列为独立事项。
-- [ ] 完成一次真实物理压缩的 Win11 / WSL 人工验收，并补充成功态截图。
+- [x] 完成一次真实物理压缩的 Win11 / WSL 人工验收。
+- [ ] 补充真实物理压缩成功态截图。
 - [x] 创建第一个 GitHub Release，上传 self-contained `Vela.exe`。
 - [x] 为发布物记录 SHA256，并在 README 提供下载入口。
 - [x] 让 Windows CI 完成 locked restore、Release build、`dotnet format` 校验、全量 test、coverage gate，并上传测试与覆盖率 artifact。
